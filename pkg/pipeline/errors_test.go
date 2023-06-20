@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"errors"
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -66,22 +67,29 @@ func TestMergeErrorsOneNil(t *testing.T) {
 
 	outErrorChan := mergeErrors(ec1, ec2)
 
-	err1 := <-outErrorChan
-	assert.ErrorIs(t, err1, expectedError1)
-	err2 := <-outErrorChan
-	assert.ErrorIs(t, err2, expectedError2)
+	gotErrs := []error{}
+	for err := range outErrorChan {
+		gotErrs = append(gotErrs, err)
+	}
+	sort.Slice(gotErrs, func(i, j int) bool {
+		return gotErrs[i].Error() < gotErrs[j].Error()
+	})
+
+	assert.ErrorIs(t, gotErrs[0], expectedError1)
+	assert.ErrorIs(t, gotErrs[1], expectedError2)
 }
 
 func TestMergeErrors(t *testing.T) {
 	chan1 := make(chan error)
 	ec1 := newErrorChan("error chan", chan1)
 	chan2 := make(chan error)
-	ec2 := newErrorChan("error chan 2", chan2)
+	ec2 := newErrorChan("error chan", chan2)
 
 	expectedError1 := errors.New("error 1")
 	expectedError2 := errors.New("error 2")
 
 	go func() {
+		defer close(chan1)
 		defer close(chan2)
 		chan1 <- expectedError1
 		chan2 <- expectedError2
@@ -89,8 +97,14 @@ func TestMergeErrors(t *testing.T) {
 
 	outErrorChan := mergeErrors(ec1, ec2)
 
-	err1 := <-outErrorChan
-	assert.ErrorIs(t, err1, expectedError1)
-	err2 := <-outErrorChan
-	assert.ErrorIs(t, err2, expectedError2)
+	gotErrs := []error{}
+	for err := range outErrorChan {
+		gotErrs = append(gotErrs, err)
+	}
+	sort.Slice(gotErrs, func(i, j int) bool {
+		return gotErrs[i].Error() < gotErrs[j].Error()
+	})
+
+	assert.ErrorIs(t, gotErrs[0], expectedError1)
+	assert.ErrorIs(t, gotErrs[1], expectedError2)
 }
