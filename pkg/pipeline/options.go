@@ -24,12 +24,6 @@ func StepConcurrency[O any](concurrent int) StepOption[O] {
 
 type SplitterOption[I any] func(s *Splitter[I])
 
-func SplitterConcurrency[I any](concurrent int) SplitterOption[I] {
-	return func(s *Splitter[I]) {
-		s.concurrent = concurrent
-	}
-}
-
 func SplitterBufferSize[I any](bufferSize int) SplitterOption[I] {
 	return func(s *Splitter[I]) {
 		s.bufferSize = bufferSize

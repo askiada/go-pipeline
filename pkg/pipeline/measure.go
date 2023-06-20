@@ -11,10 +11,12 @@ type chanInfo struct {
 }
 
 type metric struct {
+	concurrent     int
 	mu             *sync.Mutex
 	stepElapsed    time.Duration
 	channelElapsed map[string]*chanInfo
 	total          int64
+	endDuration    time.Duration
 }
 
 func (mt *metric) add(elapsed time.Duration) {
@@ -22,6 +24,12 @@ func (mt *metric) add(elapsed time.Duration) {
 	defer mt.mu.Unlock()
 	mt.total++
 	mt.stepElapsed += elapsed
+}
+
+func (mt *metric) end(endDuration time.Duration) {
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+	mt.endDuration = endDuration
 }
 
 func (mt *metric) addChannel(inputStepName string, elapsed time.Duration) {
@@ -52,7 +60,7 @@ func (mt *metric) avgChannel() map[string]*chanInfo {
 		if ch.elapsed == 0 {
 			continue
 		}
-		mt.channelElapsed[name].elapsed = round(time.Duration(float64(ch.elapsed) / float64(ch.total)))
+		mt.channelElapsed[name].elapsed = round(time.Duration((float64(ch.elapsed) / (float64(ch.total))) / float64(mt.concurrent)))
 	}
 
 	return mt.channelElapsed
@@ -69,10 +77,11 @@ func newMeasure() *measure {
 	}
 }
 
-func (m *measure) addStep(name string) *metric {
+func (m *measure) addStep(name string, concurrent int) *metric {
 	mt := &metric{
 		mu:             &sync.Mutex{},
 		channelElapsed: make(map[string]*chanInfo),
+		concurrent:     concurrent,
 	}
 	m.steps[name] = mt
 	return mt

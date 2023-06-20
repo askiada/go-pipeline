@@ -1,16 +1,14 @@
 package pipeline
 
 import (
+	"sync"
 	"time"
-
-	"golang.org/x/sync/errgroup"
 )
 
 type Splitter[I any] struct {
 	currIdx       int
 	mainStep      *Step[I]
 	splittedSteps []*Step[I]
-	concurrent    int
 	bufferSize    int
 	Total         int
 }
@@ -37,7 +35,7 @@ func prepareSplitter[I any](p *Pipeline, name string, input *Step[I], splitter *
 		}
 	}
 	if p.measure != nil {
-		mt := p.measure.addStep(splitter.mainStep.Name)
+		mt := p.measure.addStep(splitter.mainStep.Name, 1)
 		splitter.mainStep.metric = mt
 	}
 	return nil
@@ -63,12 +61,17 @@ func AddSplitter[I any](p *Pipeline, name string, input *Step[I], total int, opt
 	for _, opt := range opts {
 		opt(splitter)
 	}
-	if splitter.concurrent == 0 {
-		splitter.concurrent = total
-	}
 	errC := make(chan error, 1)
 	decoratedError := newErrorChan(name, errC)
 	splitter.splittedSteps = make([]*Step[I], total)
+	if splitter.bufferSize == 0 {
+		splitter.bufferSize = 1
+	}
+	splitterBuffer := make([]chan I, total)
+
+	for i := range splitterBuffer {
+		splitterBuffer[i] = make(chan I, splitter.bufferSize)
+	}
 
 	for i := 0; i < total; i++ {
 		step := Step[I]{
@@ -83,20 +86,46 @@ func AddSplitter[I any](p *Pipeline, name string, input *Step[I], total int, opt
 	if err != nil {
 		return nil, err
 	}
+	wg := &sync.WaitGroup{}
+	wg.Add(len(splitterBuffer))
+	for i, buf := range splitterBuffer {
+		localBuf := buf
+		localI := i
+		go func() {
+			defer wg.Done()
+		outer:
+			for {
+				start := time.Now()
+				select {
+				case elem, ok := <-localBuf:
+					if !ok {
+						break outer
+					}
+					splitter.splittedSteps[localI].Output <- elem
+					if splitter.mainStep.metric != nil {
+						splitter.mainStep.metric.addChannel(input.Name, time.Since(start))
+					}
+				case <-p.ctx.Done():
+					errC <- p.ctx.Err()
+
+					break outer
+				}
+			}
+			close(splitter.splittedSteps[localI].Output)
+		}()
+	}
 
 	go func() {
-		errG, dCtx := errgroup.WithContext(p.ctx)
-		errG.SetLimit(splitter.concurrent)
 		defer func() {
-			for _, out := range splitter.splittedSteps {
-				close(out.Output)
+			for _, buf := range splitterBuffer {
+				close(buf)
 			}
+			wg.Wait()
 			close(errC)
 		}()
 
 	outer:
 		for {
-			startInputCHan := time.Now()
 			select {
 			case <-p.ctx.Done():
 				errC <- p.ctx.Err()
@@ -106,29 +135,21 @@ func AddSplitter[I any](p *Pipeline, name string, input *Step[I], total int, opt
 				if !ok {
 					break outer
 				}
-				endInputChan := time.Since(startInputCHan)
 
-				for _, out := range splitter.splittedSteps {
+				for _, buf := range splitterBuffer {
 					localEntry := entry
-					localOut := out
-					errG.Go(func() error {
-						start := time.Now()
-						select {
-						case localOut.Output <- localEntry:
-							if splitter.mainStep.metric != nil {
-								splitter.mainStep.metric.addChannel(input.Name, time.Since(start)+endInputChan)
-							}
-						case <-dCtx.Done():
-							return dCtx.Err()
-						}
-						return nil
-					})
+					localBuf := buf
+
+					select {
+					case localBuf <- localEntry:
+
+					case <-p.ctx.Done():
+						errC <- p.ctx.Err()
+
+						break outer
+					}
 				}
 			}
-		}
-
-		if err := errG.Wait(); err != nil {
-			errC <- err
 		}
 	}()
 	p.errcList.add(decoratedError)
