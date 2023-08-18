@@ -18,6 +18,18 @@ func createInputChan(t *testing.T, ctx context.Context, total int) chan int {
 	return inputChan
 }
 
+func createInputSliceChan(t *testing.T, ctx context.Context, total int) chan []int {
+	t.Helper()
+	inputChan := make(chan []int)
+	go func() {
+		defer close(inputChan)
+		for i := 0; i < total; i++ {
+			inputChan <- []int{i}
+		}
+	}()
+	return inputChan
+}
+
 func createInputStringChan(t *testing.T, ctx context.Context, total int) chan string {
 	t.Helper()
 	inputChan := make(chan string)
@@ -40,6 +52,21 @@ func createInputChanWithCancel(t *testing.T, ctx context.Context, total int, off
 				cancel()
 			}
 			inputChan <- i
+		}
+	}()
+	return inputChan
+}
+
+func createInputSliceChanWithCancel(t *testing.T, ctx context.Context, total int, offset int, cancel context.CancelFunc) chan []int {
+	t.Helper()
+	inputChan := make(chan []int)
+	go func() {
+		defer close(inputChan)
+		for i := 0; i < total; i++ {
+			if i == offset {
+				cancel()
+			}
+			inputChan <- []int{i}
 		}
 	}()
 	return inputChan
