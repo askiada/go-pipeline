@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func createInputChan(t *testing.T, ctx context.Context, total int) chan int {
+func createInputChan(t *testing.T, total int) chan int {
 	t.Helper()
 	inputChan := make(chan int)
 	go func() {
@@ -18,7 +18,7 @@ func createInputChan(t *testing.T, ctx context.Context, total int) chan int {
 	return inputChan
 }
 
-func createInputSliceChan(t *testing.T, ctx context.Context, total int) chan []int {
+func createInputSliceChan(t *testing.T, total int) chan []int {
 	t.Helper()
 	inputChan := make(chan []int)
 	go func() {
@@ -30,7 +30,7 @@ func createInputSliceChan(t *testing.T, ctx context.Context, total int) chan []i
 	return inputChan
 }
 
-func createInputStringChan(t *testing.T, ctx context.Context, total int) chan string {
+func createInputStringChan(t *testing.T, total int) chan string {
 	t.Helper()
 	inputChan := make(chan string)
 	go func() {
@@ -42,7 +42,7 @@ func createInputStringChan(t *testing.T, ctx context.Context, total int) chan st
 	return inputChan
 }
 
-func createInputChanWithCancel(t *testing.T, ctx context.Context, total int, offset int, cancel context.CancelFunc) chan int {
+func createInputChanWithCancel(t *testing.T, total int, offset int, cancel context.CancelFunc) chan int {
 	t.Helper()
 	inputChan := make(chan int)
 	go func() {
@@ -57,7 +57,7 @@ func createInputChanWithCancel(t *testing.T, ctx context.Context, total int, off
 	return inputChan
 }
 
-func createInputSliceChanWithCancel(t *testing.T, ctx context.Context, total int, offset int, cancel context.CancelFunc) chan []int {
+func createInputSliceChanWithCancel(t *testing.T, total int, offset int, cancel context.CancelFunc) chan []int {
 	t.Helper()
 	inputChan := make(chan []int)
 	go func() {

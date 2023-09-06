@@ -29,7 +29,7 @@ type Pipeline struct {
 
 func New(ctx context.Context, opts ...PipelineOption) (*Pipeline, error) {
 	dCtx, cancel := context.WithCancel(ctx)
-	p := &Pipeline{
+	pipe := &Pipeline{
 		ctx:       dCtx,
 		errcList:  &errorChans{},
 		cancel:    cancel,
@@ -37,27 +37,27 @@ func New(ctx context.Context, opts ...PipelineOption) (*Pipeline, error) {
 	}
 
 	for _, opt := range opts {
-		opt(p)
+		opt(pipe)
 	}
 
-	if p.drawer != nil {
-		err := p.drawer.addStep("start")
+	if pipe.drawer != nil {
+		err := pipe.drawer.addStep("start")
 		if err != nil {
 			return nil, err
 		}
-		err = p.drawer.addStep("end")
+		err = pipe.drawer.addStep("end")
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	if p.measure != nil {
-		mt := p.measure.addStep("start", 1)
-		p.measure.start = mt
-		mt = p.measure.addStep("end", 1)
-		p.measure.end = mt
+	if pipe.measure != nil {
+		mt := pipe.measure.addStep("start", 1)
+		pipe.measure.start = mt
+		mt = pipe.measure.addStep("end", 1)
+		pipe.measure.end = mt
 	}
-	return p, nil
+	return pipe, nil
 }
 
 // waitForPipeline waits for results from all error channels.

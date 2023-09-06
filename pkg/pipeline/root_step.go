@@ -2,19 +2,19 @@ package pipeline
 
 import "context"
 
-func prepareRootStep[O any](p *Pipeline, step *Step[O]) error {
-	if p.drawer != nil {
-		err := p.drawer.addStep(step.Name)
+func prepareRootStep[O any](pipe *Pipeline, step *Step[O]) error {
+	if pipe.drawer != nil {
+		err := pipe.drawer.addStep(step.Name)
 		if err != nil {
 			return err
 		}
-		err = p.drawer.addLink("start", step.Name)
+		err = pipe.drawer.addLink("start", step.Name)
 		if err != nil {
 			return err
 		}
 	}
-	if p.measure != nil {
-		mt := p.measure.addStep(step.Name, 1)
+	if pipe.measure != nil {
+		mt := pipe.measure.addStep(step.Name, 1)
 		step.metric = mt
 	}
 	return nil

@@ -7,12 +7,13 @@ import (
 	"text/template"
 
 	"github.com/dominikbraun/graph"
+	"github.com/pkg/errors"
 )
 
 type drawer struct {
-	svgFileName string
 	graph       graph.Graph[string, string]
 	steps       map[string]struct{}
+	svgFileName string
 }
 
 func newDrawer(svgFileName string) *drawer {
@@ -26,29 +27,32 @@ func newDrawer(svgFileName string) *drawer {
 func (d *drawer) addStep(name string) error {
 	err := d.graph.AddVertex(name)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "unable to add vertex")
 	}
 	d.steps[name] = struct{}{}
+
 	return nil
 }
 
 func (d *drawer) addLink(parentName, childrenName string) error {
 	err := d.graph.AddEdge(parentName, childrenName)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "unable to add edge")
 	}
+
 	return nil
 }
 
 func (d *drawer) draw() error {
 	file, err := os.Create(d.svgFileName)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "unable to create file %s", d.svgFileName)
 	}
 	err = dot(d.graph, file)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "unable to create dot file %s", d.svgFileName)
 	}
+
 	return nil
 }
 
@@ -73,20 +77,20 @@ type description struct {
 type statement struct {
 	Source           interface{}
 	Target           interface{}
-	SourceWeight     int
 	SourceAttributes map[string]string
 	HTMLAttributes   map[string]string
-	EdgeWeight       int
 	EdgeAttributes   map[string]string
+	SourceWeight     int
+	EdgeWeight       int
 }
 
-func dot[K comparable, T any](g graph.Graph[K, T], w io.Writer, options ...func(*description)) error {
+func dot[K comparable, T any](g graph.Graph[K, T], wrt io.Writer, options ...func(*description)) error {
 	desc, err := generateDOT(g, options...)
 	if err != nil {
 		return fmt.Errorf("failed to generate DOT description: %w", err)
 	}
 
-	return renderDOT(w, desc)
+	return renderDOT(wrt, desc)
 }
 
 // GraphAttribute is a functional option for the [DOT] method.

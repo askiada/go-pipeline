@@ -21,7 +21,7 @@ func TestOneToOne(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			input := &Step[int]{Output: createInputChan(t, ctx, 10)}
+			input := &Step[int]{Output: createInputChan(t, 10)}
 			got := make(chan []int, 1)
 			output := &Step[int]{Output: make(chan int), concurrent: tc.concurrent}
 			go func() {
@@ -53,7 +53,7 @@ func TestOneToOneCancelInput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			input := &Step[int]{Output: createInputChanWithCancel(t, ctx, 10, 5, cancel)}
+			input := &Step[int]{Output: createInputChanWithCancel(t, 10, 5, cancel)}
 			got := make(chan []int, 1)
 			output := &Step[int]{Output: make(chan int), concurrent: tc.concurrent}
 			go func() {
@@ -85,7 +85,7 @@ func TestOneToOneCancelOutput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			input := &Step[int]{Output: createInputChan(t, ctx, 10)}
+			input := &Step[int]{Output: createInputChan(t, 10)}
 			got := make(chan []int, 1)
 			output := &Step[int]{Output: make(chan int), concurrent: tc.concurrent}
 			go func() {
@@ -121,7 +121,7 @@ func TestOneToOneError(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			input := &Step[int]{Output: createInputChan(t, ctx, 10)}
+			input := &Step[int]{Output: createInputChan(t, 10)}
 			got := make(chan []int, 1)
 			output := &Step[int]{Output: make(chan int), concurrent: tc.concurrent}
 			go func() {
@@ -156,7 +156,7 @@ func TestOneToOneOrZero(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			input := &Step[int]{Output: createInputChan(t, ctx, 10)}
+			input := &Step[int]{Output: createInputChan(t, 10)}
 			got := make(chan []int, 1)
 			output := &Step[int]{Output: make(chan int), concurrent: tc.concurrent}
 			go func() {
@@ -188,7 +188,7 @@ func TestOneToOneOrZeroCancelInput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			input := &Step[int]{Output: createInputChanWithCancel(t, ctx, 10, 5, cancel)}
+			input := &Step[int]{Output: createInputChanWithCancel(t, 10, 5, cancel)}
 			got := make(chan []int, 1)
 			output := &Step[int]{Output: make(chan int), concurrent: tc.concurrent}
 			go func() {
@@ -220,7 +220,7 @@ func TestOneToOneOrZeroCancelOutput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			input := &Step[int]{Output: createInputChan(t, ctx, 10)}
+			input := &Step[int]{Output: createInputChan(t, 10)}
 			got := make(chan []int, 1)
 			output := &Step[int]{Output: make(chan int), concurrent: tc.concurrent}
 			go func() {
@@ -256,7 +256,7 @@ func TestOneToOneOrZeroError(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			input := &Step[int]{Output: createInputChan(t, ctx, 10)}
+			input := &Step[int]{Output: createInputChan(t, 10)}
 			got := make(chan []int, 1)
 			output := &Step[int]{Output: make(chan int), concurrent: tc.concurrent}
 			go func() {
@@ -290,7 +290,7 @@ func TestOneToMany(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			input := &Step[int]{Output: createInputChan(t, ctx, 10)}
+			input := &Step[int]{Output: createInputChan(t, 10)}
 			got := make(chan []int, 1)
 			output := &Step[int]{Output: make(chan int), concurrent: tc.concurrent}
 			go func() {
@@ -321,7 +321,7 @@ func TestOneToManyCancelInput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			input := &Step[int]{Output: createInputChanWithCancel(t, ctx, 10, 5, cancel)}
+			input := &Step[int]{Output: createInputChanWithCancel(t, 10, 5, cancel)}
 			got := make(chan []int, 1)
 			output := &Step[int]{Output: make(chan int), concurrent: tc.concurrent}
 			go func() {
@@ -352,7 +352,7 @@ func TestOneToManyCancelOutput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			input := &Step[int]{Output: createInputChan(t, ctx, 10)}
+			input := &Step[int]{Output: createInputChan(t, 10)}
 			got := make(chan []int, 1)
 			output := &Step[int]{Output: make(chan int), concurrent: tc.concurrent}
 			go func() {
@@ -387,7 +387,7 @@ func TestOneToManyError(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			input := &Step[int]{Output: createInputChan(t, ctx, 10)}
+			input := &Step[int]{Output: createInputChan(t, 10)}
 			got := make(chan []int, 1)
 			output := &Step[int]{Output: make(chan int), concurrent: tc.concurrent}
 			go func() {

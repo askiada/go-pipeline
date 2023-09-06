@@ -11,12 +11,12 @@ type chanInfo struct {
 }
 
 type metric struct {
-	concurrent     int
-	mu             *sync.Mutex
-	stepElapsed    time.Duration
 	channelElapsed map[string]*chanInfo
-	total          int64
+	mu             *sync.Mutex
 	endDuration    time.Duration
+	stepElapsed    time.Duration
+	total          int64
+	concurrent     int
 }
 
 func (mt *metric) add(elapsed time.Duration) {
@@ -84,6 +84,7 @@ func (m *measure) addStep(name string, concurrent int) *metric {
 		concurrent:     concurrent,
 	}
 	m.steps[name] = mt
+
 	return mt
 }
 
@@ -100,5 +101,6 @@ func round(d time.Duration) time.Duration {
 	case d > time.Hour:
 		d = d.Round(time.Hour)
 	}
+
 	return d
 }

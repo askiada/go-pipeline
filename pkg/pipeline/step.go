@@ -31,7 +31,7 @@ outer:
 		start := time.Now()
 		select {
 		case <-ctx.Done():
-			return errors.Wrapf(ctx.Err(), "go routine %d:", goIdx)
+			return errors.Wrapf(ctx.Err(), "go routine %d", goIdx)
 		case in, ok := <-input.Output:
 			if !ok {
 				break outer
@@ -39,7 +39,7 @@ outer:
 			startFn := time.Now()
 			out, err := oneToOne(ctx, in)
 			if err != nil {
-				return errors.Wrapf(err, "go routine %d:", goIdx)
+				return errors.Wrapf(err, "go routine %d", goIdx)
 			}
 			endFn := time.Since(startFn)
 			if ignoreZero && reflect.ValueOf(out).IsZero() {
@@ -63,7 +63,13 @@ outer:
 	return nil
 }
 
-func concurrentOneToOneFn[I any, O any](ctx context.Context, input *Step[I], output *Step[O], oneToOne OneToOneFn[I, O], ignoreZero bool) error {
+func concurrentOneToOneFn[I any, O any](
+	ctx context.Context,
+	input *Step[I],
+	output *Step[O],
+	oneToOne OneToOneFn[I, O],
+	ignoreZero bool,
+) error {
 	errGrp, dCtx := errgroup.WithContext(ctx)
 	errGrp.SetLimit(output.concurrent)
 	// starts many consumers concurrently
@@ -87,7 +93,13 @@ func runOneToOne[I any, O any](ctx context.Context, input *Step[I], output *Step
 	return concurrentOneToOneFn(ctx, input, output, oneToOne, ignoreZero)
 }
 
-func sequentialOneToManyFn[I any, O any](ctx context.Context, goIdx int, input *Step[I], output *Step[O], oneToMany OneToManyFn[I, O]) error {
+func sequentialOneToManyFn[I any, O any](
+	ctx context.Context,
+	goIdx int,
+	input *Step[I],
+	output *Step[O],
+	oneToMany OneToManyFn[I, O],
+) error {
 outer:
 	for {
 		start := time.Now()
@@ -135,7 +147,12 @@ func concurrentOneToManyFn[I any, O any](ctx context.Context, input *Step[I], ou
 	return errGrp.Wait()
 }
 
-func runOneToMany[I any, O any](ctx context.Context, input *Step[I], output *Step[O], oneToMany func(context.Context, I) ([]O, error)) error {
+func runOneToMany[I any, O any](
+	ctx context.Context,
+	input *Step[I],
+	output *Step[O],
+	oneToMany func(context.Context, I) ([]O, error),
+) error {
 	if output.concurrent == 0 {
 		output.concurrent = 1
 	}
@@ -164,7 +181,13 @@ func prepareStep[I, O any](pipe *Pipeline, input *Step[I], step *Step[O]) error 
 	return nil
 }
 
-func addStep[I any, O any](pipe *Pipeline, name string, input *Step[I], stepToStep stepToStepFn[I, O], opts ...StepOption[O]) (*Step[O], error) {
+func addStep[I any, O any](
+	pipe *Pipeline,
+	name string,
+	input *Step[I],
+	stepToStep stepToStepFn[I, O],
+	opts ...StepOption[O],
+) (*Step[O], error) {
 	if pipe == nil {
 		return nil, ErrPipelineMustBeSet
 	}
@@ -202,7 +225,13 @@ func addStep[I any, O any](pipe *Pipeline, name string, input *Step[I], stepToSt
 	return step, nil
 }
 
-func runStepFromChan[I, O any](ctx context.Context, input *Step[I], output *Step[O], stepFn func(ctx context.Context, input <-chan I, output chan O) error, ignoreZero bool) error {
+func runStepFromChan[I, O any](
+	ctx context.Context,
+	input *Step[I],
+	output *Step[O],
+	stepFn StepFromChanFn[I, O],
+	ignoreZero bool,
+) error {
 	if output.concurrent == 0 {
 		output.concurrent = 1
 	}
@@ -212,7 +241,14 @@ func runStepFromChan[I, O any](ctx context.Context, input *Step[I], output *Step
 	return concurrentStepFromChanFn(ctx, input, output, stepFn, ignoreZero)
 }
 
-func sequentialStepFromChanFn[I any, O any](ctx context.Context, goIdx int, input *Step[I], output *Step[O], stepFn func(ctx context.Context, input <-chan I, output chan O) error, ignoreZero bool) error {
+func sequentialStepFromChanFn[I any, O any](
+	ctx context.Context,
+	goIdx int,
+	input *Step[I],
+	output *Step[O],
+	stepFn StepFromChanFn[I, O],
+	ignoreZero bool,
+) error {
 	inputPlaceholder := make(chan I)
 	go func() {
 	outer:
@@ -239,7 +275,13 @@ func sequentialStepFromChanFn[I any, O any](ctx context.Context, goIdx int, inpu
 	return stepFn(ctx, inputPlaceholder, output.Output)
 }
 
-func concurrentStepFromChanFn[I any, O any](ctx context.Context, input *Step[I], output *Step[O], stepFn func(ctx context.Context, input <-chan I, output chan O) error, ignoreZero bool) error {
+func concurrentStepFromChanFn[I any, O any](
+	ctx context.Context,
+	input *Step[I],
+	output *Step[O],
+	stepFn StepFromChanFn[I, O],
+	ignoreZero bool,
+) error {
 	errGrp, dCtx := errgroup.WithContext(ctx)
 	errGrp.SetLimit(output.concurrent)
 	// starts many consumers concurrently
@@ -253,25 +295,49 @@ func concurrentStepFromChanFn[I any, O any](ctx context.Context, input *Step[I],
 	return errGrp.Wait()
 }
 
-func AddStepOneToOne[I any, O any](pipe *Pipeline, name string, input *Step[I], oneToOne OneToOneFn[I, O], opts ...StepOption[O]) (*Step[O], error) {
+func AddStepOneToOne[I any, O any](
+	pipe *Pipeline,
+	name string,
+	input *Step[I],
+	oneToOne OneToOneFn[I, O],
+	opts ...StepOption[O],
+) (*Step[O], error) {
 	return addStep(pipe, name, input, func(ctx context.Context, in *Step[I], out *Step[O]) error {
 		return runOneToOne(ctx, in, out, oneToOne, false)
 	}, opts...)
 }
 
-func AddStepOneToOneOrZero[I any, O any](pipe *Pipeline, name string, input *Step[I], oneToOne OneToOneFn[I, O], opts ...StepOption[O]) (*Step[O], error) {
+func AddStepOneToOneOrZero[I any, O any](
+	pipe *Pipeline,
+	name string,
+	input *Step[I],
+	oneToOne OneToOneFn[I, O],
+	opts ...StepOption[O],
+) (*Step[O], error) {
 	return addStep(pipe, name, input, func(ctx context.Context, in *Step[I], out *Step[O]) error {
 		return runOneToOne(ctx, in, out, oneToOne, true)
 	}, opts...)
 }
 
-func AddStepOneToMany[I any, O any](pipe *Pipeline, name string, input *Step[I], oneToMany OneToManyFn[I, O], opts ...StepOption[O]) (*Step[O], error) {
+func AddStepOneToMany[I any, O any](
+	pipe *Pipeline,
+	name string,
+	input *Step[I],
+	oneToMany OneToManyFn[I, O],
+	opts ...StepOption[O],
+) (*Step[O], error) {
 	return addStep(pipe, name, input, func(ctx context.Context, in *Step[I], out *Step[O]) error {
 		return runOneToMany(ctx, in, out, oneToMany)
 	}, opts...)
 }
 
-func AddStepFromChan[I any, O any](pipe *Pipeline, name string, input *Step[I], stepFromChan StepFromChanFn[I, O], opts ...StepOption[O]) (*Step[O], error) {
+func AddStepFromChan[I any, O any](
+	pipe *Pipeline,
+	name string,
+	input *Step[I],
+	stepFromChan StepFromChanFn[I, O],
+	opts ...StepOption[O],
+) (*Step[O], error) {
 	return addStep(pipe, name, input, func(ctx context.Context, in *Step[I], out *Step[O]) error {
 		return runStepFromChan(ctx, in, out, stepFromChan, false)
 	}, opts...)

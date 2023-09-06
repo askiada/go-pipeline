@@ -1,0 +1,3 @@
+.PHONY: lint
+lint: ## Lint it
+	golangci-lint run --verbose ./...

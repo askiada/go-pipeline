@@ -32,17 +32,17 @@ func AddMerger[I any](p *Pipeline, name string, steps ...*Step[I]) (*Step[I], er
 		outputStep.metric = mt
 	}
 
-	wg := sync.WaitGroup{}
-	wg.Add(len(steps))
+	wgrp := sync.WaitGroup{}
+	wgrp.Add(len(steps))
 	go func() {
-		wg.Wait()
+		wgrp.Wait()
 		close(errC)
 		close(output)
 	}()
 
 	for _, step := range steps {
 		go func(step *Step[I]) {
-			defer wg.Done()
+			defer wgrp.Done()
 		outer:
 			for {
 				startChan := time.Now()
@@ -68,5 +68,6 @@ func AddMerger[I any](p *Pipeline, name string, steps ...*Step[I]) (*Step[I], er
 	}
 
 	p.errcList.add(decoratedError)
+
 	return &outputStep, nil
 }

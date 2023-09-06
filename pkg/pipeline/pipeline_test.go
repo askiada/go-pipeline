@@ -118,7 +118,7 @@ func TestAddStepOneToOne(t *testing.T) {
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
 	step := Step[int]{
-		Output: createInputChan(t, ctx, 10),
+		Output: createInputChan(t, 10),
 	}
 	outputChan, err := AddStepOneToOne(pipe, "first step", &step, func(ctx context.Context, input int) (int, error) {
 		return input, nil
@@ -141,7 +141,7 @@ func TestAddStepOneToOneError(t *testing.T) {
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
 	step := Step[int]{
-		Output: createInputChan(t, ctx, 10),
+		Output: createInputChan(t, 10),
 	}
 	outputChan, err := AddStepOneToOne(pipe, "root step", &step, func(ctx context.Context, input int) (int, error) {
 		if input == 5 {
@@ -168,7 +168,7 @@ func TestAddStepOneToOneCancel(t *testing.T) {
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
 	step := Step[int]{
-		Output: createInputChanWithCancel(t, ctx, 10, 5, cancel),
+		Output: createInputChanWithCancel(t, 10, 5, cancel),
 	}
 	outputChan, err := AddStepOneToOne(pipe, "root step", &step, func(ctx context.Context, input int) (int, error) {
 		select {
@@ -212,7 +212,7 @@ func TestAddStepOneToOneOrSZero(t *testing.T) {
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
 	step := Step[int]{
-		Output: createInputChan(t, ctx, 10),
+		Output: createInputChan(t, 10),
 	}
 	outputChan, err := AddStepOneToOneOrZero(pipe, "first step", &step, func(ctx context.Context, input int) (int, error) {
 		return input, nil
@@ -235,7 +235,7 @@ func TestAddStepOneToOneOrZeroError(t *testing.T) {
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
 	step := Step[int]{
-		Output: createInputChan(t, ctx, 10),
+		Output: createInputChan(t, 10),
 	}
 	outputChan, err := AddStepOneToOneOrZero(pipe, "root step", &step, func(ctx context.Context, input int) (int, error) {
 		if input == 5 {
@@ -262,7 +262,7 @@ func TestAddStepOneToOneOrZeroCancel(t *testing.T) {
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
 	step := Step[int]{
-		Output: createInputChanWithCancel(t, ctx, 10, 5, cancel),
+		Output: createInputChanWithCancel(t, 10, 5, cancel),
 	}
 	outputChan, err := AddStepOneToOneOrZero(pipe, "root step", &step, func(ctx context.Context, input int) (int, error) {
 		select {
@@ -306,7 +306,7 @@ func TestAddStepOneToMany(t *testing.T) {
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
 	step := Step[int]{
-		Output: createInputChan(t, ctx, 10),
+		Output: createInputChan(t, 10),
 	}
 	outputChan, err := AddStepOneToMany(pipe, "first step", &step, func(ctx context.Context, input int) ([]int, error) {
 		return []int{input}, nil
@@ -329,7 +329,7 @@ func TestAddStepOneToManyError(t *testing.T) {
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
 	step := Step[int]{
-		Output: createInputChan(t, ctx, 10),
+		Output: createInputChan(t, 10),
 	}
 	outputChan, err := AddStepOneToMany(pipe, "root step", &step, func(ctx context.Context, input int) ([]int, error) {
 		if input == 5 {
@@ -356,7 +356,7 @@ func TestAddStepOneToManyCancel(t *testing.T) {
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
 	step := Step[int]{
-		Output: createInputChanWithCancel(t, ctx, 10, 5, cancel),
+		Output: createInputChanWithCancel(t, 10, 5, cancel),
 	}
 	outputChan, err := AddStepOneToMany(pipe, "root step", &step, func(ctx context.Context, input int) ([]int, error) {
 		select {
@@ -418,7 +418,7 @@ func TestAddSplitter(t *testing.T) {
 			pipe, err := New(ctx)
 			assert.NoError(t, err)
 			step := Step[int]{
-				Output: createInputChan(t, ctx, 10),
+				Output: createInputChan(t, 10),
 			}
 			splitter, err := AddSplitter(pipe, "root step", &step, 2, SplitterBufferSize[int](tc.buffersize))
 			assert.Nil(t, err)
@@ -454,7 +454,7 @@ func TestAddSplitterCancel(t *testing.T) {
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
 	step := Step[int]{
-		Output: createInputChanWithCancel(t, ctx, 10, 5, cancel),
+		Output: createInputChanWithCancel(t, 10, 5, cancel),
 	}
 	splitter, err := AddSplitter(pipe, "root step", &step, 2)
 	assert.Nil(t, err)
@@ -510,7 +510,7 @@ func TestAddSink(t *testing.T) {
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
 	step := Step[int]{
-		Output: createInputChan(t, ctx, 10),
+		Output: createInputChan(t, 10),
 	}
 	err = AddSink(pipe, "root step", &step, func(ctx context.Context, input int) error {
 		got = append(got, input)
@@ -528,7 +528,7 @@ func TestAddSinkError(t *testing.T) {
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
 	step := Step[int]{
-		Output: createInputChan(t, ctx, 10),
+		Output: createInputChan(t, 10),
 	}
 	err = AddSink(pipe, "root step", &step, func(ctx context.Context, input int) error {
 		if input == 5 {
@@ -548,11 +548,11 @@ func TestAddMerger(t *testing.T) {
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
 	step1 := Step[int]{
-		Output: createInputChan(t, ctx, 5),
+		Output: createInputChan(t, 5),
 	}
 
 	step2 := Step[int]{
-		Output: createInputChan(t, ctx, 5),
+		Output: createInputChan(t, 5),
 	}
 
 	outputChan, err := AddMerger(pipe, "merge step", &step1, &step2)

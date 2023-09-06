@@ -86,13 +86,13 @@ func AddSplitter[I any](p *Pipeline, name string, input *Step[I], total int, opt
 	if err != nil {
 		return nil, err
 	}
-	wg := &sync.WaitGroup{}
-	wg.Add(len(splitterBuffer))
+	wgrp := &sync.WaitGroup{}
+	wgrp.Add(len(splitterBuffer))
 	for i, buf := range splitterBuffer {
 		localBuf := buf
 		localI := i
 		go func() {
-			defer wg.Done()
+			defer wgrp.Done()
 		outer:
 			for {
 				start := time.Now()
@@ -120,7 +120,7 @@ func AddSplitter[I any](p *Pipeline, name string, input *Step[I], total int, opt
 			for _, buf := range splitterBuffer {
 				close(buf)
 			}
-			wg.Wait()
+			wgrp.Wait()
 			close(errC)
 		}()
 
