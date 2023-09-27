@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/askiada/go-pipeline/pkg/pipeline/measure"
 	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
 )
@@ -14,7 +15,8 @@ type Step[O any] struct {
 	Name       string
 	Output     chan O
 	concurrent int
-	metric     *metric
+	noClose    bool
+	metric     measure.Metric
 }
 
 type OneToOneFn[I, O any] func(context.Context, I) (O, error)
@@ -53,8 +55,8 @@ outer:
 				return errors.Wrapf(ctx.Err(), "go routine %d:", goIdx)
 			case output.Output <- out:
 				if output.metric != nil {
-					output.metric.add(endFn)
-					output.metric.addChannel(input.Name, (time.Since(start)))
+					output.metric.AddDuration(endFn)
+					output.metric.AddTransportDuration(input.Name, time.Since(start)-endFn)
 				}
 			}
 		}
@@ -124,8 +126,8 @@ outer:
 					return errors.Wrapf(ctx.Err(), "go routine %d:", goIdx)
 				case output.Output <- out:
 					if output.metric != nil {
-						output.metric.add(endFn)
-						output.metric.addChannel(input.Name, (time.Since(start)-endFn)/time.Duration(output.concurrent))
+						output.metric.AddDuration(endFn)
+						output.metric.AddTransportDuration(input.Name, time.Since(start)-endFn)
 					}
 				}
 			}
@@ -164,18 +166,18 @@ func runOneToMany[I any, O any](
 
 func prepareStep[I, O any](pipe *Pipeline, input *Step[I], step *Step[O]) error {
 	if pipe.drawer != nil {
-		err := pipe.drawer.addStep(step.Name)
+		err := pipe.drawer.AddStep(step.Name)
 		if err != nil {
 			return err
 		}
-		err = pipe.drawer.addLink(input.Name, step.Name)
+		err = pipe.drawer.AddLink(input.Name, step.Name)
 		if err != nil {
 			return err
 		}
 	}
 
 	if pipe.measure != nil {
-		mt := pipe.measure.addStep(step.Name, step.concurrent)
+		mt := pipe.measure.AddMetric(step.Name, step.concurrent)
 		step.metric = mt
 	}
 	return nil
@@ -213,7 +215,9 @@ func addStep[I any, O any](
 	go func() {
 		defer func() {
 			close(errC)
-			close(output)
+			if !step.noClose {
+				close(output)
+			}
 		}()
 		err := stepToStep(pipe.ctx, input, step)
 		if err != nil {
@@ -265,7 +269,7 @@ func sequentialStepFromChanFn[I any, O any](
 				case <-ctx.Done():
 					break outer
 				case inputPlaceholder <- entry:
-					output.metric.addChannel(input.Name, (time.Since(start)))
+					output.metric.AddTransportDuration(input.Name, time.Since(start))
 				}
 			}
 		}

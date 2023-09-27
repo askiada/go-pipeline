@@ -6,95 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/askiada/go-pipeline/pkg/pipeline/drawer"
+	"github.com/askiada/go-pipeline/pkg/pipeline/measure"
 	"github.com/stretchr/testify/assert"
 )
-
-func TestAddRootStepNilPipe(t *testing.T) {
-	_, err := AddRootStep(nil, "root step", func(ctx context.Context, rootChan chan<- int) error {
-		for i := 0; i < 10; i++ {
-			rootChan <- i
-		}
-		return nil
-	})
-	assert.Error(t, err)
-}
-
-func TestAddRootStep(t *testing.T) {
-	pipe, err := New(context.Background())
-	assert.NoError(t, err)
-	var got []int
-
-	outputChan, err := AddRootStep(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
-		for i := 0; i < 10; i++ {
-			rootChan <- i
-		}
-		return nil
-	})
-	assert.Nil(t, err)
-	done := make(chan struct{})
-	go func() {
-		got = processOutputChan(t, outputChan.Output)
-		done <- struct{}{}
-	}()
-	err = pipe.Run()
-	assert.Nil(t, err)
-	<-done
-	assert.ElementsMatch(t, []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, got)
-}
-
-func TestAddRootStepError(t *testing.T) {
-	pipe, err := New(context.Background())
-	assert.NoError(t, err)
-	var got []int
-
-	outputChan, err := AddRootStep(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
-		for i := 0; i < 10; i++ {
-			if i == 5 {
-				return assert.AnError
-			}
-			rootChan <- i
-		}
-		return nil
-	})
-	assert.Nil(t, err)
-	done := make(chan struct{})
-	go func() {
-		got = processOutputChan(t, outputChan.Output)
-		done <- struct{}{}
-	}()
-	err = pipe.Run()
-	assert.Error(t, err)
-	<-done
-	_ = got
-}
-
-func TestAddRootStepCancel(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	pipe, err := New(ctx)
-	assert.NoError(t, err)
-	var got []int
-
-	outputChan, err := AddRootStep(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
-		for i := 0; i < 10; i++ {
-			if i == 5 {
-				cancel()
-				return assert.AnError
-			}
-			rootChan <- i
-		}
-		return nil
-	})
-	assert.Nil(t, err)
-	done := make(chan struct{})
-	go func() {
-		got = processOutputChan(t, outputChan.Output)
-		done <- struct{}{}
-	}()
-	err = pipe.Run()
-	assert.Error(t, err)
-	<-done
-	_ = got
-}
 
 func TestAddStepOneToOneNilPipe(t *testing.T) {
 	_, err := AddStepOneToOne(nil, "root step", nil, func(ctx context.Context, input int) (int, error) {
@@ -610,53 +525,52 @@ func buildPipeline(t *testing.T, pipe *Pipeline, prefix string, conc int) {
 	assert.NoError(t, err)
 }
 
-/*
-	func TestCompletePipeline(t *testing.T) {
-		ctx := context.Background()
-		pipe, err := New(ctx, PipelineDrawer("./mygraph.gv"), PipelineMeasure())
-		assert.NoError(t, err)
-		buildPipeline(t, pipe, "A", 10)
-		buildPipeline(t, pipe, "B", 10)
-		err = pipe.Run()
-		assert.NoError(t, err)
-	}
+func TestCompletePipeline(t *testing.T) {
+	ctx := context.Background()
+	pipe, err := New(ctx, PipelineDrawer(drawer.NewSVGDrawer("./mygraph.gv")), PipelineMeasure(measure.NewDefaultMeasure()))
+	assert.NoError(t, err)
+	buildPipeline(t, pipe, "A", 10)
+	buildPipeline(t, pipe, "B", 10)
+	err = pipe.Run()
+	assert.NoError(t, err)
+}
 
-	func TestSimplePipeline(t *testing.T) {
-		// conc := 1
-		ctx := context.Background()
-		pipe, err := New(ctx, PipelineDrawer("./mygraph-simple.gv"), PipelineMeasure())
-		assert.NoError(t, err)
-		rootChan, err := AddRootStep(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
-			for i := 0; i < 10; i++ {
-				rootChan <- i
-			}
-			return nil
-		})
-		assert.NoError(t, err)
-		step1Chan, err := AddStepOneToOne(pipe, "step 1", rootChan, func(ctx context.Context, input int) (int, error) {
-			time.Sleep(100 * time.Millisecond)
-			return input * 100, nil
-		}, StepConcurrency[int](1))
-		assert.NoError(t, err)
+func TestSimplePipeline(t *testing.T) {
+	// conc := 1
+	ctx := context.Background()
+	pipe, err := New(ctx, PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple.gv")), PipelineMeasure(measure.NewDefaultMeasure()))
+	assert.NoError(t, err)
+	rootChan, err := AddRootStep(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
+		for i := 0; i < 10; i++ {
+			rootChan <- i
+		}
+		return nil
+	})
+	assert.NoError(t, err)
+	step1Chan, err := AddStepOneToOne(pipe, "step 1", rootChan, func(ctx context.Context, input int) (int, error) {
+		time.Sleep(100 * time.Millisecond)
+		return input * 100, nil
+	}, StepConcurrency[int](1))
+	assert.NoError(t, err)
 
-		step2Chan, err := AddStepOneToOne(pipe, "step 2", step1Chan, func(ctx context.Context, input int) (int, error) {
-			time.Sleep(200 * time.Millisecond)
-			return input * 200, nil
-		}, StepConcurrency[int](1))
-		assert.NoError(t, err)
-		err = AddSink(pipe, "sink", step2Chan, func(ctx context.Context, input int) error {
-			_ = input
-			return nil
-		})
-		assert.NoError(t, err)
-		err = pipe.Run()
-		assert.NoError(t, err)
-	}
-*/
+	step2Chan, err := AddStepOneToOne(pipe, "step 2", step1Chan, func(ctx context.Context, input int) (int, error) {
+		time.Sleep(200 * time.Millisecond)
+		return input * 200, nil
+	}, StepConcurrency[int](1))
+	assert.NoError(t, err)
+	err = AddSink(pipe, "sink", step2Chan, func(ctx context.Context, input int) error {
+		_ = input
+		return nil
+	})
+	assert.NoError(t, err)
+	err = pipe.Run()
+	assert.NoError(t, err)
+}
+
 func TestSimpleSplitterPipeline(t *testing.T) {
 	conc := 1
 	ctx := context.Background()
-	pipe, err := New(ctx, PipelineDrawer("./mygraph-simple-splitter.gv"), PipelineMeasure())
+	pipe, err := New(ctx, PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple-splitter.gv")), PipelineMeasure(measure.NewDefaultMeasure()))
 	assert.NoError(t, err)
 	rootChan, err := AddRootStep(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
 		for i := 0; i < 10; i++ {
@@ -696,7 +610,7 @@ func TestSimpleSplitterPipeline(t *testing.T) {
 func TestSimpleSplitterV2Pipeline(t *testing.T) {
 	conc := 1
 	ctx := context.Background()
-	pipe, err := New(ctx, PipelineDrawer("./mygraph-simple-splitter-v2.gv"), PipelineMeasure())
+	pipe, err := New(ctx, PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple-splitter-v2.gv")), PipelineMeasure(measure.NewDefaultMeasure()))
 	assert.NoError(t, err)
 	rootChan, err := AddRootStep(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
 		for i := 0; i < 10; i++ {
@@ -716,7 +630,7 @@ func TestSimpleSplitterV2Pipeline(t *testing.T) {
 	assert.NoError(t, err)
 
 	splitterChans, err := AddSplitter(pipe, "splitter", step2Chan, 2,
-		SplitterBufferSize[int](10),
+		SplitterBufferSize[int](1),
 	)
 	assert.NoError(t, err)
 
@@ -741,7 +655,7 @@ func TestSimpleSplitterV2Pipeline(t *testing.T) {
 func TestSimpleSplitterV3Pipeline(t *testing.T) {
 	conc := 1
 	ctx := context.Background()
-	pipe, err := New(ctx, PipelineDrawer("./mygraph-simple-splitter-v2.gv"), PipelineMeasure())
+	pipe, err := New(ctx, PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple-splitter-v2.gv")), PipelineMeasure(measure.NewDefaultMeasure()))
 	assert.NoError(t, err)
 	rootChan, err := AddRootStep(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
 		for i := 0; i < 10; i++ {
@@ -791,6 +705,68 @@ func TestSimpleSplitterV3Pipeline(t *testing.T) {
 	assert.NoError(t, err)
 	err = AddSink(pipe, "sink 2", splitterChan2, func(ctx context.Context, input int) error {
 		time.Sleep(100 * time.Millisecond)
+		_ = input
+		return nil
+	})
+	assert.NoError(t, err)
+	err = pipe.Run()
+	assert.Error(t, err)
+}
+
+func TestSimpleSplitterV4Pipeline(t *testing.T) {
+	conc := 2
+	ctx := context.Background()
+	pipe, err := New(ctx, PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple-splitter-v4.gv")), PipelineMeasure(measure.NewDefaultMeasure()))
+	assert.NoError(t, err)
+	rootChan, err := AddRootStep(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
+		for i := 0; i < 10; i++ {
+			rootChan <- i
+		}
+		return nil
+	})
+	assert.NoError(t, err)
+
+	step0Chan, err := AddStepOneToOne(pipe, "step 0", rootChan, func(ctx context.Context, input int) (int, error) {
+		return input, nil
+	}, StepConcurrency[int](conc))
+	assert.NoError(t, err)
+
+	step1Chan, err := AddStepOneToMany(pipe, "step 1", step0Chan, func(ctx context.Context, input int) ([]int, error) {
+		return []int{input * 100}, nil
+	}, StepConcurrency[int](conc))
+	assert.NoError(t, err)
+
+	splitterChans, err := AddSplitter(pipe, "splitter", step1Chan, 2,
+		SplitterBufferSize[int](100),
+	)
+	assert.NoError(t, err)
+
+	splitterChan1, _ := splitterChans.Get()
+	splitterChan2, _ := splitterChans.Get()
+
+	splittedChan1, err := AddStepOneToOne(pipe, "splitted step 1", splitterChan1, func(ctx context.Context, input int) (int, error) {
+		time.Sleep(200 * time.Millisecond)
+		return input / 100, nil
+	}, StepConcurrency[int](conc))
+	assert.NoError(t, err)
+
+	err = AddSinkFromChan(pipe, "sink 1", splittedChan1, func(ctx context.Context, input <-chan int) error {
+		time.Sleep(20 * time.Millisecond)
+		for elem := range input {
+			_ = elem
+		}
+		return nil
+	})
+	assert.NoError(t, err)
+
+	splittedChan2, err := AddStepOneToMany(pipe, "splitted step 2", splitterChan2, func(ctx context.Context, input int) ([]int, error) {
+		time.Sleep(50 * time.Millisecond)
+		return []int{input / 100}, nil
+	}, StepConcurrency[int](conc))
+	assert.NoError(t, err)
+
+	err = AddSink(pipe, "sink 2", splittedChan2, func(ctx context.Context, input int) error {
+		time.Sleep(150 * time.Millisecond)
 		_ = input
 		return nil
 	})

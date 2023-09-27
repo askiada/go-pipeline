@@ -25,17 +25,17 @@ func (s *Splitter[I]) Get() (*Step[I], bool) {
 
 func prepareSplitter[I any](p *Pipeline, name string, input *Step[I], splitter *Splitter[I]) error {
 	if p.drawer != nil {
-		err := p.drawer.addStep(splitter.mainStep.Name)
+		err := p.drawer.AddStep(splitter.mainStep.Name)
 		if err != nil {
 			return err
 		}
-		err = p.drawer.addLink(input.Name, splitter.mainStep.Name)
+		err = p.drawer.AddLink(input.Name, splitter.mainStep.Name)
 		if err != nil {
 			return err
 		}
 	}
 	if p.measure != nil {
-		mt := p.measure.addStep(splitter.mainStep.Name, 1)
+		mt := p.measure.AddMetric(splitter.mainStep.Name, 1)
 		splitter.mainStep.metric = mt
 	}
 	return nil
@@ -95,16 +95,12 @@ func AddSplitter[I any](p *Pipeline, name string, input *Step[I], total int, opt
 			defer wgrp.Done()
 		outer:
 			for {
-				start := time.Now()
 				select {
 				case elem, ok := <-localBuf:
 					if !ok {
 						break outer
 					}
 					splitter.splittedSteps[localI].Output <- elem
-					if splitter.mainStep.metric != nil {
-						splitter.mainStep.metric.addChannel(input.Name, time.Since(start))
-					}
 				case <-p.ctx.Done():
 					errC <- p.ctx.Err()
 
@@ -126,6 +122,7 @@ func AddSplitter[I any](p *Pipeline, name string, input *Step[I], total int, opt
 
 	outer:
 		for {
+			start := time.Now()
 			select {
 			case <-p.ctx.Done():
 				errC <- p.ctx.Err()
@@ -148,6 +145,9 @@ func AddSplitter[I any](p *Pipeline, name string, input *Step[I], total int, opt
 
 						break outer
 					}
+				}
+				if splitter.mainStep.metric != nil {
+					splitter.mainStep.metric.AddTransportDuration(input.Name, time.Since(start))
 				}
 			}
 		}

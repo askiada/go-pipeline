@@ -2,11 +2,11 @@ package pipeline
 
 import (
 	"context"
-	"sort"
 	"time"
 
-	"github.com/dominikbraun/graph"
-	"gopkg.in/go-playground/colors.v1"
+	"github.com/askiada/go-pipeline/pkg/pipeline/drawer"
+	"github.com/askiada/go-pipeline/pkg/pipeline/measure"
+	"github.com/pkg/errors"
 )
 
 type stepType string
@@ -16,15 +16,20 @@ const (
 	normalStepType   = "step"
 	splitterStepType = "splitter"
 	sinkStepType     = "sink"
+	mergeStepType    = "merger"
+
+	startStepName = "start"
+	endStepName   = "end"
 )
 
 type Pipeline struct {
 	ctx       context.Context
 	errcList  *errorChans
 	cancel    context.CancelFunc
-	drawer    *drawer
-	measure   *measure
+	drawer    drawer.Drawer
+	measure   measure.Measure
 	startTime time.Time
+	opts      []PipelineOption
 }
 
 func New(ctx context.Context, opts ...PipelineOption) (*Pipeline, error) {
@@ -34,29 +39,16 @@ func New(ctx context.Context, opts ...PipelineOption) (*Pipeline, error) {
 		errcList:  &errorChans{},
 		cancel:    cancel,
 		startTime: time.Now(),
+		opts:      opts,
 	}
 
 	for _, opt := range opts {
-		opt(pipe)
-	}
-
-	if pipe.drawer != nil {
-		err := pipe.drawer.addStep("start")
+		err := opt.Init(pipe)
 		if err != nil {
-			return nil, err
-		}
-		err = pipe.drawer.addStep("end")
-		if err != nil {
-			return nil, err
+			return nil, errors.Wrap(err, "unable to apply pipeline option")
 		}
 	}
 
-	if pipe.measure != nil {
-		mt := pipe.measure.addStep("start", 1)
-		pipe.measure.start = mt
-		mt = pipe.measure.addStep("end", 1)
-		pipe.measure.end = mt
-	}
 	return pipe, nil
 }
 
@@ -73,100 +65,12 @@ func waitForPipeline(errs ...*errorChan) error {
 	return nil
 }
 
-func (p *Pipeline) drawMeasure() error {
-	if p.measure == nil {
-		return nil
-	}
-
-	_, properties, err := p.drawer.graph.VertexWithProperties("end")
-	if err != nil {
-		return err
-	}
-	properties.Attributes["xlabel"] = time.Since(p.startTime).String()
-
-	allChanElapsed := make(map[time.Duration]string)
-	sortedAllChanElapsed := []time.Duration{}
-	for _, step := range p.measure.steps {
-		channelElapsed := step.avgChannel()
-		for _, info := range channelElapsed {
-			if info.elapsed == 0 {
-				continue
-			}
-			if _, ok := allChanElapsed[info.elapsed]; ok {
-				continue
-			}
-			allChanElapsed[info.elapsed] = ""
-			sortedAllChanElapsed = append(sortedAllChanElapsed, info.elapsed)
-		}
-	}
-	sort.Slice(sortedAllChanElapsed, func(i, j int) bool {
-		return sortedAllChanElapsed[i] > sortedAllChanElapsed[j]
-	})
-	redColor, err := colors.RGB(255, 0, 0)
-	if err != nil {
-		return err
-	}
-	maxValue := sortedAllChanElapsed[0]
-	minValue := sortedAllChanElapsed[len(sortedAllChanElapsed)-1]
-
-	allChanElapsed[maxValue] = redColor.ToHEX().String()
-	for curr := range allChanElapsed {
-		fraction := time.Duration(1)
-		if maxValue > minValue {
-			fraction = (curr - minValue) / (maxValue - minValue)
-		}
-		red := 240 * fraction
-		blue := -240*fraction + 240
-		redColor, err := colors.RGB(uint8(red), 0, uint8(blue))
-		if err != nil {
-			return err
-		}
-		allChanElapsed[curr] = redColor.ToHEX().String()
-	}
-
-	for name, step := range p.measure.steps {
-		_, properties, err := p.drawer.graph.VertexWithProperties(name)
-		if err != nil {
-			return err
-		}
-		stepAvg := step.avgStep()
-		if stepAvg != 0 {
-			properties.Attributes["xlabel"] = stepAvg.String()
-		}
-
-		if step.endDuration > 0 {
-			properties.Attributes["xlabel"] += ", end: " + step.endDuration.String()
-		}
-
-		for inputStep, info := range step.channelElapsed {
-			if info.elapsed == 0 {
-				continue
-			}
-			err := p.drawer.graph.UpdateEdge(inputStep, name,
-				graph.EdgeAttribute("label", info.elapsed.String()),
-				graph.EdgeAttribute("fontcolor", "blue"),
-				graph.EdgeAttribute("color", allChanElapsed[info.elapsed]), //nolint
-			)
-			if err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
 func (p *Pipeline) finishRun() error {
-	if p.drawer == nil {
-		return nil
-	}
-
-	err := p.drawMeasure()
-	if err != nil {
-		return err
-	}
-	err = p.drawer.draw()
-	if err != nil {
-		return err
+	for _, opt := range p.opts {
+		err := opt.Finish(p)
+		if err != nil {
+			return errors.Wrap(err, "unable to finish pipeline option")
+		}
 	}
 	return nil
 }

@@ -10,25 +10,25 @@ func AddMerger[I any](p *Pipeline, name string, steps ...*Step[I]) (*Step[I], er
 	decoratedError := newErrorChan(name, errC)
 	output := make(chan I)
 	outputStep := Step[I]{
-		Type:   sinkStepType,
+		Type:   mergeStepType,
 		Name:   name,
 		Output: output,
 	}
 	if p.drawer != nil {
-		err := p.drawer.addStep(outputStep.Name)
+		err := p.drawer.AddStep(outputStep.Name)
 		if err != nil {
 			return nil, err
 		}
 
 		for _, step := range steps {
-			err := p.drawer.addLink(step.Name, outputStep.Name)
+			err := p.drawer.AddLink(step.Name, outputStep.Name)
 			if err != nil {
 				return nil, err
 			}
 		}
 	}
 	if p.measure != nil {
-		mt := p.measure.addStep(outputStep.Name, 1)
+		mt := p.measure.AddMetric(outputStep.Name, 1)
 		outputStep.metric = mt
 	}
 
@@ -49,6 +49,7 @@ func AddMerger[I any](p *Pipeline, name string, steps ...*Step[I]) (*Step[I], er
 				select {
 				case <-p.ctx.Done():
 					errC <- p.ctx.Err()
+
 					break outer
 				case entry, ok := <-step.Output:
 					if !ok {
@@ -59,7 +60,7 @@ func AddMerger[I any](p *Pipeline, name string, steps ...*Step[I]) (*Step[I], er
 						return
 					case output <- entry:
 						if outputStep.metric != nil {
-							outputStep.metric.addChannel(step.Name, time.Since(startChan))
+							outputStep.metric.AddTransportDuration(step.Name, time.Since(startChan))
 						}
 					}
 				}

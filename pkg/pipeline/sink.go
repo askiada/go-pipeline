@@ -17,23 +17,22 @@ func AddSink[I any](p *Pipeline, name string, input *Step[I], sinkFn func(ctx co
 		Name: name,
 	}
 	if p.drawer != nil {
-		err := p.drawer.addStep(step.Name)
+		err := p.drawer.AddStep(step.Name)
 		if err != nil {
 			return err
 		}
-		err = p.drawer.addLink(input.Name, step.Name)
+		err = p.drawer.AddLink(input.Name, step.Name)
+		if err != nil {
+			return err
+		}
+		err = p.drawer.AddLink(step.Name, endStepName)
 		if err != nil {
 			return err
 		}
 	}
 	if p.measure != nil {
-		mt := p.measure.addStep(step.Name, 1)
+		mt := p.measure.AddMetric(step.Name, 1)
 		step.metric = mt
-
-		err := p.drawer.addLink(step.Name, "end")
-		if err != nil {
-			return err
-		}
 	}
 
 	errC := make(chan error, 1)
@@ -63,13 +62,13 @@ func AddSink[I any](p *Pipeline, name string, input *Step[I], sinkFn func(ctx co
 				}
 				endFn := time.Since(startFn)
 				if step.metric != nil {
-					step.metric.add(endFn)
-					step.metric.addChannel(input.Name, endInputChan+endFn)
+					step.metric.AddDuration(endFn)
+					step.metric.AddTransportDuration(input.Name, endInputChan+endFn)
 				}
 			}
 		}
 		if step.metric != nil {
-			step.metric.end(time.Since(p.startTime))
+			step.metric.SetTotalDuration(time.Since(p.startTime))
 		}
 	}()
 	p.errcList.add(decoratedError)
@@ -89,23 +88,22 @@ func AddSinkFromChan[I any](p *Pipeline, name string, input *Step[I], stepFn fun
 		Name: name,
 	}
 	if p.drawer != nil {
-		err := p.drawer.addStep(step.Name)
+		err := p.drawer.AddStep(step.Name)
 		if err != nil {
 			return err
 		}
-		err = p.drawer.addLink(input.Name, step.Name)
+		err = p.drawer.AddLink(input.Name, step.Name)
+		if err != nil {
+			return err
+		}
+		err = p.drawer.AddLink(step.Name, endStepName)
 		if err != nil {
 			return err
 		}
 	}
 	if p.measure != nil {
-		mt := p.measure.addStep(step.Name, 1)
+		mt := p.measure.AddMetric(step.Name, 1)
 		step.metric = mt
-
-		err := p.drawer.addLink(step.Name, "end")
-		if err != nil {
-			return err
-		}
 	}
 
 	errC := make(chan error, 1)
@@ -119,7 +117,7 @@ func AddSinkFromChan[I any](p *Pipeline, name string, input *Step[I], stepFn fun
 			errC <- err
 		}
 		if step.metric != nil {
-			step.metric.end(time.Since(p.startTime))
+			step.metric.SetTotalDuration(time.Since(p.startTime))
 		}
 	}()
 	p.errcList.add(decoratedError)

@@ -2,25 +2,28 @@ package pipeline
 
 import "context"
 
-func prepareRootStep[O any](pipe *Pipeline, step *Step[O]) error {
+func prepareRootStep[O any](pipe *Pipeline, step *Step[O], opts ...StepOption[O]) error {
 	if pipe.drawer != nil {
-		err := pipe.drawer.addStep(step.Name)
+		err := pipe.drawer.AddStep(step.Name)
 		if err != nil {
 			return err
 		}
-		err = pipe.drawer.addLink("start", step.Name)
+		err = pipe.drawer.AddLink(startStepName, step.Name)
 		if err != nil {
 			return err
 		}
 	}
 	if pipe.measure != nil {
-		mt := pipe.measure.addStep(step.Name, 1)
+		mt := pipe.measure.AddMetric(step.Name, 1)
 		step.metric = mt
+	}
+	for _, opt := range opts {
+		opt(step)
 	}
 	return nil
 }
 
-func AddRootStep[O any](p *Pipeline, name string, stepFn func(ctx context.Context, rootChan chan<- O) error) (*Step[O], error) {
+func AddRootStep[O any](p *Pipeline, name string, stepFn func(ctx context.Context, rootChan chan<- O) error, opts ...StepOption[O]) (*Step[O], error) {
 	if p == nil {
 		return nil, ErrPipelineMustBeSet
 	}
@@ -33,13 +36,15 @@ func AddRootStep[O any](p *Pipeline, name string, stepFn func(ctx context.Contex
 		Name:   name,
 		Output: output,
 	}
-	err := prepareRootStep(p, step)
+	err := prepareRootStep(p, step, opts...)
 	if err != nil {
 		return nil, err
 	}
 	go func() {
 		defer func() {
-			close(output)
+			if !step.noClose {
+				close(output)
+			}
 			close(errC)
 		}()
 		err := stepFn(p.ctx, output)
