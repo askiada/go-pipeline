@@ -3,6 +3,8 @@ package pipeline
 import (
 	"sync"
 	"time"
+
+	"github.com/pkg/errors"
 )
 
 type Splitter[I any] struct {
@@ -23,20 +25,12 @@ func (s *Splitter[I]) Get() (*Step[I], bool) {
 	return s.splittedSteps[s.currIdx], true
 }
 
-func prepareSplitter[I any](p *Pipeline, name string, input *Step[I], splitter *Splitter[I]) error {
-	if p.drawer != nil {
-		err := p.drawer.AddStep(splitter.mainStep.Name)
+func prepareSplitter[I any](pipe *Pipeline, input *Step[I], splitter *Splitter[I]) error {
+	for _, opt := range pipe.opts {
+		err := opt.BeforeSplitter(input.details, splitter.mainStep.details)
 		if err != nil {
-			return err
+			return errors.Wrap(err, "unable to run before step function")
 		}
-		err = p.drawer.AddLink(input.Name, splitter.mainStep.Name)
-		if err != nil {
-			return err
-		}
-	}
-	if p.measure != nil {
-		mt := p.measure.AddMetric(splitter.mainStep.Name, 1)
-		splitter.mainStep.metric = mt
 	}
 	return nil
 }
@@ -54,8 +48,11 @@ func AddSplitter[I any](p *Pipeline, name string, input *Step[I], total int, opt
 	splitter := &Splitter[I]{
 		Total: total,
 		mainStep: &Step[I]{
-			Type: splitterStepType,
-			Name: name,
+			details: &StepInfo{
+				Type:       splitterStepType,
+				Name:       name,
+				Concurrent: 1,
+			},
 		},
 	}
 	for _, opt := range opts {
@@ -75,14 +72,16 @@ func AddSplitter[I any](p *Pipeline, name string, input *Step[I], total int, opt
 
 	for i := 0; i < total; i++ {
 		step := Step[I]{
-			Type:   splitterStepType,
-			Name:   name,
+			details: &StepInfo{
+				Type: splitterStepType,
+				Name: name,
+			},
 			Output: make(chan I),
 		}
 		splitter.splittedSteps[i] = &step
 	}
 
-	err := prepareSplitter(p, name, input, splitter)
+	err := prepareSplitter(p, input, splitter)
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +131,7 @@ func AddSplitter[I any](p *Pipeline, name string, input *Step[I], total int, opt
 				if !ok {
 					break outer
 				}
-
+				startFn := time.Now()
 				for _, buf := range splitterBuffer {
 					localEntry := entry
 					localBuf := buf
@@ -146,8 +145,10 @@ func AddSplitter[I any](p *Pipeline, name string, input *Step[I], total int, opt
 						break outer
 					}
 				}
-				if splitter.mainStep.metric != nil {
-					splitter.mainStep.metric.AddTransportDuration(input.Name, time.Since(start))
+				endFn := time.Since(startFn)
+				if splitter.mainStep.details.Metric != nil {
+					splitter.mainStep.details.Metric.AddDuration(endFn)
+					splitter.mainStep.details.Metric.AddTransportDuration(input.details.Name, time.Since(start)-endFn)
 				}
 			}
 		}

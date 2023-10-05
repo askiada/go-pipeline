@@ -4,8 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/askiada/go-pipeline/pkg/pipeline/drawer"
-	"github.com/askiada/go-pipeline/pkg/pipeline/measure"
 	"github.com/pkg/errors"
 )
 
@@ -17,19 +15,19 @@ const (
 	splitterStepType = "splitter"
 	sinkStepType     = "sink"
 	mergeStepType    = "merger"
+)
 
-	startStepName = "start"
-	endStepName   = "end"
+var (
+	startStep = &Step[any]{details: &StepInfo{Name: "start"}}
+	endStep   = &Step[any]{details: &StepInfo{Name: "end"}}
 )
 
 type Pipeline struct {
 	ctx       context.Context
 	errcList  *errorChans
 	cancel    context.CancelFunc
-	drawer    drawer.Drawer
-	measure   measure.Measure
-	startTime time.Time
 	opts      []PipelineOption
+	startTime time.Time
 }
 
 func New(ctx context.Context, opts ...PipelineOption) (*Pipeline, error) {
@@ -43,7 +41,7 @@ func New(ctx context.Context, opts ...PipelineOption) (*Pipeline, error) {
 	}
 
 	for _, opt := range opts {
-		err := opt.Init(pipe)
+		err := opt.New()
 		if err != nil {
 			return nil, errors.Wrap(err, "unable to apply pipeline option")
 		}
@@ -67,7 +65,7 @@ func waitForPipeline(errs ...*errorChan) error {
 
 func (p *Pipeline) finishRun() error {
 	for _, opt := range p.opts {
-		err := opt.Finish(p)
+		err := opt.Finish()
 		if err != nil {
 			return errors.Wrap(err, "unable to finish pipeline option")
 		}

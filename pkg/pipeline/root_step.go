@@ -1,21 +1,17 @@
 package pipeline
 
-import "context"
+import (
+	"context"
+
+	"github.com/pkg/errors"
+)
 
 func prepareRootStep[O any](pipe *Pipeline, step *Step[O], opts ...StepOption[O]) error {
-	if pipe.drawer != nil {
-		err := pipe.drawer.AddStep(step.Name)
+	for _, opt := range pipe.opts {
+		err := opt.BeforeStep(startStep.details, step.details)
 		if err != nil {
-			return err
+			return errors.Wrap(err, "unable to run before step function")
 		}
-		err = pipe.drawer.AddLink(startStepName, step.Name)
-		if err != nil {
-			return err
-		}
-	}
-	if pipe.measure != nil {
-		mt := pipe.measure.AddMetric(step.Name, 1)
-		step.metric = mt
 	}
 	for _, opt := range opts {
 		opt(step)
@@ -32,8 +28,10 @@ func AddRootStep[O any](p *Pipeline, name string, stepFn func(ctx context.Contex
 	decoratedError := newErrorChan(name, errC)
 	output := make(chan O)
 	step := &Step[O]{
-		Type:   rootStepType,
-		Name:   name,
+		details: &StepInfo{
+			Type: rootStepType,
+			Name: name,
+		},
 		Output: output,
 	}
 	err := prepareRootStep(p, step, opts...)
@@ -42,7 +40,7 @@ func AddRootStep[O any](p *Pipeline, name string, stepFn func(ctx context.Contex
 	}
 	go func() {
 		defer func() {
-			if !step.noClose {
+			if !step.keepOpen {
 				close(output)
 			}
 			close(errC)

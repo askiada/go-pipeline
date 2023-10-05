@@ -10,13 +10,17 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-type Step[O any] struct {
+type StepInfo struct {
 	Type       stepType
 	Name       string
-	Output     chan O
-	concurrent int
-	noClose    bool
-	metric     measure.Metric
+	Concurrent int
+	Metric     measure.Metric
+}
+
+type Step[O any] struct {
+	Output   chan O
+	keepOpen bool
+	details  *StepInfo
 }
 
 type OneToOneFn[I, O any] func(context.Context, I) (O, error)
@@ -54,9 +58,9 @@ outer:
 			case <-ctx.Done():
 				return errors.Wrapf(ctx.Err(), "go routine %d:", goIdx)
 			case output.Output <- out:
-				if output.metric != nil {
-					output.metric.AddDuration(endFn)
-					output.metric.AddTransportDuration(input.Name, time.Since(start)-endFn)
+				if output.details.Metric != nil {
+					output.details.Metric.AddDuration(endFn)
+					output.details.Metric.AddTransportDuration(input.details.Name, time.Since(start)-endFn)
 				}
 			}
 		}
@@ -73,10 +77,10 @@ func concurrentOneToOneFn[I any, O any](
 	ignoreZero bool,
 ) error {
 	errGrp, dCtx := errgroup.WithContext(ctx)
-	errGrp.SetLimit(output.concurrent)
+	errGrp.SetLimit(output.details.Concurrent)
 	// starts many consumers concurrently
 	// each consumer stops as soon as an error happens
-	for goIdx := 0; goIdx < output.concurrent; goIdx++ {
+	for goIdx := 0; goIdx < output.details.Concurrent; goIdx++ {
 		localGoIdx := goIdx
 		errGrp.Go(func() error {
 			return sequentialOneToOneFn(dCtx, localGoIdx, input, output, oneToOne, ignoreZero)
@@ -86,10 +90,10 @@ func concurrentOneToOneFn[I any, O any](
 }
 
 func runOneToOne[I any, O any](ctx context.Context, input *Step[I], output *Step[O], oneToOne OneToOneFn[I, O], ignoreZero bool) error {
-	if output.concurrent == 0 {
-		output.concurrent = 1
+	if output.details.Concurrent == 0 {
+		output.details.Concurrent = 1
 	}
-	if output.concurrent == 1 {
+	if output.details.Concurrent == 1 {
 		return sequentialOneToOneFn(ctx, 1, input, output, oneToOne, ignoreZero)
 	}
 	return concurrentOneToOneFn(ctx, input, output, oneToOne, ignoreZero)
@@ -125,9 +129,9 @@ outer:
 				case <-ctx.Done():
 					return errors.Wrapf(ctx.Err(), "go routine %d:", goIdx)
 				case output.Output <- out:
-					if output.metric != nil {
-						output.metric.AddDuration(endFn)
-						output.metric.AddTransportDuration(input.Name, time.Since(start)-endFn)
+					if output.details.Metric != nil {
+						output.details.Metric.AddDuration(endFn)
+						output.details.Metric.AddTransportDuration(input.details.Name, time.Since(start)-endFn)
 					}
 				}
 			}
@@ -139,8 +143,8 @@ outer:
 
 func concurrentOneToManyFn[I any, O any](ctx context.Context, input *Step[I], output *Step[O], oneToMany OneToManyFn[I, O]) error {
 	errGrp, dCtx := errgroup.WithContext(ctx)
-	errGrp.SetLimit(output.concurrent)
-	for goIdx := 0; goIdx < output.concurrent; goIdx++ {
+	errGrp.SetLimit(output.details.Concurrent)
+	for goIdx := 0; goIdx < output.details.Concurrent; goIdx++ {
 		localGoIdx := goIdx
 		errGrp.Go(func() error {
 			return sequentialOneToManyFn(dCtx, localGoIdx, input, output, oneToMany)
@@ -155,30 +159,21 @@ func runOneToMany[I any, O any](
 	output *Step[O],
 	oneToMany func(context.Context, I) ([]O, error),
 ) error {
-	if output.concurrent == 0 {
-		output.concurrent = 1
+	if output.details.Concurrent == 0 {
+		output.details.Concurrent = 1
 	}
-	if output.concurrent == 1 {
+	if output.details.Concurrent == 1 {
 		return sequentialOneToManyFn(ctx, 1, input, output, oneToMany)
 	}
 	return concurrentOneToManyFn(ctx, input, output, oneToMany)
 }
 
 func prepareStep[I, O any](pipe *Pipeline, input *Step[I], step *Step[O]) error {
-	if pipe.drawer != nil {
-		err := pipe.drawer.AddStep(step.Name)
+	for _, opt := range pipe.opts {
+		err := opt.BeforeStep(input.details, step.details)
 		if err != nil {
-			return err
+			return errors.Wrap(err, "unable to run before step function")
 		}
-		err = pipe.drawer.AddLink(input.Name, step.Name)
-		if err != nil {
-			return err
-		}
-	}
-
-	if pipe.measure != nil {
-		mt := pipe.measure.AddMetric(step.Name, step.concurrent)
-		step.metric = mt
 	}
 	return nil
 }
@@ -201,8 +196,10 @@ func addStep[I any, O any](
 	decoratedError := newErrorChan(name, errC)
 	output := make(chan O)
 	step := &Step[O]{
-		Type:   normalStepType,
-		Name:   name,
+		details: &StepInfo{
+			Type: normalStepType,
+			Name: name,
+		},
 		Output: output,
 	}
 	for _, opt := range opts {
@@ -215,7 +212,7 @@ func addStep[I any, O any](
 	go func() {
 		defer func() {
 			close(errC)
-			if !step.noClose {
+			if !step.keepOpen {
 				close(output)
 			}
 		}()
@@ -236,10 +233,10 @@ func runStepFromChan[I, O any](
 	stepFn StepFromChanFn[I, O],
 	ignoreZero bool,
 ) error {
-	if output.concurrent == 0 {
-		output.concurrent = 1
+	if output.details.Concurrent == 0 {
+		output.details.Concurrent = 1
 	}
-	if output.concurrent == 1 {
+	if output.details.Concurrent == 1 {
 		return sequentialStepFromChanFn(ctx, 1, input, output, stepFn, ignoreZero)
 	}
 	return concurrentStepFromChanFn(ctx, input, output, stepFn, ignoreZero)
@@ -269,7 +266,7 @@ func sequentialStepFromChanFn[I any, O any](
 				case <-ctx.Done():
 					break outer
 				case inputPlaceholder <- entry:
-					output.metric.AddTransportDuration(input.Name, time.Since(start))
+					output.details.Metric.AddTransportDuration(input.details.Name, time.Since(start))
 				}
 			}
 		}
@@ -287,10 +284,10 @@ func concurrentStepFromChanFn[I any, O any](
 	ignoreZero bool,
 ) error {
 	errGrp, dCtx := errgroup.WithContext(ctx)
-	errGrp.SetLimit(output.concurrent)
+	errGrp.SetLimit(output.details.Concurrent)
 	// starts many consumers concurrently
 	// each consumer stops as soon as an error happens
-	for goIdx := 0; goIdx < output.concurrent; goIdx++ {
+	for goIdx := 0; goIdx < output.details.Concurrent; goIdx++ {
 		localGoIdx := goIdx
 		errGrp.Go(func() error {
 			return sequentialStepFromChanFn(dCtx, localGoIdx, input, output, stepFn, ignoreZero)
