@@ -4,33 +4,19 @@ import (
 	"context"
 	"time"
 
+	"github.com/askiada/go-pipeline/pkg/pipeline/model"
 	"github.com/pkg/errors"
-)
-
-type stepType string
-
-const (
-	rootStepType     = "root"
-	normalStepType   = "step"
-	splitterStepType = "splitter"
-	sinkStepType     = "sink"
-	mergeStepType    = "merger"
-)
-
-var (
-	startStep = &Step[any]{details: &StepInfo{Name: "start"}}
-	endStep   = &Step[any]{details: &StepInfo{Name: "end"}}
 )
 
 type Pipeline struct {
 	ctx       context.Context
 	errcList  *errorChans
 	cancel    context.CancelFunc
-	opts      []PipelineOption
+	opts      []model.PipelineOption
 	startTime time.Time
 }
 
-func New(ctx context.Context, opts ...PipelineOption) (*Pipeline, error) {
+func New(ctx context.Context, opts ...model.PipelineOption) (*Pipeline, error) {
 	dCtx, cancel := context.WithCancel(ctx)
 	pipe := &Pipeline{
 		ctx:       dCtx,

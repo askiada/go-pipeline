@@ -4,18 +4,19 @@ import (
 	"sync"
 	"time"
 
+	"github.com/askiada/go-pipeline/pkg/pipeline/model"
 	"github.com/pkg/errors"
 )
 
 type Splitter[I any] struct {
 	currIdx       int
-	mainStep      *Step[I]
-	splittedSteps []*Step[I]
+	mainStep      *model.Step[I]
+	splittedSteps []*model.Step[I]
 	bufferSize    int
 	Total         int
 }
 
-func (s *Splitter[I]) Get() (*Step[I], bool) {
+func (s *Splitter[I]) Get() (*model.Step[I], bool) {
 	defer func() {
 		s.currIdx++
 	}()
@@ -25,9 +26,9 @@ func (s *Splitter[I]) Get() (*Step[I], bool) {
 	return s.splittedSteps[s.currIdx], true
 }
 
-func prepareSplitter[I any](pipe *Pipeline, input *Step[I], splitter *Splitter[I]) error {
+func prepareSplitter[I any](pipe *Pipeline, input *model.Step[I], splitter *Splitter[I]) error {
 	for _, opt := range pipe.opts {
-		err := opt.BeforeSplitter(input.details, splitter.mainStep.details)
+		err := opt.PrepareSplitter(input.Details, splitter.mainStep.Details)
 		if err != nil {
 			return errors.Wrap(err, "unable to run before step function")
 		}
@@ -35,7 +36,7 @@ func prepareSplitter[I any](pipe *Pipeline, input *Step[I], splitter *Splitter[I
 	return nil
 }
 
-func AddSplitter[I any](p *Pipeline, name string, input *Step[I], total int, opts ...SplitterOption[I]) (*Splitter[I], error) {
+func AddSplitter[I any](p *Pipeline, name string, input *model.Step[I], total int, opts ...SplitterOption[I]) (*Splitter[I], error) {
 	if p == nil {
 		return nil, ErrPipelineMustBeSet
 	}
@@ -47,9 +48,9 @@ func AddSplitter[I any](p *Pipeline, name string, input *Step[I], total int, opt
 	}
 	splitter := &Splitter[I]{
 		Total: total,
-		mainStep: &Step[I]{
-			details: &StepInfo{
-				Type:       splitterStepType,
+		mainStep: &model.Step[I]{
+			Details: &model.StepInfo{
+				Type:       model.SplitterStepType,
 				Name:       name,
 				Concurrent: 1,
 			},
@@ -60,7 +61,7 @@ func AddSplitter[I any](p *Pipeline, name string, input *Step[I], total int, opt
 	}
 	errC := make(chan error, 1)
 	decoratedError := newErrorChan(name, errC)
-	splitter.splittedSteps = make([]*Step[I], total)
+	splitter.splittedSteps = make([]*model.Step[I], total)
 	if splitter.bufferSize == 0 {
 		splitter.bufferSize = 1
 	}
@@ -71,9 +72,9 @@ func AddSplitter[I any](p *Pipeline, name string, input *Step[I], total int, opt
 	}
 
 	for i := 0; i < total; i++ {
-		step := Step[I]{
-			details: &StepInfo{
-				Type: splitterStepType,
+		step := model.Step[I]{
+			Details: &model.StepInfo{
+				Type: model.SplitterStepType,
 				Name: name,
 			},
 			Output: make(chan I),
@@ -121,7 +122,7 @@ func AddSplitter[I any](p *Pipeline, name string, input *Step[I], total int, opt
 
 	outer:
 		for {
-			start := time.Now()
+			startIter := time.Now()
 			select {
 			case <-p.ctx.Done():
 				errC <- p.ctx.Err()
@@ -137,18 +138,22 @@ func AddSplitter[I any](p *Pipeline, name string, input *Step[I], total int, opt
 					localBuf := buf
 
 					select {
-					case localBuf <- localEntry:
-
 					case <-p.ctx.Done():
 						errC <- p.ctx.Err()
 
 						break outer
+					case localBuf <- localEntry:
 					}
 				}
+
 				endFn := time.Since(startFn)
-				if splitter.mainStep.details.Metric != nil {
-					splitter.mainStep.details.Metric.AddDuration(endFn)
-					splitter.mainStep.details.Metric.AddTransportDuration(input.details.Name, time.Since(start)-endFn)
+				endIter := time.Since(startIter) - endFn
+
+				for _, opt := range p.opts {
+					err := opt.OnSplitterOutput(input.Details, splitter.mainStep.Details, endIter, endFn)
+					if err != nil {
+						errC <- errors.Wrap(err, "unable to run before merger function")
+					}
 				}
 			}
 		}

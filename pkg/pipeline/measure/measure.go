@@ -25,6 +25,10 @@ func (m *DefaultMeasure) AddMetric(name string, concurrent int) Metric {
 	return mt
 }
 
+func (m *DefaultMeasure) GetMetric(name string) Metric {
+	return m.Steps[name]
+}
+
 func (m *DefaultMeasure) AllMetrics() map[string]Metric {
 	return m.Steps
 }

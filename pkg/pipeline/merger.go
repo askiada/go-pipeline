@@ -4,29 +4,30 @@ import (
 	"sync"
 	"time"
 
+	"github.com/askiada/go-pipeline/pkg/pipeline/model"
 	"github.com/pkg/errors"
 )
 
-func AddMerger[I any](pipe *Pipeline, name string, steps ...*Step[I]) (*Step[I], error) {
+func AddMerger[I any](pipe *Pipeline, name string, steps ...*model.Step[I]) (*model.Step[I], error) {
 	errC := make(chan error, len(steps))
 	decoratedError := newErrorChan(name, errC)
 	output := make(chan I)
-	outputStep := &Step[I]{
-		details: &StepInfo{
-			Type:       mergeStepType,
+	outputStep := &model.Step[I]{
+		Details: &model.StepInfo{
+			Type:       model.MergeStepType,
 			Name:       name,
 			Concurrent: 1,
 		},
 		Output: output,
 	}
 
-	stepInfos := make([]*StepInfo, len(steps), len(steps))
+	stepInfos := make([]*model.StepInfo, len(steps), len(steps))
 	for i, step := range steps {
-		stepInfos[i] = step.details
+		stepInfos[i] = step.Details
 	}
 
 	for _, opt := range pipe.opts {
-		err := opt.BeforeMerger(stepInfos, outputStep.details)
+		err := opt.PrepareMerger(stepInfos, outputStep.Details)
 		if err != nil {
 			return nil, errors.Wrap(err, "unable to run before merger function")
 		}
@@ -41,11 +42,11 @@ func AddMerger[I any](pipe *Pipeline, name string, steps ...*Step[I]) (*Step[I],
 	}()
 
 	for _, step := range steps {
-		go func(step *Step[I]) {
+		go func(step *model.Step[I]) {
 			defer wgrp.Done()
 		outer:
 			for {
-				startChan := time.Now()
+				startIter := time.Now()
 				select {
 				case <-pipe.ctx.Done():
 					errC <- pipe.ctx.Err()
@@ -59,8 +60,12 @@ func AddMerger[I any](pipe *Pipeline, name string, steps ...*Step[I]) (*Step[I],
 					case <-pipe.ctx.Done():
 						return
 					case output <- entry:
-						if outputStep.details.Metric != nil {
-							outputStep.details.Metric.AddTransportDuration(step.details.Name, time.Since(startChan))
+						endIter := time.Since(startIter)
+						for _, opt := range pipe.opts {
+							err := opt.OnMergerOutput(step.Details, outputStep.Details, endIter)
+							if err != nil {
+								errC <- errors.Wrap(err, "unable to run before merger function")
+							}
 						}
 					}
 				}

@@ -3,6 +3,7 @@ package measure
 import "time"
 
 type Measure interface {
+	GetMetric(name string) Metric
 	AddMetric(name string, concurrent int) Metric
 	AllMetrics() map[string]Metric
 }

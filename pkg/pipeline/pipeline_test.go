@@ -6,6 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/askiada/go-pipeline/pkg/pipeline/drawer"
+	"github.com/askiada/go-pipeline/pkg/pipeline/measure"
+	"github.com/askiada/go-pipeline/pkg/pipeline/model"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -30,7 +33,7 @@ func TestAddStepOneToOne(t *testing.T) {
 	ctx := context.Background()
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
-	step := Step[int]{
+	step := model.Step[int]{
 		Output: createInputChan(t, 10),
 	}
 	outputChan, err := AddStepOneToOne(pipe, "first step", &step, func(ctx context.Context, input int) (int, error) {
@@ -53,7 +56,7 @@ func TestAddStepOneToOneError(t *testing.T) {
 	ctx := context.Background()
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
-	step := Step[int]{
+	step := model.Step[int]{
 		Output: createInputChan(t, 10),
 	}
 	outputChan, err := AddStepOneToOne(pipe, "root step", &step, func(ctx context.Context, input int) (int, error) {
@@ -80,7 +83,7 @@ func TestAddStepOneToOneCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
-	step := Step[int]{
+	step := model.Step[int]{
 		Output: createInputChanWithCancel(t, 10, 5, cancel),
 	}
 	outputChan, err := AddStepOneToOne(pipe, "root step", &step, func(ctx context.Context, input int) (int, error) {
@@ -124,7 +127,7 @@ func TestAddStepOneToOneOrSZero(t *testing.T) {
 	ctx := context.Background()
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
-	step := Step[int]{
+	step := model.Step[int]{
 		Output: createInputChan(t, 10),
 	}
 	outputChan, err := AddStepOneToOneOrZero(pipe, "first step", &step, func(ctx context.Context, input int) (int, error) {
@@ -147,7 +150,7 @@ func TestAddStepOneToOneOrZeroError(t *testing.T) {
 	ctx := context.Background()
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
-	step := Step[int]{
+	step := model.Step[int]{
 		Output: createInputChan(t, 10),
 	}
 	outputChan, err := AddStepOneToOneOrZero(pipe, "root step", &step, func(ctx context.Context, input int) (int, error) {
@@ -174,7 +177,7 @@ func TestAddStepOneToOneOrZeroCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
-	step := Step[int]{
+	step := model.Step[int]{
 		Output: createInputChanWithCancel(t, 10, 5, cancel),
 	}
 	outputChan, err := AddStepOneToOneOrZero(pipe, "root step", &step, func(ctx context.Context, input int) (int, error) {
@@ -218,7 +221,7 @@ func TestAddStepOneToMany(t *testing.T) {
 	ctx := context.Background()
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
-	step := Step[int]{
+	step := model.Step[int]{
 		Output: createInputChan(t, 10),
 	}
 	outputChan, err := AddStepOneToMany(pipe, "first step", &step, func(ctx context.Context, input int) ([]int, error) {
@@ -241,7 +244,7 @@ func TestAddStepOneToManyError(t *testing.T) {
 	ctx := context.Background()
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
-	step := Step[int]{
+	step := model.Step[int]{
 		Output: createInputChan(t, 10),
 	}
 	outputChan, err := AddStepOneToMany(pipe, "root step", &step, func(ctx context.Context, input int) ([]int, error) {
@@ -268,7 +271,7 @@ func TestAddStepOneToManyCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
-	step := Step[int]{
+	step := model.Step[int]{
 		Output: createInputChanWithCancel(t, 10, 5, cancel),
 	}
 	outputChan, err := AddStepOneToMany(pipe, "root step", &step, func(ctx context.Context, input int) ([]int, error) {
@@ -292,7 +295,7 @@ func TestAddStepOneToManyCancel(t *testing.T) {
 }
 
 func TestAddSplitterNilPipe(t *testing.T) {
-	_, err := AddSplitter(nil, "root step", (*Step[int])(nil), 5)
+	_, err := AddSplitter(nil, "root step", (*model.Step[int])(nil), 5)
 	assert.Error(t, err)
 	assert.Error(t, err)
 }
@@ -300,14 +303,14 @@ func TestAddSplitterNilPipe(t *testing.T) {
 func TestAddSplitterNilInput(t *testing.T) {
 	pipe, err := New(context.Background())
 	assert.NoError(t, err)
-	_, err = AddSplitter(pipe, "root step", (*Step[int])(nil), 5)
+	_, err = AddSplitter(pipe, "root step", (*model.Step[int])(nil), 5)
 	assert.Error(t, err)
 }
 
 func TestAddSplitterZero(t *testing.T) {
 	pipe, err := New(context.Background())
 	assert.NoError(t, err)
-	step := Step[int]{
+	step := model.Step[int]{
 		Output: make(chan int),
 	}
 	_, err = AddSplitter(pipe, "root step", &step, 0)
@@ -330,7 +333,7 @@ func TestAddSplitter(t *testing.T) {
 			ctx := context.Background()
 			pipe, err := New(ctx)
 			assert.NoError(t, err)
-			step := Step[int]{
+			step := model.Step[int]{
 				Output: createInputChan(t, 10),
 			}
 			splitter, err := AddSplitter(pipe, "root step", &step, 2, SplitterBufferSize[int](tc.buffersize))
@@ -366,7 +369,7 @@ func TestAddSplitterCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
-	step := Step[int]{
+	step := model.Step[int]{
 		Output: createInputChanWithCancel(t, 10, 5, cancel),
 	}
 	splitter, err := AddSplitter(pipe, "root step", &step, 2)
@@ -422,7 +425,7 @@ func TestAddSink(t *testing.T) {
 	got := []int{}
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
-	step := Step[int]{
+	step := model.Step[int]{
 		Output: createInputChan(t, 10),
 	}
 	err = AddSink(pipe, "root step", &step, func(ctx context.Context, input int) error {
@@ -440,7 +443,7 @@ func TestAddSinkError(t *testing.T) {
 	got := []int{}
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
-	step := Step[int]{
+	step := model.Step[int]{
 		Output: createInputChan(t, 10),
 	}
 	err = AddSink(pipe, "root step", &step, func(ctx context.Context, input int) error {
@@ -460,13 +463,13 @@ func TestAddMerger(t *testing.T) {
 	got := []int{}
 	pipe, err := New(ctx)
 	assert.NoError(t, err)
-	step1 := Step[int]{
-		details: &StepInfo{},
+	step1 := model.Step[int]{
+		Details: &model.StepInfo{},
 		Output:  createInputChan(t, 5),
 	}
 
-	step2 := Step[int]{
-		details: &StepInfo{},
+	step2 := model.Step[int]{
+		Details: &model.StepInfo{},
 		Output:  createInputChan(t, 5),
 	}
 
@@ -525,18 +528,18 @@ func buildPipeline(t *testing.T, pipe *Pipeline, prefix string, conc int) {
 	assert.NoError(t, err)
 }
 
-/*
 func TestCompletePipeline(t *testing.T) {
 	ctx := context.Background()
 	m := measure.NewDefaultMeasure()
-	pipe, err := New(ctx, PipelineDrawer(drawer.NewSVGDrawer("./mygraph.gv"), m), PipelineMeasure(m))
+	pipe, err := New(ctx, drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph.gv"), m), measure.PipelineMeasure(m))
 	assert.NoError(t, err)
 	buildPipeline(t, pipe, "A", 10)
-	buildPipeline(t, pipe, "B", 10)
+	buildPipeline(t, pipe, "B", 20)
 	err = pipe.Run()
 	assert.NoError(t, err)
 }
 
+/*
 func TestSimplePipeline(t *testing.T) {
 	// conc := 1
 	ctx := context.Background()

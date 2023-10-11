@@ -3,12 +3,13 @@ package pipeline
 import (
 	"context"
 
+	"github.com/askiada/go-pipeline/pkg/pipeline/model"
 	"github.com/pkg/errors"
 )
 
-func prepareRootStep[O any](pipe *Pipeline, step *Step[O], opts ...StepOption[O]) error {
+func prepareRootStep[O any](pipe *Pipeline, step *model.Step[O], opts ...StepOption[O]) error {
 	for _, opt := range pipe.opts {
-		err := opt.BeforeStep(startStep.details, step.details)
+		err := opt.PrepareStep(model.StartStep.Details, step.Details)
 		if err != nil {
 			return errors.Wrap(err, "unable to run before step function")
 		}
@@ -19,7 +20,7 @@ func prepareRootStep[O any](pipe *Pipeline, step *Step[O], opts ...StepOption[O]
 	return nil
 }
 
-func AddRootStep[O any](p *Pipeline, name string, stepFn func(ctx context.Context, rootChan chan<- O) error, opts ...StepOption[O]) (*Step[O], error) {
+func AddRootStep[O any](p *Pipeline, name string, stepFn func(ctx context.Context, rootChan chan<- O) error, opts ...StepOption[O]) (*model.Step[O], error) {
 	if p == nil {
 		return nil, ErrPipelineMustBeSet
 	}
@@ -27,9 +28,9 @@ func AddRootStep[O any](p *Pipeline, name string, stepFn func(ctx context.Contex
 	errC := make(chan error, 1)
 	decoratedError := newErrorChan(name, errC)
 	output := make(chan O)
-	step := &Step[O]{
-		details: &StepInfo{
-			Type: rootStepType,
+	step := &model.Step[O]{
+		Details: &model.StepInfo{
+			Type: model.RootStepType,
 			Name: name,
 		},
 		Output: output,
@@ -40,7 +41,7 @@ func AddRootStep[O any](p *Pipeline, name string, stepFn func(ctx context.Contex
 	}
 	go func() {
 		defer func() {
-			if !step.keepOpen {
+			if !step.KeepOpen {
 				close(output)
 			}
 			close(errC)

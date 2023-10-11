@@ -2,26 +2,14 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"time"
 
-	"github.com/askiada/go-pipeline/pkg/pipeline/measure"
+	"github.com/askiada/go-pipeline/pkg/pipeline/model"
 	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
 )
-
-type StepInfo struct {
-	Type       stepType
-	Name       string
-	Concurrent int
-	Metric     measure.Metric
-}
-
-type Step[O any] struct {
-	Output   chan O
-	keepOpen bool
-	details  *StepInfo
-}
 
 type OneToOneFn[I, O any] func(context.Context, I) (O, error)
 
@@ -29,9 +17,9 @@ type OneToManyFn[I, O any] func(context.Context, I) ([]O, error)
 
 type StepFromChanFn[I, O any] func(ctx context.Context, input <-chan I, output chan O) error
 
-type stepToStepFn[I, O any] func(ctx context.Context, input *Step[I], output *Step[O]) error
+type stepToStepFn[I, O any] func(ctx context.Context, input *model.Step[I], output *model.Step[O]) error
 
-func sequentialOneToOneFn[I any, O any](ctx context.Context, goIdx int, input *Step[I], output *Step[O], oneToOne OneToOneFn[I, O], ignoreZero bool) error {
+func sequentialOneToOneFn[I any, O any](ctx context.Context, goIdx int, input *model.Step[I], output *model.Step[O], oneToOne OneToOneFn[I, O], ignoreZero bool, opts ...model.PipelineOption) error {
 outer:
 	for {
 		start := time.Now()
@@ -58,9 +46,11 @@ outer:
 			case <-ctx.Done():
 				return errors.Wrapf(ctx.Err(), "go routine %d:", goIdx)
 			case output.Output <- out:
-				if output.details.Metric != nil {
-					output.details.Metric.AddDuration(endFn)
-					output.details.Metric.AddTransportDuration(input.details.Name, time.Since(start)-endFn)
+				for _, opt := range opts {
+					err := opt.OnStepOutput(input.Details, output.Details, time.Since(start)-endFn, endFn)
+					if err != nil {
+						return errors.Wrap(err, "unable to run before step function")
+					}
 				}
 			}
 		}
@@ -71,47 +61,49 @@ outer:
 
 func concurrentOneToOneFn[I any, O any](
 	ctx context.Context,
-	input *Step[I],
-	output *Step[O],
+	input *model.Step[I],
+	output *model.Step[O],
 	oneToOne OneToOneFn[I, O],
 	ignoreZero bool,
+	opts ...model.PipelineOption,
 ) error {
 	errGrp, dCtx := errgroup.WithContext(ctx)
-	errGrp.SetLimit(output.details.Concurrent)
+	errGrp.SetLimit(output.Details.Concurrent)
 	// starts many consumers concurrently
 	// each consumer stops as soon as an error happens
-	for goIdx := 0; goIdx < output.details.Concurrent; goIdx++ {
+	for goIdx := 0; goIdx < output.Details.Concurrent; goIdx++ {
 		localGoIdx := goIdx
 		errGrp.Go(func() error {
-			return sequentialOneToOneFn(dCtx, localGoIdx, input, output, oneToOne, ignoreZero)
+			return sequentialOneToOneFn(dCtx, localGoIdx, input, output, oneToOne, ignoreZero, opts...)
 		})
 	}
 	return errGrp.Wait()
 }
 
-func runOneToOne[I any, O any](ctx context.Context, input *Step[I], output *Step[O], oneToOne OneToOneFn[I, O], ignoreZero bool) error {
-	if output.details.Concurrent == 0 {
-		output.details.Concurrent = 1
+func runOneToOne[I any, O any](ctx context.Context, input *model.Step[I], output *model.Step[O], oneToOne OneToOneFn[I, O], ignoreZero bool, opts ...model.PipelineOption) error {
+	if output.Details.Concurrent == 0 {
+		output.Details.Concurrent = 1
 	}
-	if output.details.Concurrent == 1 {
-		return sequentialOneToOneFn(ctx, 1, input, output, oneToOne, ignoreZero)
+	if output.Details.Concurrent == 1 {
+		return sequentialOneToOneFn(ctx, 1, input, output, oneToOne, ignoreZero, opts...)
 	}
-	return concurrentOneToOneFn(ctx, input, output, oneToOne, ignoreZero)
+	return concurrentOneToOneFn(ctx, input, output, oneToOne, ignoreZero, opts...)
 }
 
 func sequentialOneToManyFn[I any, O any](
 	ctx context.Context,
 	goIdx int,
-	input *Step[I],
-	output *Step[O],
+	input *model.Step[I],
+	output *model.Step[O],
 	oneToMany OneToManyFn[I, O],
+	opts ...model.PipelineOption,
 ) error {
 outer:
 	for {
 		start := time.Now()
 		select {
 		case <-ctx.Done():
-			return errors.Wrapf(ctx.Err(), "go routine %d:", goIdx)
+			return errors.Wrapf(ctx.Err(), "go routine %d", goIdx)
 		case in, ok := <-input.Output:
 			if !ok {
 				break outer
@@ -119,7 +111,7 @@ outer:
 			startFn := time.Now()
 			outs, err := oneToMany(ctx, in)
 			if err != nil {
-				return errors.Wrapf(err, "go routine %d:", goIdx)
+				return errors.Wrapf(err, "go routine %d", goIdx)
 			}
 			endFn := time.Since(startFn)
 			for _, out := range outs {
@@ -127,11 +119,14 @@ outer:
 				// stop to add new elements to the pipeline
 				select {
 				case <-ctx.Done():
-					return errors.Wrapf(ctx.Err(), "go routine %d:", goIdx)
+					return errors.Wrapf(ctx.Err(), "go routine %d", goIdx)
 				case output.Output <- out:
-					if output.details.Metric != nil {
-						output.details.Metric.AddDuration(endFn)
-						output.details.Metric.AddTransportDuration(input.details.Name, time.Since(start)-endFn)
+					end := time.Since(start)
+					for _, opt := range opts {
+						err := opt.OnStepOutput(input.Details, output.Details, end-endFn, endFn)
+						if err != nil {
+							return errors.Wrap(err, "unable to run before step function")
+						}
 					}
 				}
 			}
@@ -141,13 +136,13 @@ outer:
 	return nil
 }
 
-func concurrentOneToManyFn[I any, O any](ctx context.Context, input *Step[I], output *Step[O], oneToMany OneToManyFn[I, O]) error {
+func concurrentOneToManyFn[I any, O any](ctx context.Context, input *model.Step[I], output *model.Step[O], oneToMany OneToManyFn[I, O], opts ...model.PipelineOption) error {
 	errGrp, dCtx := errgroup.WithContext(ctx)
-	errGrp.SetLimit(output.details.Concurrent)
-	for goIdx := 0; goIdx < output.details.Concurrent; goIdx++ {
+	errGrp.SetLimit(output.Details.Concurrent)
+	for goIdx := 0; goIdx < output.Details.Concurrent; goIdx++ {
 		localGoIdx := goIdx
 		errGrp.Go(func() error {
-			return sequentialOneToManyFn(dCtx, localGoIdx, input, output, oneToMany)
+			return sequentialOneToManyFn(dCtx, localGoIdx, input, output, oneToMany, opts...)
 		})
 	}
 	return errGrp.Wait()
@@ -155,22 +150,23 @@ func concurrentOneToManyFn[I any, O any](ctx context.Context, input *Step[I], ou
 
 func runOneToMany[I any, O any](
 	ctx context.Context,
-	input *Step[I],
-	output *Step[O],
+	input *model.Step[I],
+	output *model.Step[O],
 	oneToMany func(context.Context, I) ([]O, error),
+	opts ...model.PipelineOption,
 ) error {
-	if output.details.Concurrent == 0 {
-		output.details.Concurrent = 1
+	if output.Details.Concurrent == 0 {
+		output.Details.Concurrent = 1
 	}
-	if output.details.Concurrent == 1 {
-		return sequentialOneToManyFn(ctx, 1, input, output, oneToMany)
+	if output.Details.Concurrent == 1 {
+		return sequentialOneToManyFn(ctx, 1, input, output, oneToMany, opts...)
 	}
-	return concurrentOneToManyFn(ctx, input, output, oneToMany)
+	return concurrentOneToManyFn(ctx, input, output, oneToMany, opts...)
 }
 
-func prepareStep[I, O any](pipe *Pipeline, input *Step[I], step *Step[O]) error {
+func prepareStep[I, O any](pipe *Pipeline, input *model.Step[I], step *model.Step[O]) error {
 	for _, opt := range pipe.opts {
-		err := opt.BeforeStep(input.details, step.details)
+		err := opt.PrepareStep(input.Details, step.Details)
 		if err != nil {
 			return errors.Wrap(err, "unable to run before step function")
 		}
@@ -181,10 +177,10 @@ func prepareStep[I, O any](pipe *Pipeline, input *Step[I], step *Step[O]) error 
 func addStep[I any, O any](
 	pipe *Pipeline,
 	name string,
-	input *Step[I],
+	input *model.Step[I],
 	stepToStep stepToStepFn[I, O],
 	opts ...StepOption[O],
-) (*Step[O], error) {
+) (*model.Step[O], error) {
 	if pipe == nil {
 		return nil, ErrPipelineMustBeSet
 	}
@@ -195,9 +191,9 @@ func addStep[I any, O any](
 	errC := make(chan error, 1)
 	decoratedError := newErrorChan(name, errC)
 	output := make(chan O)
-	step := &Step[O]{
-		details: &StepInfo{
-			Type: normalStepType,
+	step := &model.Step[O]{
+		Details: &model.StepInfo{
+			Type: model.NormalStepType,
 			Name: name,
 		},
 		Output: output,
@@ -212,7 +208,7 @@ func addStep[I any, O any](
 	go func() {
 		defer func() {
 			close(errC)
-			if !step.keepOpen {
+			if !step.KeepOpen {
 				close(output)
 			}
 		}()
@@ -228,27 +224,29 @@ func addStep[I any, O any](
 
 func runStepFromChan[I, O any](
 	ctx context.Context,
-	input *Step[I],
-	output *Step[O],
+	input *model.Step[I],
+	output *model.Step[O],
 	stepFn StepFromChanFn[I, O],
 	ignoreZero bool,
+	opts ...model.PipelineOption,
 ) error {
-	if output.details.Concurrent == 0 {
-		output.details.Concurrent = 1
+	if output.Details.Concurrent == 0 {
+		output.Details.Concurrent = 1
 	}
-	if output.details.Concurrent == 1 {
-		return sequentialStepFromChanFn(ctx, 1, input, output, stepFn, ignoreZero)
+	if output.Details.Concurrent == 1 {
+		return sequentialStepFromChanFn(ctx, 1, input, output, stepFn, ignoreZero, opts...)
 	}
-	return concurrentStepFromChanFn(ctx, input, output, stepFn, ignoreZero)
+	return concurrentStepFromChanFn(ctx, input, output, stepFn, ignoreZero, opts...)
 }
 
 func sequentialStepFromChanFn[I any, O any](
 	ctx context.Context,
 	goIdx int,
-	input *Step[I],
-	output *Step[O],
+	input *model.Step[I],
+	output *model.Step[O],
 	stepFn StepFromChanFn[I, O],
 	ignoreZero bool,
+	opts ...model.PipelineOption,
 ) error {
 	inputPlaceholder := make(chan I)
 	go func() {
@@ -266,7 +264,14 @@ func sequentialStepFromChanFn[I any, O any](
 				case <-ctx.Done():
 					break outer
 				case inputPlaceholder <- entry:
-					output.details.Metric.AddTransportDuration(input.details.Name, time.Since(start))
+
+					for _, opt := range opts {
+						err := opt.OnStepOutput(input.Details, output.Details, time.Since(start), 0)
+						if err != nil {
+							// TODO: fix me to return an error
+							fmt.Println(errors.Wrap(err, "unable to run before step function"))
+						}
+					}
 				}
 			}
 		}
@@ -278,16 +283,17 @@ func sequentialStepFromChanFn[I any, O any](
 
 func concurrentStepFromChanFn[I any, O any](
 	ctx context.Context,
-	input *Step[I],
-	output *Step[O],
+	input *model.Step[I],
+	output *model.Step[O],
 	stepFn StepFromChanFn[I, O],
 	ignoreZero bool,
+	opts ...model.PipelineOption,
 ) error {
 	errGrp, dCtx := errgroup.WithContext(ctx)
-	errGrp.SetLimit(output.details.Concurrent)
+	errGrp.SetLimit(output.Details.Concurrent)
 	// starts many consumers concurrently
 	// each consumer stops as soon as an error happens
-	for goIdx := 0; goIdx < output.details.Concurrent; goIdx++ {
+	for goIdx := 0; goIdx < output.Details.Concurrent; goIdx++ {
 		localGoIdx := goIdx
 		errGrp.Go(func() error {
 			return sequentialStepFromChanFn(dCtx, localGoIdx, input, output, stepFn, ignoreZero)
@@ -299,47 +305,47 @@ func concurrentStepFromChanFn[I any, O any](
 func AddStepOneToOne[I any, O any](
 	pipe *Pipeline,
 	name string,
-	input *Step[I],
+	input *model.Step[I],
 	oneToOne OneToOneFn[I, O],
 	opts ...StepOption[O],
-) (*Step[O], error) {
-	return addStep(pipe, name, input, func(ctx context.Context, in *Step[I], out *Step[O]) error {
-		return runOneToOne(ctx, in, out, oneToOne, false)
+) (*model.Step[O], error) {
+	return addStep(pipe, name, input, func(ctx context.Context, in *model.Step[I], out *model.Step[O]) error {
+		return runOneToOne(ctx, in, out, oneToOne, false, pipe.opts...)
 	}, opts...)
 }
 
 func AddStepOneToOneOrZero[I any, O any](
 	pipe *Pipeline,
 	name string,
-	input *Step[I],
+	input *model.Step[I],
 	oneToOne OneToOneFn[I, O],
 	opts ...StepOption[O],
-) (*Step[O], error) {
-	return addStep(pipe, name, input, func(ctx context.Context, in *Step[I], out *Step[O]) error {
-		return runOneToOne(ctx, in, out, oneToOne, true)
+) (*model.Step[O], error) {
+	return addStep(pipe, name, input, func(ctx context.Context, in *model.Step[I], out *model.Step[O]) error {
+		return runOneToOne(ctx, in, out, oneToOne, true, pipe.opts...)
 	}, opts...)
 }
 
 func AddStepOneToMany[I any, O any](
 	pipe *Pipeline,
 	name string,
-	input *Step[I],
+	input *model.Step[I],
 	oneToMany OneToManyFn[I, O],
 	opts ...StepOption[O],
-) (*Step[O], error) {
-	return addStep(pipe, name, input, func(ctx context.Context, in *Step[I], out *Step[O]) error {
-		return runOneToMany(ctx, in, out, oneToMany)
+) (*model.Step[O], error) {
+	return addStep(pipe, name, input, func(ctx context.Context, in *model.Step[I], out *model.Step[O]) error {
+		return runOneToMany(ctx, in, out, oneToMany, pipe.opts...)
 	}, opts...)
 }
 
 func AddStepFromChan[I any, O any](
 	pipe *Pipeline,
 	name string,
-	input *Step[I],
+	input *model.Step[I],
 	stepFromChan StepFromChanFn[I, O],
 	opts ...StepOption[O],
-) (*Step[O], error) {
-	return addStep(pipe, name, input, func(ctx context.Context, in *Step[I], out *Step[O]) error {
+) (*model.Step[O], error) {
+	return addStep(pipe, name, input, func(ctx context.Context, in *model.Step[I], out *model.Step[O]) error {
 		return runStepFromChan(ctx, in, out, stepFromChan, false)
 	}, opts...)
 }

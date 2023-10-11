@@ -4,25 +4,26 @@ import (
 	"context"
 	"time"
 
+	"github.com/askiada/go-pipeline/pkg/pipeline/model"
 	"github.com/pkg/errors"
 )
 
-func AddSink[I any](pipe *Pipeline, name string, input *Step[I], sinkFn func(ctx context.Context, input I) error) error {
+func AddSink[I any](pipe *Pipeline, name string, input *model.Step[I], sinkFn func(ctx context.Context, input I) error) error {
 	if pipe == nil {
 		return ErrPipelineMustBeSet
 	}
 	if input == nil {
 		return ErrInputMustBeSet
 	}
-	step := &Step[I]{
-		details: &StepInfo{
-			Type:       sinkStepType,
+	step := &model.Step[I]{
+		Details: &model.StepInfo{
+			Type:       model.SinkStepType,
 			Name:       name,
 			Concurrent: 1,
 		},
 	}
 	for _, opt := range pipe.opts {
-		err := opt.BeforeSink(input.details, step.details)
+		err := opt.PrepareSink(input.Details, step.Details)
 		if err != nil {
 			return errors.Wrap(err, "unable to run before step function")
 		}
@@ -42,26 +43,33 @@ func AddSink[I any](pipe *Pipeline, name string, input *Step[I], sinkFn func(ctx
 				errC <- pipe.ctx.Err()
 
 				break outer
-			case in, ok := <-input.Output:
+			case entry, ok := <-input.Output:
 				if !ok {
 					break outer
 				}
 				endInputChan := time.Since(startInputChan)
 
 				startFn := time.Now()
-				err := sinkFn(pipe.ctx, in)
+				err := sinkFn(pipe.ctx, entry)
 				if err != nil {
 					errC <- err
 				}
 				endFn := time.Since(startFn)
-				if step.details.Metric != nil {
-					step.details.Metric.AddDuration(endFn)
-					step.details.Metric.AddTransportDuration(input.details.Name, endInputChan+endFn)
+
+				for _, opt := range pipe.opts {
+					err := opt.OnSinkOutput(input.Details, step.Details, endInputChan-endFn, endFn)
+					if err != nil {
+						errC <- errors.Wrap(err, "unable to run before step function")
+					}
 				}
 			}
 		}
-		if step.details.Metric != nil {
-			step.details.Metric.SetTotalDuration(time.Since(pipe.startTime))
+		totalDuration := time.Since(pipe.startTime)
+		for _, opt := range pipe.opts {
+			err := opt.AfterSink(step.Details, totalDuration)
+			if err != nil {
+				errC <- errors.Wrap(err, "unable to run before step function")
+			}
 		}
 	}()
 	pipe.errcList.add(decoratedError)
@@ -69,22 +77,22 @@ func AddSink[I any](pipe *Pipeline, name string, input *Step[I], sinkFn func(ctx
 	return nil
 }
 
-func AddSinkFromChan[I any](pipe *Pipeline, name string, input *Step[I], stepFn func(ctx context.Context, input <-chan I) error) error {
+func AddSinkFromChan[I any](pipe *Pipeline, name string, input *model.Step[I], stepFn func(ctx context.Context, input <-chan I) error) error {
 	if pipe == nil {
 		return ErrPipelineMustBeSet
 	}
 	if input == nil {
 		return ErrInputMustBeSet
 	}
-	step := &Step[I]{
-		details: &StepInfo{
-			Type:       sinkStepType,
+	step := &model.Step[I]{
+		Details: &model.StepInfo{
+			Type:       model.SinkStepType,
 			Name:       name,
 			Concurrent: 1,
 		},
 	}
 	for _, opt := range pipe.opts {
-		err := opt.BeforeSink(input.details, step.details)
+		err := opt.PrepareSink(input.Details, step.Details)
 		if err != nil {
 			return errors.Wrap(err, "unable to run before step function")
 		}
@@ -100,8 +108,12 @@ func AddSinkFromChan[I any](pipe *Pipeline, name string, input *Step[I], stepFn 
 		if err != nil {
 			errC <- err
 		}
-		if step.details.Metric != nil {
-			step.details.Metric.SetTotalDuration(time.Since(pipe.startTime))
+		totalDuration := time.Since(pipe.startTime)
+		for _, opt := range pipe.opts {
+			err := opt.AfterSink(step.Details, totalDuration)
+			if err != nil {
+				errC <- errors.Wrap(err, "unable to run before step function")
+			}
 		}
 	}()
 	pipe.errcList.add(decoratedError)
