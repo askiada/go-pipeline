@@ -24,18 +24,17 @@ func (s *Splitter[I]) Get() (*Step[I], bool) {
 }
 
 func prepareSplitter[I any](p *Pipeline, name string, input *Step[I], splitter *Splitter[I]) error {
-	if p.drawer != nil {
-		err := p.drawer.addStep(splitter.mainStep.Name)
-		if err != nil {
-			return err
-		}
-		err = p.drawer.addLink(input.Name, splitter.mainStep.Name)
-		if err != nil {
-			return err
-		}
+	err := p.feature.addStep(splitter.mainStep.Name)
+	if err != nil {
+		return err
 	}
-	if p.measure != nil {
-		mt := p.measure.addStep(splitter.mainStep.Name, 1)
+	err = p.feature.addLink(input.Name, splitter.mainStep.Name)
+	if err != nil {
+		return err
+	}
+
+	if p.feature.measure != nil {
+		mt := p.feature.measure.addStep(splitter.mainStep.Name, 1)
 		splitter.mainStep.metric = mt
 	}
 	return nil

@@ -11,41 +11,20 @@ import (
 
 type drawer struct {
 	svgFileName string
-	graph       graph.Graph[string, string]
-	steps       map[string]struct{}
 }
 
 func newDrawer(svgFileName string) *drawer {
 	return &drawer{
 		svgFileName: svgFileName,
-		graph:       graph.New(graph.StringHash, graph.Directed()),
-		steps:       make(map[string]struct{}),
 	}
 }
 
-func (d *drawer) addStep(name string) error {
-	err := d.graph.AddVertex(name)
-	if err != nil {
-		return err
-	}
-	d.steps[name] = struct{}{}
-	return nil
-}
-
-func (d *drawer) addLink(parentName, childrenName string) error {
-	err := d.graph.AddEdge(parentName, childrenName)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (d *drawer) draw() error {
+func (d *drawer) draw(graph graph.Graph[string, string]) error {
 	file, err := os.Create(d.svgFileName)
 	if err != nil {
 		return err
 	}
-	err = dot(d.graph, file)
+	err = dot(graph, file)
 	if err != nil {
 		return err
 	}
@@ -73,10 +52,10 @@ type description struct {
 type statement struct {
 	Source           interface{}
 	Target           interface{}
-	SourceWeight     int
+	SourceWeight     int64
 	SourceAttributes map[string]string
 	HTMLAttributes   map[string]string
-	EdgeWeight       int
+	EdgeWeight       int64
 	EdgeAttributes   map[string]string
 }
 

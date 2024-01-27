@@ -133,35 +133,7 @@ func oneToMany[I any, O any](ctx context.Context, input *Step[I], output *Step[O
 	return concurrentOneToManyFn(ctx, input, output, oneToManyFn)
 }
 
-func prepareStep[I, O any](p *Pipeline, input *Step[I], step *Step[O]) error {
-	if p.drawer != nil {
-		err := p.drawer.addStep(step.Name)
-		if err != nil {
-			return err
-		}
-		err = p.drawer.addLink(input.Name, step.Name)
-		if err != nil {
-			return err
-		}
-	}
-
-	if p.measure != nil {
-		mt := p.measure.addStep(step.Name, step.concurrent)
-		step.metric = mt
-	}
-	return nil
-}
-
-func addStep[I any, O any](p *Pipeline, name string, input *Step[I], stepToStepFn func(ctx context.Context, input *Step[I], output *Step[O]) error, opts ...StepOption[O]) (*Step[O], error) {
-	if p == nil {
-		return nil, ErrPipelineMustBeSet
-	}
-	if input == nil {
-		return nil, ErrInputMustBeSet
-	}
-
-	errC := make(chan error, 1)
-	decoratedError := newErrorChan(name, errC)
+func prepareStep[I, O any](p *Pipeline, name string, input *Step[I], opts ...StepOption[O]) (*Step[O], error) {
 	output := make(chan O)
 	step := &Step[O]{
 		Type:   normalStepType,
@@ -171,14 +143,40 @@ func addStep[I any, O any](p *Pipeline, name string, input *Step[I], stepToStepF
 	for _, opt := range opts {
 		opt(step)
 	}
-	err := prepareStep(p, input, step)
+
+	err := p.feature.addStep(step.Name)
 	if err != nil {
 		return nil, err
 	}
+	err = p.feature.addLink(input.Name, step.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	if p.feature.measure != nil {
+		mt := p.feature.measure.addStep(step.Name, step.concurrent)
+		step.metric = mt
+	}
+	return step, nil
+}
+
+func addStep[I any, O any](p *Pipeline, name string, input *Step[I], step *Step[O], stepToStepFn func(ctx context.Context, input *Step[I], output *Step[O]) error, opts ...StepOption[O]) (*Step[O], error) {
+	if p == nil {
+		return nil, ErrPipelineMustBeSet
+	}
+	if input == nil {
+		return nil, ErrInputMustBeSet
+	}
+
+	errC := make(chan error, 1)
+	decoratedError := newErrorChan(name, errC)
+
 	go func() {
 		defer func() {
 			close(errC)
-			close(output)
+			if step.Output != nil {
+				close(step.Output)
+			}
 		}()
 		err := stepToStepFn(p.ctx, input, step)
 		if err != nil {
@@ -191,13 +189,21 @@ func addStep[I any, O any](p *Pipeline, name string, input *Step[I], stepToStepF
 }
 
 func AddStepOneToOne[I any, O any](p *Pipeline, name string, input *Step[I], oneToOneFn func(context.Context, I) (O, error), opts ...StepOption[O]) (*Step[O], error) {
-	return addStep(p, name, input, func(ctx context.Context, in *Step[I], out *Step[O]) error {
+	step, err := prepareStep(p, name, input, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return addStep(p, name, input, step, func(ctx context.Context, in *Step[I], out *Step[O]) error {
 		return oneToOne(ctx, in, out, oneToOneFn)
 	}, opts...)
 }
 
 func AddStepOneToMany[I any, O any](p *Pipeline, name string, input *Step[I], oneToManyFn func(context.Context, I) ([]O, error), opts ...StepOption[O]) (*Step[O], error) {
-	return addStep(p, name, input, func(ctx context.Context, in *Step[I], out *Step[O]) error {
+	step, err := prepareStep(p, name, input, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return addStep(p, name, input, step, func(ctx context.Context, in *Step[I], out *Step[O]) error {
 		return oneToMany(ctx, in, out, oneToManyFn)
 	})
 }

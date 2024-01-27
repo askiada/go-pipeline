@@ -60,6 +60,7 @@ func (mt *metric) avgChannel() map[string]*chanInfo {
 		if ch.elapsed == 0 {
 			continue
 		}
+		mt.channelElapsed[name] = ch
 		mt.channelElapsed[name].elapsed = round(time.Duration((float64(ch.elapsed) / (float64(ch.total))) / float64(mt.concurrent)))
 	}
 

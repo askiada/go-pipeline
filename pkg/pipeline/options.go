@@ -4,13 +4,13 @@ type PipelineOption func(p *Pipeline)
 
 func PipelineDrawer(svgFileName string) PipelineOption {
 	return func(p *Pipeline) {
-		p.drawer = newDrawer(svgFileName)
+		p.feature.drawer = newDrawer(svgFileName)
 	}
 }
 
 func PipelineMeasure() PipelineOption {
 	return func(p *Pipeline) {
-		p.measure = newMeasure()
+		p.feature.measure = newMeasure()
 	}
 }
 

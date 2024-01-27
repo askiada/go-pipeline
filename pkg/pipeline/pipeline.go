@@ -5,6 +5,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/askiada/go-pipeline/internal/store"
 	"github.com/dominikbraun/graph"
 	"gopkg.in/go-playground/colors.v1"
 )
@@ -22,8 +23,7 @@ type Pipeline struct {
 	ctx       context.Context
 	errcList  *errorChans
 	cancel    context.CancelFunc
-	drawer    *drawer
-	measure   *measure
+	feature   *feature[string, string]
 	startTime time.Time
 }
 
@@ -34,28 +34,34 @@ func New(ctx context.Context, opts ...PipelineOption) (*Pipeline, error) {
 		errcList:  &errorChans{},
 		cancel:    cancel,
 		startTime: time.Now(),
+		feature:   &feature[string, string]{},
 	}
 
 	for _, opt := range opts {
 		opt(p)
 	}
 
-	if p.drawer != nil {
-		err := p.drawer.addStep("start")
+	if p.feature.drawer != nil {
+		p.feature.store = store.NewMemoryStore[string, string]()
+		p.feature.graph = graph.NewWithStore(graph.StringHash, graph.Store[string, string](p.feature.store), graph.Directed())
+	}
+
+	if p.feature.drawer != nil {
+		err := p.feature.addStep("start")
 		if err != nil {
 			return nil, err
 		}
-		err = p.drawer.addStep("end")
+		err = p.feature.addStep("end")
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	if p.measure != nil {
-		mt := p.measure.addStep("start", 1)
-		p.measure.start = mt
-		mt = p.measure.addStep("end", 1)
-		p.measure.end = mt
+	if p.feature.measure != nil {
+		mt := p.feature.measure.addStep("start", 1)
+		p.feature.measure.start = mt
+		mt = p.feature.measure.addStep("end", 1)
+		p.feature.measure.end = mt
 	}
 	return p, nil
 }
@@ -74,19 +80,16 @@ func waitForPipeline(errs ...*errorChan) error {
 }
 
 func (p *Pipeline) drawMeasure() error {
-	if p.measure == nil {
+	if p.feature.measure == nil {
 		return nil
 	}
-
-	_, properties, err := p.drawer.graph.VertexWithProperties("end")
-	if err != nil {
-		return err
-	}
-	properties.Attributes["xlabel"] = time.Since(p.startTime).String()
+	p.feature.store.UpdateVertex("end", func(vp *graph.VertexProperties) {
+		vp.Attributes["xlabel"] = time.Since(p.startTime).String()
+	})
 
 	allChanElapsed := make(map[time.Duration]string)
 	sortedAllChanElapsed := []time.Duration{}
-	for _, step := range p.measure.steps {
+	for _, step := range p.feature.measure.steps {
 		channelElapsed := step.avgChannel()
 		for _, info := range channelElapsed {
 			if info.elapsed == 0 {
@@ -124,28 +127,44 @@ func (p *Pipeline) drawMeasure() error {
 		allChanElapsed[curr] = redColor.ToHEX().String()
 	}
 
-	for name, step := range p.measure.steps {
-		_, properties, err := p.drawer.graph.VertexWithProperties(name)
-		if err != nil {
-			return err
+	p.feature.maxAvgStep = time.Duration(0)
+	p.feature.maxAvgEdge = time.Duration(0)
+	for _, step := range p.feature.measure.steps {
+		stepAvg := step.avgStep()
+		if stepAvg > p.feature.maxAvgStep {
+			p.feature.maxAvgStep = stepAvg
 		}
+		for _, info := range step.channelElapsed {
+			if info.elapsed > p.feature.maxAvgEdge {
+				p.feature.maxAvgEdge = info.elapsed
+			}
+		}
+	}
+
+	for name, step := range p.feature.measure.steps {
 		stepAvg := step.avgStep()
 		if stepAvg != 0 {
-			properties.Attributes["xlabel"] = stepAvg.String()
+			p.feature.store.UpdateVertex(name, func(vp *graph.VertexProperties) {
+				vp.Attributes["xlabel"] = stepAvg.String()
+				vp.Weight = int64(p.feature.maxAvgStep - stepAvg)
+			})
 		}
-
 		if step.endDuration > 0 {
-			properties.Attributes["xlabel"] += ", end: " + step.endDuration.String()
+			p.feature.store.UpdateVertex(name, func(vp *graph.VertexProperties) {
+				vp.Attributes["xlabel"] += ", end: " + step.endDuration.String()
+			})
 		}
 
 		for inputStep, info := range step.channelElapsed {
 			if info.elapsed == 0 {
 				continue
 			}
-			err := p.drawer.graph.UpdateEdge(inputStep, name,
+			err := p.feature.graph.UpdateEdge(inputStep, name,
 				graph.EdgeAttribute("label", info.elapsed.String()),
 				graph.EdgeAttribute("fontcolor", "blue"),
 				graph.EdgeAttribute("color", allChanElapsed[info.elapsed]), //nolint
+				// Useful to compute slowest path
+				graph.EdgeWeight(int64(p.feature.maxAvgEdge-info.elapsed)),
 			)
 			if err != nil {
 				return err
@@ -156,7 +175,7 @@ func (p *Pipeline) drawMeasure() error {
 }
 
 func (p *Pipeline) finishRun() error {
-	if p.drawer == nil {
+	if p.feature.drawer == nil {
 		return nil
 	}
 
@@ -164,7 +183,7 @@ func (p *Pipeline) finishRun() error {
 	if err != nil {
 		return err
 	}
-	err = p.drawer.draw()
+	err = p.feature.drawer.draw(p.feature.graph)
 	if err != nil {
 		return err
 	}

@@ -3,18 +3,16 @@ package pipeline
 import "context"
 
 func prepareRootStep[O any](p *Pipeline, step *Step[O]) error {
-	if p.drawer != nil {
-		err := p.drawer.addStep(step.Name)
-		if err != nil {
-			return err
-		}
-		err = p.drawer.addLink("start", step.Name)
-		if err != nil {
-			return err
-		}
+	err := p.feature.addStep(step.Name)
+	if err != nil {
+		return err
 	}
-	if p.measure != nil {
-		mt := p.measure.addStep(step.Name, 1)
+	err = p.feature.addLink("start", step.Name)
+	if err != nil {
+		return err
+	}
+	if p.feature.measure != nil {
+		mt := p.feature.measure.addStep(step.Name, 1)
 		step.metric = mt
 	}
 	return nil
