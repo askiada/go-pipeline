@@ -2,7 +2,6 @@ package pipeline
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"time"
 
@@ -121,13 +120,13 @@ outer:
 				case <-ctx.Done():
 					return errors.Wrapf(ctx.Err(), "go routine %d", goIdx)
 				case output.Output <- out:
-					end := time.Since(start)
-					for _, opt := range opts {
-						err := opt.OnStepOutput(input.Details, output.Details, end-endFn, endFn)
-						if err != nil {
-							return errors.Wrap(err, "unable to run before step function")
-						}
-					}
+				}
+			}
+			end := time.Since(start)
+			for _, opt := range opts {
+				err := opt.OnStepOutput(input.Details, output.Details, end-endFn, endFn)
+				if err != nil {
+					return errors.Wrap(err, "unable to run before step function")
 				}
 			}
 		}
@@ -234,9 +233,9 @@ func runStepFromChan[I, O any](
 		output.Details.Concurrent = 1
 	}
 	if output.Details.Concurrent == 1 {
-		return sequentialStepFromChanFn(ctx, 1, input, output, stepFn, ignoreZero, opts...)
+		return sequentialStepFromChanFn(ctx, 1, input, output, stepFn, opts...)
 	}
-	return concurrentStepFromChanFn(ctx, input, output, stepFn, ignoreZero, opts...)
+	return concurrentStepFromChanFn(ctx, input, output, stepFn, opts...)
 }
 
 func sequentialStepFromChanFn[I any, O any](
@@ -245,14 +244,19 @@ func sequentialStepFromChanFn[I any, O any](
 	input *model.Step[I],
 	output *model.Step[O],
 	stepFn StepFromChanFn[I, O],
-	ignoreZero bool,
 	opts ...model.PipelineOption,
 ) error {
 	inputPlaceholder := make(chan I)
+	total := 0
+	start := time.Now()
+	var end time.Duration
 	go func() {
+		defer func() {
+			close(inputPlaceholder)
+		}()
+
 	outer:
 		for {
-			start := time.Now()
 			select {
 			case <-ctx.Done():
 				break outer
@@ -264,21 +268,27 @@ func sequentialStepFromChanFn[I any, O any](
 				case <-ctx.Done():
 					break outer
 				case inputPlaceholder <- entry:
-
-					for _, opt := range opts {
-						err := opt.OnStepOutput(input.Details, output.Details, time.Since(start), 0)
-						if err != nil {
-							// TODO: fix me to return an error
-							fmt.Println(errors.Wrap(err, "unable to run before step function"))
-						}
-					}
+					total++
 				}
 			}
 		}
-		close(inputPlaceholder)
+		end = time.Since(start)
 	}()
+	startStep := time.Now()
+	err := stepFn(ctx, inputPlaceholder, output.Output)
+	if err != nil {
+		return errors.Wrap(err, "unable to run step function")
+	}
+	endStep := time.Since(startStep)
 
-	return stepFn(ctx, inputPlaceholder, output.Output)
+	for _, opt := range opts {
+		err := opt.OnStepOutput(input.Details, output.Details, time.Duration(float64(end)/float64(total)), time.Duration(float64(endStep)/float64(total)))
+		if err != nil {
+			return errors.Wrapf(err, "go routine %d: unable to run after step function", goIdx)
+		}
+	}
+
+	return nil
 }
 
 func concurrentStepFromChanFn[I any, O any](
@@ -286,7 +296,6 @@ func concurrentStepFromChanFn[I any, O any](
 	input *model.Step[I],
 	output *model.Step[O],
 	stepFn StepFromChanFn[I, O],
-	ignoreZero bool,
 	opts ...model.PipelineOption,
 ) error {
 	errGrp, dCtx := errgroup.WithContext(ctx)
@@ -296,7 +305,7 @@ func concurrentStepFromChanFn[I any, O any](
 	for goIdx := 0; goIdx < output.Details.Concurrent; goIdx++ {
 		localGoIdx := goIdx
 		errGrp.Go(func() error {
-			return sequentialStepFromChanFn(dCtx, localGoIdx, input, output, stepFn, ignoreZero)
+			return sequentialStepFromChanFn(dCtx, localGoIdx, input, output, stepFn, opts...)
 		})
 	}
 	return errGrp.Wait()
@@ -346,6 +355,6 @@ func AddStepFromChan[I any, O any](
 	opts ...StepOption[O],
 ) (*model.Step[O], error) {
 	return addStep(pipe, name, input, func(ctx context.Context, in *model.Step[I], out *model.Step[O]) error {
-		return runStepFromChan(ctx, in, out, stepFromChan, false)
+		return runStepFromChan(ctx, in, out, stepFromChan, false, pipe.opts...)
 	}, opts...)
 }
