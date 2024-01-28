@@ -166,8 +166,8 @@ type statement struct {
 	SourceAttributes map[string]string
 	HTMLAttributes   map[string]string
 	EdgeAttributes   map[string]string
-	SourceWeight     int
-	EdgeWeight       int
+	SourceWeight     int64
+	EdgeWeight       int64
 }
 
 func dot[K comparable, T any](g graph.Graph[K, T], wrt io.Writer, options ...func(*description)) error {
