@@ -47,7 +47,6 @@ func AddSink[I any](pipe *Pipeline, name string, input *model.Step[I], sinkFn fu
 				if !ok {
 					break outer
 				}
-				endInputChan := time.Since(startInputChan)
 
 				startFn := time.Now()
 				err := sinkFn(pipe.ctx, entry)
@@ -56,6 +55,7 @@ func AddSink[I any](pipe *Pipeline, name string, input *model.Step[I], sinkFn fu
 				}
 				endFn := time.Since(startFn)
 
+				endInputChan := time.Since(startInputChan)
 				for _, opt := range pipe.opts {
 					err := opt.OnSinkOutput(input.Details, step.Details, endInputChan-endFn, endFn)
 					if err != nil {
