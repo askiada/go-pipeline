@@ -9,6 +9,7 @@ import (
 )
 
 type Splitter[I any] struct {
+	mu            sync.Mutex
 	currIdx       int
 	mainStep      *model.Step[I]
 	splittedSteps []*model.Step[I]
@@ -17,8 +18,10 @@ type Splitter[I any] struct {
 }
 
 func (s *Splitter[I]) Get() (*model.Step[I], bool) {
+	s.mu.Lock()
 	defer func() {
 		s.currIdx++
+		s.mu.Unlock()
 	}()
 	if s.currIdx >= len(s.splittedSteps) {
 		return nil, false

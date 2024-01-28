@@ -100,14 +100,53 @@ func AddSinkFromChan[I any](pipe *Pipeline, name string, input *model.Step[I], s
 
 	errC := make(chan error, 1)
 	decoratedError := newErrorChan(name, errC)
+	inputPlaceholder := make(chan I)
+	total := 0
+	start := time.Now()
+	var end time.Duration
+	go func() {
+		defer func() {
+			close(inputPlaceholder)
+		}()
+	outer:
+		for {
+			select {
+			case <-pipe.ctx.Done():
+				break outer
+			case entry, ok := <-input.Output:
+				if !ok {
+					break outer
+				}
+				select {
+				case <-pipe.ctx.Done():
+					break outer
+				case inputPlaceholder <- entry:
+					total++
+				}
+			}
+		}
+		end = time.Since(start)
+	}()
 	go func() {
 		defer func() {
 			close(errC)
 		}()
-		err := stepFn(pipe.ctx, input.Output)
+		startStep := time.Now()
+		err := stepFn(pipe.ctx, inputPlaceholder)
 		if err != nil {
 			errC <- err
 		}
+		endStep := time.Since(startStep)
+		iterationDuration := time.Duration(float64(end) / float64(total))
+		computaionDuration := time.Duration(float64(endStep) / float64(total))
+
+		for _, opt := range pipe.opts {
+			err := opt.OnSinkOutput(input.Details, step.Details, iterationDuration, computaionDuration)
+			if err != nil {
+				errC <- errors.Wrap(err, "unable to run before step function")
+			}
+		}
+
 		totalDuration := time.Since(pipe.startTime)
 		for _, opt := range pipe.opts {
 			err := opt.AfterSink(step.Details, totalDuration)

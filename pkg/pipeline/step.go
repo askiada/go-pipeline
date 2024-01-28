@@ -226,14 +226,13 @@ func runStepFromChan[I, O any](
 	input *model.Step[I],
 	output *model.Step[O],
 	stepFn StepFromChanFn[I, O],
-	ignoreZero bool,
 	opts ...model.PipelineOption,
 ) error {
 	if output.Details.Concurrent == 0 {
 		output.Details.Concurrent = 1
 	}
 	if output.Details.Concurrent == 1 {
-		return sequentialStepFromChanFn(ctx, 1, input, output, stepFn, opts...)
+		return sequentialStepFromChanFn(ctx, 1, input, output, stepFn, 1, opts...)
 	}
 	return concurrentStepFromChanFn(ctx, input, output, stepFn, opts...)
 }
@@ -244,15 +243,21 @@ func sequentialStepFromChanFn[I any, O any](
 	input *model.Step[I],
 	output *model.Step[O],
 	stepFn StepFromChanFn[I, O],
+	conc int,
 	opts ...model.PipelineOption,
 ) error {
 	inputPlaceholder := make(chan I)
-	total := 0
+	total := float64(0)
 	start := time.Now()
 	var end time.Duration
+
+	done := make(chan struct{})
+
 	go func() {
 		defer func() {
 			close(inputPlaceholder)
+			end = time.Since(start)
+			done <- struct{}{}
 		}()
 
 	outer:
@@ -272,15 +277,21 @@ func sequentialStepFromChanFn[I any, O any](
 				}
 			}
 		}
-		end = time.Since(start)
 	}()
 	startStep := time.Now()
 	err := stepFn(ctx, inputPlaceholder, output.Output)
 	if err != nil {
 		return errors.Wrap(err, "unable to run step function")
 	}
-	endStep := time.Since(startStep)
 
+	endStep := time.Since(startStep)
+	if total == 0 {
+		return nil
+	} else {
+		total = float64(conc) / total
+	}
+
+	<-done
 	for _, opt := range opts {
 		err := opt.OnStepOutput(input.Details, output.Details, time.Duration(float64(end)/float64(total)), time.Duration(float64(endStep)/float64(total)))
 		if err != nil {
@@ -305,7 +316,7 @@ func concurrentStepFromChanFn[I any, O any](
 	for goIdx := 0; goIdx < output.Details.Concurrent; goIdx++ {
 		localGoIdx := goIdx
 		errGrp.Go(func() error {
-			return sequentialStepFromChanFn(dCtx, localGoIdx, input, output, stepFn, opts...)
+			return sequentialStepFromChanFn(dCtx, localGoIdx, input, output, stepFn, output.Details.Concurrent, opts...)
 		})
 	}
 	return errGrp.Wait()
@@ -355,6 +366,6 @@ func AddStepFromChan[I any, O any](
 	opts ...StepOption[O],
 ) (*model.Step[O], error) {
 	return addStep(pipe, name, input, func(ctx context.Context, in *model.Step[I], out *model.Step[O]) error {
-		return runStepFromChan(ctx, in, out, stepFromChan, false, pipe.opts...)
+		return runStepFromChan(ctx, in, out, stepFromChan, pipe.opts...)
 	}, opts...)
 }
