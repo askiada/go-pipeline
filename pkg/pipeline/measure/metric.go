@@ -20,6 +20,9 @@ type DefaultMetric struct {
 }
 
 func (mt *DefaultMetric) AddDuration(elapsed time.Duration) {
+	if elapsed == 0 {
+		return
+	}
 	mt.mu.Lock()
 	defer mt.mu.Unlock()
 	mt.total++
@@ -40,6 +43,9 @@ func (mt *DefaultMetric) GetTotalDuration() time.Duration {
 }
 
 func (mt *DefaultMetric) AddTransportDuration(inputStepName string, elapsed time.Duration) {
+	if elapsed == 0 {
+		return
+	}
 	mt.mu.Lock()
 	defer mt.mu.Unlock()
 	if mt.allTransports[inputStepName] == nil {
