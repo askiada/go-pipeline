@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/askiada/go-pipeline/pkg/pipeline/model"
 	"github.com/stretchr/testify/assert"
@@ -396,15 +397,20 @@ func TestOneToManyError(t *testing.T) {
 			}()
 			go func() {
 				defer close(output.Output)
+				// TODO manage to get an error here sometimes
 				err := runOneToMany(ctx, input, output, func(ctx context.Context, i int) (o []int, err error) {
 					if i == 5 {
+						// As we can have up to 100 go routines
+						// It is possible we reach this error before the first 4 elements made it to the output
+						time.Sleep(1 * time.Millisecond)
 						return nil, assert.AnError
 					}
 					return []int{i, i * 10}, nil
 				})
 				assert.Error(t, err)
 			}()
-			assert.NotZero(t, <-got)
+			res := <-got
+			assert.NotZero(t, res)
 		})
 	}
 }

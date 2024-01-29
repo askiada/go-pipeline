@@ -539,12 +539,11 @@ func TestCompletePipeline(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-/*
 func TestSimplePipeline(t *testing.T) {
 	// conc := 1
 	ctx := context.Background()
 	m := measure.NewDefaultMeasure()
-	pipe, err := New(ctx, PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple.gv"), m), PipelineMeasure(m))
+	pipe, err := New(ctx, drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple.gv"), m), measure.PipelineMeasure(m))
 	assert.NoError(t, err)
 	rootChan, err := AddRootStep(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
 		for i := 0; i < 10; i++ {
@@ -577,7 +576,7 @@ func TestSimpleSplitterPipeline(t *testing.T) {
 	conc := 1
 	ctx := context.Background()
 	m := measure.NewDefaultMeasure()
-	pipe, err := New(ctx, PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple-splitter.gv"), m), PipelineMeasure(m))
+	pipe, err := New(ctx, drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple-splitter.gv"), m), measure.PipelineMeasure(m))
 	assert.NoError(t, err)
 	rootChan, err := AddRootStep(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
 		for i := 0; i < 10; i++ {
@@ -618,7 +617,7 @@ func TestSimpleSplitterV2Pipeline(t *testing.T) {
 	conc := 1
 	ctx := context.Background()
 	m := measure.NewDefaultMeasure()
-	pipe, err := New(ctx, PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple-splitter-v2.gv"), m), PipelineMeasure(m))
+	pipe, err := New(ctx, drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple-splitter-v2.gv"), m), measure.PipelineMeasure(m))
 	assert.NoError(t, err)
 	rootChan, err := AddRootStep(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
 		for i := 0; i < 10; i++ {
@@ -657,14 +656,14 @@ func TestSimpleSplitterV2Pipeline(t *testing.T) {
 	})
 	assert.NoError(t, err)
 	err = pipe.Run()
-	assert.Error(t, err)
+	assert.NoError(t, err)
 }
 
 func TestSimpleSplitterV3Pipeline(t *testing.T) {
 	conc := 1
 	ctx := context.Background()
 	m := measure.NewDefaultMeasure()
-	pipe, err := New(ctx, PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple-splitter-v3.gv"), m), PipelineMeasure(m))
+	pipe, err := New(ctx, drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple-splitter-v3.gv"), m), measure.PipelineMeasure(m))
 	assert.NoError(t, err)
 	rootChan, err := AddRootStep(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
 		for i := 0; i < 10; i++ {
@@ -692,11 +691,12 @@ func TestSimpleSplitterV3Pipeline(t *testing.T) {
 				case <-ctx.Done():
 					break outer
 				case output <- entry[0] * 100:
+					time.Sleep(200 * time.Millisecond)
 				}
 			}
 		}
 		return nil
-	}, StepConcurrency[int](conc))
+	}, StepConcurrency[int](50))
 	assert.NoError(t, err)
 
 	splitterChans, err := AddSplitter(pipe, "splitter", step2Chan, 2,
@@ -719,14 +719,14 @@ func TestSimpleSplitterV3Pipeline(t *testing.T) {
 	})
 	assert.NoError(t, err)
 	err = pipe.Run()
-	assert.Error(t, err)
+	assert.NoError(t, err)
 }
 
 func TestSimpleSplitterV4Pipeline(t *testing.T) {
 	conc := 2
 	ctx := context.Background()
 	m := measure.NewDefaultMeasure()
-	pipe, err := New(ctx, PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple-splitter-v4.gv"), m), PipelineMeasure(m))
+	pipe, err := New(ctx, drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple-splitter-v4.gv"), m), measure.PipelineMeasure(m))
 	assert.NoError(t, err)
 	rootChan, err := AddRootStep(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
 		for i := 0; i < 10; i++ {
@@ -779,6 +779,5 @@ func TestSimpleSplitterV4Pipeline(t *testing.T) {
 	})
 	assert.NoError(t, err)
 	err = pipe.Run()
-	assert.Error(t, err)
+	assert.NoError(t, err)
 }
-*/
