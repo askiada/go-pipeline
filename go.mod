@@ -3,7 +3,7 @@ module github.com/askiada/go-pipeline
 go 1.21.0
 
 require (
-	github.com/dominikbraun/graph v0.22.3
+	github.com/dominikbraun/graph v0.23.0
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.8.4
 	golang.org/x/sync v0.3.0
