@@ -3,63 +3,69 @@ package pipeline
 import (
 	"sync"
 	"time"
+
+	"github.com/askiada/go-pipeline/pkg/pipeline/model"
+	"github.com/pkg/errors"
 )
 
-func AddMerger[I any](p *Pipeline, name string, steps ...*Step[I]) (*Step[I], error) {
+func AddMerger[I any](pipe *Pipeline, name string, steps ...*model.Step[I]) (*model.Step[I], error) {
 	errC := make(chan error, len(steps))
 	decoratedError := newErrorChan(name, errC)
 	output := make(chan I)
-	outputStep := Step[I]{
-		Type:   sinkStepType,
-		Name:   name,
+	outputStep := &model.Step[I]{
+		Details: &model.StepInfo{
+			Type:       model.MergeStepType,
+			Name:       name,
+			Concurrent: 1,
+		},
 		Output: output,
 	}
-	if p.drawer != nil {
-		err := p.drawer.addStep(outputStep.Name)
+
+	stepInfos := make([]*model.StepInfo, len(steps), len(steps))
+	for i, step := range steps {
+		stepInfos[i] = step.Details
+	}
+
+	for _, opt := range pipe.opts {
+		err := opt.PrepareMerger(stepInfos, outputStep.Details)
 		if err != nil {
-			return nil, err
-		}
-
-		for _, step := range steps {
-			err := p.drawer.addLink(step.Name, outputStep.Name)
-			if err != nil {
-				return nil, err
-			}
+			return nil, errors.Wrap(err, "unable to run before merger function")
 		}
 	}
-	if p.measure != nil {
-		mt := p.measure.addStep(outputStep.Name, 1)
-		outputStep.metric = mt
-	}
 
-	wg := sync.WaitGroup{}
-	wg.Add(len(steps))
+	wgrp := sync.WaitGroup{}
+	wgrp.Add(len(steps))
 	go func() {
-		wg.Wait()
+		wgrp.Wait()
 		close(errC)
 		close(output)
 	}()
 
 	for _, step := range steps {
-		go func(step *Step[I]) {
-			defer wg.Done()
+		go func(step *model.Step[I]) {
+			defer wgrp.Done()
 		outer:
 			for {
-				startChan := time.Now()
+				startIter := time.Now()
 				select {
-				case <-p.ctx.Done():
-					errC <- p.ctx.Err()
+				case <-pipe.ctx.Done():
+					errC <- pipe.ctx.Err()
+
 					break outer
 				case entry, ok := <-step.Output:
 					if !ok {
 						break outer
 					}
 					select {
-					case <-p.ctx.Done():
+					case <-pipe.ctx.Done():
 						return
 					case output <- entry:
-						if outputStep.metric != nil {
-							outputStep.metric.addChannel(step.Name, time.Since(startChan))
+						endIter := time.Since(startIter)
+						for _, opt := range pipe.opts {
+							err := opt.OnMergerOutput(step.Details, outputStep.Details, endIter)
+							if err != nil {
+								errC <- errors.Wrap(err, "unable to run before merger function")
+							}
 						}
 					}
 				}
@@ -67,6 +73,7 @@ func AddMerger[I any](p *Pipeline, name string, steps ...*Step[I]) (*Step[I], er
 		}(step)
 	}
 
-	p.errcList.add(decoratedError)
-	return &outputStep, nil
+	pipe.errcList.add(decoratedError)
+
+	return outputStep, nil
 }

@@ -1,24 +1,18 @@
 package pipeline
 
-type PipelineOption func(p *Pipeline)
+import "github.com/askiada/go-pipeline/pkg/pipeline/model"
 
-func PipelineDrawer(svgFileName string) PipelineOption {
-	return func(p *Pipeline) {
-		p.drawer = newDrawer(svgFileName)
-	}
-}
-
-func PipelineMeasure() PipelineOption {
-	return func(p *Pipeline) {
-		p.measure = newMeasure()
-	}
-}
-
-type StepOption[O any] func(s *Step[O])
+type StepOption[O any] func(s *model.Step[O])
 
 func StepConcurrency[O any](concurrent int) StepOption[O] {
-	return func(s *Step[O]) {
-		s.concurrent = concurrent
+	return func(s *model.Step[O]) {
+		s.Details.Concurrent = concurrent
+	}
+}
+
+func StepKeepOpen[O any]() StepOption[O] {
+	return func(s *model.Step[O]) {
+		s.KeepOpen = true
 	}
 }
 
