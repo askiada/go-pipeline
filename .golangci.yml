@@ -1,7 +1,19 @@
 linters-settings:
+  cyclop:
+    skip-tests: true
+    max-complexity: 15
+  exhaustive:
+    default-signifies-exhaustive: true
   funlen:
-    lines: 80
-    statements: 50
+    lines: 110
+    statements: 70
+  gci:
+    sections:
+      - standard
+      - default
+      - prefix(github.com/askiada)
+      - localmodule
+    custom-order: true
   goconst:
     min-len: 2
     min-occurrences: 2
@@ -17,7 +29,7 @@ linters-settings:
   godot:
     capital: true
   goimports:
-    local-prefixes: github.com/golangci/golangci-lint
+    local-prefixes: github.com/blokur/bk-reporter
   govet:
     settings:
       printf:
@@ -26,16 +38,19 @@ linters-settings:
           - (github.com/golangci/golangci-lint/pkg/logutils.Log).Warnf
           - (github.com/golangci/golangci-lint/pkg/logutils.Log).Errorf
           - (github.com/golangci/golangci-lint/pkg/logutils.Log).Fatalf
-    enable:
+    disable:
       - fieldalignment
-  maligned:
-    suggest-new: true
-  misspell:
-    locale: UK
   lll:
     line-length: 140
+  misspell:
+    locale: UK
+  paralleltest:
+    ignore-missing-subtests: true # Unfortunately, we can't write t.Run("success", testSuccess)
   unparam:
     check-exported: true
+  varnamelen:
+    min-name-length: 2
+    max-distance: 15
 
 issues:
   # Excluding configuration per-path, per-linter, per-text and per-source
@@ -48,105 +63,32 @@ issues:
         - unparam
         - errcheck
         - govet
+        - revive
         - gocritic
-        - goconst
-        - forcetypeassert
+        - funlen
+        - maintidx
         - wrapcheck
+    - path: testing
+      linters:
+        - errcheck
   fix: true
   exclude-use-default: false
-
-run:
-  skip-dirs:
+  exclude-dirs:
+    - model
     - tmp
     - bin
     - scripts
 
+run:
+  allow-parallel-runners: true
   tests: true
   build-tags:
     - integration
 
 linters:
-  disable-all: true
-  fast: true
-  enable:
-    - asciicheck
-    - bidichk
-    - bodyclose
-    - bodyclose
-    - containedctx
-    - contextcheck
-    - cyclop
-    - decorder
-    - depguard
-    - dogsled
-    - dupl
-    - durationcheck
-    - errcheck
-    - errchkjson
-    - errname
-    - errorlint
-    - exhaustive
-    - exportloopref
-    - forbidigo
-    - forcetypeassert
-    - funlen
-    - gocognit
-    - goconst
-    - gocritic
-    - gocyclo
-    - godot
-    - godox
-    - gofmt
-    - gofumpt
-    - goheader
-    - goimports
-    - gomnd
-    - gomoddirectives
-    - gomodguard
-    - goprintffuncname
-    - gosec
-    - gosec
-    - gosimple
-    - gosimple
-    - govet
-    - govet
-    - grouper
-    - importas
-    - ineffassign
-    - ireturn
-    - lll
-    - maintidx
-    - makezero
-    - misspell
-    - nakedret
-    - nestif
-    - nilerr
-    - nilnil
-    - nlreturn
-    - noctx
-    - nolintlint
-    - prealloc
-    - predeclared
-    - promlinter
-    - revive
-    - rowserrcheck
-    - sqlclosecheck
-    - staticcheck
-    - stylecheck
-    - tagliatelle
-    - tenv
-    - thelper
-    - tparallel
-    - typecheck
-    - unconvert
-    - unparam
-    - unused
-    - varnamelen
-    - wastedassign
-    - whitespace
-    - wrapcheck
-
-# golangci.com configuration
-# https://github.com/golangci/golangci/wiki/Configuration
-service:
-  golangci-lint-version: 1.52.x
+  enable-all: true
+  disable:
+    - gomnd # Marked as deprecated by golangci-lint. Replaced with mnd
+    - execinquery #Marked as deprecated by golangci-lint.
+    - exhaustruct # I want to use zero values... and sometime leave a field uninitialised, because it'll be later.
+    - depguard # because I don't want to write a dedicated config file.
