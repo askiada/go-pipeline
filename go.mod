@@ -1,6 +1,6 @@
 module github.com/askiada/go-pipeline
 
-go 1.21.0
+go 1.22.1
 
 require (
 	github.com/dominikbraun/graph v0.22.3

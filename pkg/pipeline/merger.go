@@ -4,14 +4,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/askiada/go-pipeline/pkg/pipeline/model"
 	"github.com/pkg/errors"
+
+	"github.com/askiada/go-pipeline/pkg/pipeline/model"
 )
 
-func AddMerger[I any](pipe *Pipeline, name string, steps ...*model.Step[I]) (*model.Step[I], error) {
-	errC := make(chan error, len(steps))
-	decoratedError := newErrorChan(name, errC)
-	output := make(chan I)
+func prepareMerger[I any](pipe *Pipeline, output chan I, name string, steps ...*model.Step[I]) (*model.Step[I], error) {
 	outputStep := &model.Step[I]{
 		Details: &model.StepInfo{
 			Type:       model.MergeStepType,
@@ -21,7 +19,7 @@ func AddMerger[I any](pipe *Pipeline, name string, steps ...*model.Step[I]) (*mo
 		Output: output,
 	}
 
-	stepInfos := make([]*model.StepInfo, len(steps), len(steps))
+	stepInfos := make([]*model.StepInfo, len(steps))
 	for i, step := range steps {
 		stepInfos[i] = step.Details
 	}
@@ -33,8 +31,52 @@ func AddMerger[I any](pipe *Pipeline, name string, steps ...*model.Step[I]) (*mo
 		}
 	}
 
+	return outputStep, nil
+}
+
+func runStepMerger[I any](pipe *Pipeline, errC chan error, step, outputStep *model.Step[I]) {
+	for {
+		startIter := time.Now()
+		select {
+		case <-pipe.ctx.Done():
+			errC <- pipe.ctx.Err()
+
+			return
+		case entry, ok := <-step.Output:
+			if !ok {
+				return
+			}
+
+			select {
+			case <-pipe.ctx.Done():
+				errC <- pipe.ctx.Err()
+			case outputStep.Output <- entry:
+				endIter := time.Since(startIter)
+				for _, opt := range pipe.opts {
+					err := opt.OnMergerOutput(step.Details, outputStep.Details, endIter)
+					if err != nil {
+						errC <- errors.Wrap(err, "unable to run before merger function")
+					}
+				}
+			}
+		}
+	}
+}
+
+// AddMerger adds a merger step to the pipeline. It will merge the output of the steps into a single channel.
+func AddMerger[I any](pipe *Pipeline, name string, steps ...*model.Step[I]) (*model.Step[I], error) {
+	output := make(chan I)
+
+	outputStep, err := prepareMerger(pipe, output, name, steps...)
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to prepare merger")
+	}
+
+	errC := make(chan error, len(steps))
+	decoratedError := newErrorChan(name, errC)
 	wgrp := sync.WaitGroup{}
 	wgrp.Add(len(steps))
+
 	go func() {
 		wgrp.Wait()
 		close(errC)
@@ -44,32 +86,7 @@ func AddMerger[I any](pipe *Pipeline, name string, steps ...*model.Step[I]) (*mo
 	for _, step := range steps {
 		go func(step *model.Step[I]) {
 			defer wgrp.Done()
-		outer:
-			for {
-				startIter := time.Now()
-				select {
-				case <-pipe.ctx.Done():
-					errC <- pipe.ctx.Err()
-
-					break outer
-				case entry, ok := <-step.Output:
-					if !ok {
-						break outer
-					}
-					select {
-					case <-pipe.ctx.Done():
-						return
-					case output <- entry:
-						endIter := time.Since(startIter)
-						for _, opt := range pipe.opts {
-							err := opt.OnMergerOutput(step.Details, outputStep.Details, endIter)
-							if err != nil {
-								errC <- errors.Wrap(err, "unable to run before merger function")
-							}
-						}
-					}
-				}
-			}
+			runStepMerger(pipe, errC, step, outputStep)
 		}(step)
 	}
 

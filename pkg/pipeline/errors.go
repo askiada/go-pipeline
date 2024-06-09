@@ -7,9 +7,12 @@ import (
 )
 
 var (
-	ErrPipelineMustBeSet = errors.New("p must be set")
-	ErrInputMustBeSet    = errors.New("input must be set")
-	ErrSplitterTotal     = errors.New("total must be greater than 0")
+	// ErrPipelineMustBeSet is returned when the pipeline is not set.
+	ErrPipelineMustBeSet = errors.New("pipe must be set")
+	// ErrInputMustBeSet is returned when the input is not set.
+	ErrInputMustBeSet = errors.New("input must be set")
+	// ErrSplitterTotal is returned when the total is not set.
+	ErrSplitterTotal = errors.New("total must be greater than 0")
 )
 
 type errorChans struct {
@@ -48,14 +51,18 @@ func mergeErrors(errChs ...*errorChan) <-chan error {
 	// copies values from c to out until c is closed, then calls wg.Done.
 	output := func(errC *errorChan) {
 		defer wgrp.Done()
+
 		if errC.c == nil {
 			return
 		}
+
 		for n := range errC.c {
 			out <- errors.Wrap(n, errC.name)
 		}
 	}
+
 	wgrp.Add(len(errChs))
+
 	for _, c := range errChs {
 		go output(c)
 	}

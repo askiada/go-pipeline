@@ -4,18 +4,21 @@ import (
 	"context"
 	"time"
 
-	"github.com/askiada/go-pipeline/pkg/pipeline/model"
 	"github.com/pkg/errors"
+
+	"github.com/askiada/go-pipeline/pkg/pipeline/model"
 )
 
+// Pipeline is a pipeline of steps.
 type Pipeline struct {
-	ctx       context.Context
+	ctx       context.Context //nolint:containedctx // The context for the pipeline. It is used to cancel the pipeline.
 	errcList  *errorChans
 	cancel    context.CancelFunc
 	opts      []model.PipelineOption
 	startTime time.Time
 }
 
+// New creates a new pipeline.
 func New(ctx context.Context, opts ...model.PipelineOption) (*Pipeline, error) {
 	dCtx, cancel := context.WithCancel(ctx)
 	pipe := &Pipeline{
@@ -56,14 +59,18 @@ func (p *Pipeline) finishRun() error {
 			return errors.Wrap(err, "unable to finish pipeline option")
 		}
 	}
+
 	return nil
 }
 
+// Run starts the pipeline and waits for it to finish.
 func (p *Pipeline) Run() error {
 	defer p.cancel()
+
 	err := waitForPipeline(p.errcList.list...)
 	if err != nil {
 		return err
 	}
+
 	return p.finishRun()
 }

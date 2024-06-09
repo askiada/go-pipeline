@@ -3,9 +3,10 @@ package drawer
 import (
 	"time"
 
+	"github.com/pkg/errors"
+
 	"github.com/askiada/go-pipeline/pkg/pipeline/measure"
 	"github.com/askiada/go-pipeline/pkg/pipeline/model"
-	"github.com/pkg/errors"
 )
 
 type pipelineDrawer struct {
@@ -14,11 +15,13 @@ type pipelineDrawer struct {
 	startTime time.Time
 }
 
+// New creates a new pipeline drawer.
 func (pd *pipelineDrawer) New() error {
 	err := pd.AddStep(model.StartStep.Details.Name)
 	if err != nil {
 		return errors.Wrap(err, "unable to add start step to drawer")
 	}
+
 	err = pd.AddStep(model.EndStep.Details.Name)
 	if err != nil {
 		return errors.Wrap(err, "unable to add end step to drawer")
@@ -27,11 +30,13 @@ func (pd *pipelineDrawer) New() error {
 	return nil
 }
 
+// PrepareStep is called before the step is executed.
 func (pd *pipelineDrawer) PrepareStep(parentStep, step *model.StepInfo) error {
 	err := pd.AddStep(step.Name)
 	if err != nil {
 		return err
 	}
+
 	err = pd.AddLink(parentStep.Name, step.Name)
 	if err != nil {
 		return err
@@ -40,11 +45,13 @@ func (pd *pipelineDrawer) PrepareStep(parentStep, step *model.StepInfo) error {
 	return nil
 }
 
+// PrepareSplitter is called before the splitter step is executed.
 func (pd *pipelineDrawer) PrepareSplitter(parentStep, splitterStep *model.StepInfo) error {
 	err := pd.AddStep(splitterStep.Name)
 	if err != nil {
 		return err
 	}
+
 	err = pd.AddLink(parentStep.Name, splitterStep.Name)
 	if err != nil {
 		return err
@@ -53,6 +60,7 @@ func (pd *pipelineDrawer) PrepareSplitter(parentStep, splitterStep *model.StepIn
 	return nil
 }
 
+// PrepareMerger is called before the merger step is executed.
 func (pd *pipelineDrawer) PrepareMerger(parentStep []*model.StepInfo, step *model.StepInfo) error {
 	err := pd.AddStep(step.Name)
 	if err != nil {
@@ -65,18 +73,22 @@ func (pd *pipelineDrawer) PrepareMerger(parentStep []*model.StepInfo, step *mode
 			return err
 		}
 	}
+
 	return nil
 }
 
+// PrepareSink is called before the sink step is executed.
 func (pd *pipelineDrawer) PrepareSink(parentStep, step *model.StepInfo) error {
 	err := pd.AddStep(step.Name)
 	if err != nil {
 		return err
 	}
+
 	err = pd.AddLink(parentStep.Name, step.Name)
 	if err != nil {
 		return err
 	}
+
 	err = pd.AddLink(step.Name, model.EndStep.Details.Name)
 	if err != nil {
 		return err
@@ -85,12 +97,14 @@ func (pd *pipelineDrawer) PrepareSink(parentStep, step *model.StepInfo) error {
 	return nil
 }
 
+// Finish is called after the pipeline is finished.
 func (pd *pipelineDrawer) Finish() error {
 	if pd.m != nil {
 		err := pd.SetTotalTime(model.EndStep.Details.Name, pd.startTime)
 		if err != nil {
 			return errors.Wrap(err, "unable to set total time")
 		}
+
 		err = pd.AddMeasure(pd.m)
 		if err != nil {
 			return errors.Wrap(err, "unable to add measure")
@@ -105,26 +119,32 @@ func (pd *pipelineDrawer) Finish() error {
 	return nil
 }
 
-func (pd *pipelineDrawer) OnStepOutput(parentStep, step *model.StepInfo, iterationDuration, computationDuration time.Duration) error {
+// OnStepOutput is called after the step output is processed.
+func (pd *pipelineDrawer) OnStepOutput(_, _ *model.StepInfo, _, _ time.Duration) error {
 	return nil
 }
 
-func (pd *pipelineDrawer) OnSplitterOutput(parentStep, step *model.StepInfo, iterationDuration, computationDuration time.Duration) error {
+// OnSplitterOutput is called after the splitter step output is processed.
+func (pd *pipelineDrawer) OnSplitterOutput(_, _ *model.StepInfo, _, _ time.Duration) error {
 	return nil
 }
 
-func (pd *pipelineDrawer) OnMergerOutput(parentStep *model.StepInfo, outputStep *model.StepInfo, iterationDuration time.Duration) error {
+// OnMergerOutput is called after the merger step output is processed.
+func (pd *pipelineDrawer) OnMergerOutput(_, _ *model.StepInfo, _ time.Duration) error {
 	return nil
 }
 
-func (pd *pipelineDrawer) OnSinkOutput(parentStep, step *model.StepInfo, iterationDuration, computationDuration time.Duration) error {
+// OnSinkOutput is called after the sink step output is processed.
+func (pd *pipelineDrawer) OnSinkOutput(_, _ *model.StepInfo, _, _ time.Duration) error {
 	return nil
 }
 
-func (pd *pipelineDrawer) AfterSink(step *model.StepInfo, totalDuration time.Duration) error {
+// AfterSink is called after the sink step is executed.
+func (pd *pipelineDrawer) AfterSink(_ *model.StepInfo, _ time.Duration) error {
 	return nil
 }
 
-func PipelineDrawer(drawer Drawer, measure measure.Measure) model.PipelineOption {
-	return &pipelineDrawer{drawer, measure, time.Now()}
+// PipelineDrawer creates a pipeline drawer option.
+func PipelineDrawer(drw Drawer, msr measure.Measure) model.PipelineOption { //nolint:ireturn // it must implement the interface
+	return &pipelineDrawer{drw, msr, time.Now()}
 }

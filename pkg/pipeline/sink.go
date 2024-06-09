@@ -4,17 +4,20 @@ import (
 	"context"
 	"time"
 
-	"github.com/askiada/go-pipeline/pkg/pipeline/model"
 	"github.com/pkg/errors"
+
+	"github.com/askiada/go-pipeline/pkg/pipeline/model"
 )
 
-func AddSink[I any](pipe *Pipeline, name string, input *model.Step[I], sinkFn func(ctx context.Context, input I) error) error {
+func prepareSink[I any](pipe *Pipeline, name string, input *model.Step[I]) (*model.Step[I], error) {
 	if pipe == nil {
-		return ErrPipelineMustBeSet
+		return nil, ErrPipelineMustBeSet
 	}
+
 	if input == nil {
-		return ErrInputMustBeSet
+		return nil, ErrInputMustBeSet
 	}
+
 	step := &model.Step[I]{
 		Details: &model.StepInfo{
 			Type:       model.SinkStepType,
@@ -22,15 +25,27 @@ func AddSink[I any](pipe *Pipeline, name string, input *model.Step[I], sinkFn fu
 			Concurrent: 1,
 		},
 	}
+
 	for _, opt := range pipe.opts {
 		err := opt.PrepareSink(input.Details, step.Details)
 		if err != nil {
-			return errors.Wrap(err, "unable to run before step function")
+			return nil, errors.Wrap(err, "unable to run before step function")
 		}
+	}
+
+	return step, nil
+}
+
+// AddSink adds a sink step to the pipeline. It will consume the input channel and run the sink function.
+func AddSink[I any](pipe *Pipeline, name string, input *model.Step[I], sinkFn func(ctx context.Context, input I) error) error {
+	step, err := prepareSink(pipe, name, input)
+	if err != nil {
+		return errors.Wrap(err, "unable to perpare sink")
 	}
 
 	errC := make(chan error, 1)
 	decoratedError := newErrorChan(name, errC)
+
 	go func() {
 		defer func() {
 			close(errC)
@@ -64,7 +79,9 @@ func AddSink[I any](pipe *Pipeline, name string, input *model.Step[I], sinkFn fu
 				}
 			}
 		}
+
 		totalDuration := time.Since(pipe.startTime)
+
 		for _, opt := range pipe.opts {
 			err := opt.AfterSink(step.Details, totalDuration)
 			if err != nil {
@@ -72,30 +89,22 @@ func AddSink[I any](pipe *Pipeline, name string, input *model.Step[I], sinkFn fu
 			}
 		}
 	}()
+
 	pipe.errcList.add(decoratedError)
 
 	return nil
 }
 
-func AddSinkFromChan[I any](pipe *Pipeline, name string, input *model.Step[I], stepFn func(ctx context.Context, input <-chan I) error) error {
-	if pipe == nil {
-		return ErrPipelineMustBeSet
-	}
-	if input == nil {
-		return ErrInputMustBeSet
-	}
-	step := &model.Step[I]{
-		Details: &model.StepInfo{
-			Type:       model.SinkStepType,
-			Name:       name,
-			Concurrent: 1,
-		},
-	}
-	for _, opt := range pipe.opts {
-		err := opt.PrepareSink(input.Details, step.Details)
-		if err != nil {
-			return errors.Wrap(err, "unable to run before step function")
-		}
+// AddSinkFromChan adds a sink step to the pipeline. It will consume the input channel.
+func AddSinkFromChan[I any](
+	pipe *Pipeline,
+	name string,
+	input *model.Step[I],
+	stepFn func(ctx context.Context, input <-chan I) error,
+) error {
+	step, err := prepareSink(pipe, name, input)
+	if err != nil {
+		return errors.Wrap(err, "unable to perpare sink")
 	}
 
 	errC := make(chan error, 1)
@@ -103,7 +112,9 @@ func AddSinkFromChan[I any](pipe *Pipeline, name string, input *model.Step[I], s
 	inputPlaceholder := make(chan I)
 	total := 0
 	start := time.Now()
+
 	var end time.Duration
+
 	go func() {
 		defer func() {
 			close(inputPlaceholder)
@@ -125,17 +136,21 @@ func AddSinkFromChan[I any](pipe *Pipeline, name string, input *model.Step[I], s
 				}
 			}
 		}
+
 		end = time.Since(start)
 	}()
 	go func() {
 		defer func() {
 			close(errC)
 		}()
+
 		startStep := time.Now()
+
 		err := stepFn(pipe.ctx, inputPlaceholder)
 		if err != nil {
 			errC <- err
 		}
+
 		endStep := time.Since(startStep)
 		iterationDuration := time.Duration(float64(end) / float64(total))
 		computaionDuration := time.Duration(float64(endStep) / float64(total))
@@ -155,6 +170,7 @@ func AddSinkFromChan[I any](pipe *Pipeline, name string, input *model.Step[I], s
 			}
 		}
 	}()
+
 	pipe.errcList.add(decoratedError)
 
 	return nil
