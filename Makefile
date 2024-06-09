@@ -2,8 +2,8 @@
 lint: ## Lint it
 	golangci-lint run --verbose ./...
 
-.PHONY: test
-test:
+.PHONY: unit_test
+unit_test:
 	go test -race -timeout 30s ./...
 	dot -Tpng -O pkg/pipeline/mygraph.gv
 	dot -Tpng -O pkg/pipeline/mygraph-simple.gv
