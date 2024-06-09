@@ -165,3 +165,140 @@ func AddSplitter[I any](p *Pipeline, name string, input *model.Step[I], total in
 
 	return splitter, nil
 }
+
+type SplitterFn[I any] func(input I) (bool, error)
+
+func AddSplitterFn[I any](p *Pipeline, name string, input *model.Step[I], fns []SplitterFn[I], opts ...SplitterOption[I]) (*Splitter[I], error) {
+	if p == nil {
+		return nil, ErrPipelineMustBeSet
+	}
+	if input == nil {
+		return nil, ErrInputMustBeSet
+	}
+	total := len(fns)
+	if total == 0 {
+		return nil, ErrSplitterTotal
+	}
+	splitter := &Splitter[I]{
+		Total: total,
+		mainStep: &model.Step[I]{
+			Details: &model.StepInfo{
+				Type:       model.SplitterStepType,
+				Name:       name,
+				Concurrent: 1,
+			},
+		},
+	}
+	for _, opt := range opts {
+		opt(splitter)
+	}
+	errC := make(chan error, 1)
+	decoratedError := newErrorChan(name, errC)
+	splitter.splittedSteps = make([]*model.Step[I], total)
+	if splitter.bufferSize == 0 {
+		splitter.bufferSize = 1
+	}
+	splitterBuffer := make([]chan I, total)
+
+	for i := range splitterBuffer {
+		splitterBuffer[i] = make(chan I, splitter.bufferSize)
+	}
+
+	for i := 0; i < total; i++ {
+		step := model.Step[I]{
+			Details: &model.StepInfo{
+				Type: model.SplitterStepType,
+				Name: name,
+			},
+			Output: make(chan I),
+		}
+		splitter.splittedSteps[i] = &step
+	}
+
+	err := prepareSplitter(p, input, splitter)
+	if err != nil {
+		return nil, err
+	}
+	wgrp := &sync.WaitGroup{}
+	wgrp.Add(len(splitterBuffer))
+	for i, buf := range splitterBuffer {
+		localBuf := buf
+		localI := i
+		go func() {
+			defer wgrp.Done()
+		outer:
+			for {
+				select {
+				case elem, ok := <-localBuf:
+					if !ok {
+						break outer
+					}
+					ok, err := fns[localI](elem)
+					if err != nil {
+						errC <- errors.Wrap(err, "unable to run splitter function")
+					}
+					if !ok {
+						continue
+					}
+					splitter.splittedSteps[localI].Output <- elem
+				case <-p.ctx.Done():
+					errC <- p.ctx.Err()
+
+					break outer
+				}
+			}
+			close(splitter.splittedSteps[localI].Output)
+		}()
+	}
+
+	go func() {
+		defer func() {
+			for _, buf := range splitterBuffer {
+				close(buf)
+			}
+			wgrp.Wait()
+			close(errC)
+		}()
+
+	outer:
+		for {
+			startIter := time.Now()
+			select {
+			case <-p.ctx.Done():
+				errC <- p.ctx.Err()
+
+				break outer
+			case entry, ok := <-input.Output:
+				if !ok {
+					break outer
+				}
+				startFn := time.Now()
+				for _, buf := range splitterBuffer {
+					localEntry := entry
+					localBuf := buf
+
+					select {
+					case <-p.ctx.Done():
+						errC <- p.ctx.Err()
+
+						break outer
+					case localBuf <- localEntry:
+					}
+				}
+
+				endFn := time.Since(startFn)
+				endIter := time.Since(startIter) - endFn
+
+				for _, opt := range p.opts {
+					err := opt.OnSplitterOutput(input.Details, splitter.mainStep.Details, endIter, endFn)
+					if err != nil {
+						errC <- errors.Wrap(err, "unable to run before merger function")
+					}
+				}
+			}
+		}
+	}()
+	p.errcList.add(decoratedError)
+
+	return splitter, nil
+}
