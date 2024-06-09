@@ -7,14 +7,17 @@ import (
 )
 
 var (
-	ErrPipelineMustBeSet = errors.New("p must be set")
-	ErrInputMustBeSet    = errors.New("input must be set")
-	ErrSplitterTotal     = errors.New("total must be greater than 0")
+	// ErrPipelineMustBeSet is returned when the pipeline is not set.
+	ErrPipelineMustBeSet = errors.New("pipe must be set")
+	// ErrInputMustBeSet is returned when the input is not set.
+	ErrInputMustBeSet = errors.New("input must be set")
+	// ErrSplitterTotal is returned when the total is not set.
+	ErrSplitterTotal = errors.New("total must be greater than 0")
 )
 
 type errorChans struct {
-	mu   sync.Mutex
 	list []*errorChan
+	mu   sync.Mutex
 }
 
 func (ec *errorChans) add(errChan *errorChan) {
@@ -37,33 +40,37 @@ func newErrorChan(name string, c <-chan error) *errorChan {
 
 // mergeErrors merges multiple channels of errors.
 // Based on https://blog.golang.org/pipelines.
-func mergeErrors(cs ...*errorChan) <-chan error {
-	var wg sync.WaitGroup
+func mergeErrors(errChs ...*errorChan) <-chan error {
+	var wgrp sync.WaitGroup
 	// We must ensure that the output channel has the capacity to hold as many errors
 	// as there are error channels. This will ensure that it never blocks, even
 	// if WaitForPipeline returns early.
-	out := make(chan error, len(cs))
+	out := make(chan error, len(errChs))
 
 	// Start an output goroutine for each input channel in cs.  output
 	// copies values from c to out until c is closed, then calls wg.Done.
-	output := func(c *errorChan) {
-		defer wg.Done()
-		if c.c == nil {
+	output := func(errC *errorChan) {
+		defer wgrp.Done()
+
+		if errC.c == nil {
 			return
 		}
-		for n := range c.c {
-			out <- errors.Wrap(n, c.name)
+
+		for n := range errC.c {
+			out <- errors.Wrap(n, errC.name)
 		}
 	}
-	wg.Add(len(cs))
-	for _, c := range cs {
+
+	wgrp.Add(len(errChs))
+
+	for _, c := range errChs {
 		go output(c)
 	}
 
 	// Start a goroutine to close out once all the output goroutines are
 	// done.  This must start after the wg.Add call.
 	go func() {
-		wg.Wait()
+		wgrp.Wait()
 		close(out)
 	}()
 
