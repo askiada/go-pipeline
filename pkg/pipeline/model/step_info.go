@@ -14,7 +14,7 @@ type StepInfo struct {
 	Type       stepType
 	Name       string
 	Concurrent int
-	// Metric     measure.Metric
+	BufferSize int
 }
 
 var (

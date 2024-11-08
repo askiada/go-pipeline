@@ -19,6 +19,12 @@ func StepKeepOpen[O any]() StepOption[O] {
 	}
 }
 
+func StepBufferSize[O any](bufferSize int) StepOption[O] {
+	return func(s *model.Step[O]) {
+		s.Details.BufferSize = bufferSize
+	}
+}
+
 // SplitterOption is a function that modifies a Splitter.
 type SplitterOption[I any] func(s *Splitter[I])
 

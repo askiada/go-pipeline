@@ -20,6 +20,10 @@ func prepareRootStep[O any](pipe *Pipeline, step *model.Step[O], opts ...StepOpt
 		opt(step)
 	}
 
+	if step.Details.BufferSize > 0 {
+		step.Output = make(chan O, step.Details.BufferSize)
+	}
+
 	return nil
 }
 

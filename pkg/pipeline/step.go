@@ -214,6 +214,10 @@ func prepareStep[I, O any](pipe *Pipeline, input *model.Step[I], step *model.Ste
 		}
 	}
 
+	if step.Details.BufferSize > 0 {
+		step.Output = make(chan O, step.Details.BufferSize)
+	}
+
 	return nil
 }
 
