@@ -214,9 +214,7 @@ func prepareStep[I, O any](pipe *Pipeline, input *model.Step[I], step *model.Ste
 		}
 	}
 
-	if step.Details.BufferSize > 0 {
-		step.Output = make(chan O, step.Details.BufferSize)
-	}
+	step.Output = make(chan O, step.Details.BufferSize)
 
 	return nil
 }
@@ -238,13 +236,11 @@ func addStep[I any, O any](
 
 	errC := make(chan error, 1)
 	decoratedError := newErrorChan(name, errC)
-	output := make(chan O)
 	step := &model.Step[O]{
 		Details: &model.StepInfo{
 			Type: model.NormalStepType,
 			Name: name,
 		},
-		Output: output,
 	}
 
 	for _, opt := range opts {
@@ -261,7 +257,7 @@ func addStep[I any, O any](
 			close(errC)
 
 			if !step.KeepOpen {
-				close(output)
+				close(step.Output)
 			}
 		}()
 
