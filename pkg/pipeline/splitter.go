@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -198,7 +199,7 @@ func AddSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], total
 }
 
 // SplitterFn is a function that returns wether to keep the input or not.
-type SplitterFn[I any] func(input I) (bool, error)
+type SplitterFn[I any] func(ctx context.Context, input I) (bool, error)
 
 // AddSplitterFn adds a splitter step to the pipeline. It will split the input into multiple outputs based on the provided functions.
 func AddSplitterFn[I any](
@@ -239,7 +240,7 @@ func AddSplitterFn[I any](
 					if !ok {
 						break outer
 					}
-					ok, err := fns[localI](elem)
+					ok, err := fns[localI](pipe.ctx, elem)
 					if err != nil {
 						errC <- errors.Wrap(err, "unable to run splitter function")
 					}
