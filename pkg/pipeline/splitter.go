@@ -232,10 +232,18 @@ func AddSplitterFn[I any](
 		localI := i
 
 		go func() {
-			defer wgrp.Done()
+			defer func() {
+				close(splitter.splittedSteps[localI].Output)
+				wgrp.Done()
+			}()
 		outer:
 			for {
 				select {
+				case <-pipe.ctx.Done():
+					errC <- pipe.ctx.Err()
+
+					break outer
+
 				case elem, ok := <-localBuf:
 					if !ok {
 						break outer
@@ -247,20 +255,17 @@ func AddSplitterFn[I any](
 					if !ok {
 						continue
 					}
-					splitter.splittedSteps[localI].Output <- elem
-				case <-pipe.ctx.Done():
-					errC <- pipe.ctx.Err()
 
-					break outer
+					splitter.splittedSteps[localI].Output <- elem
 				}
 			}
-			close(splitter.splittedSteps[localI].Output)
 		}()
 	}
 
 	go func() {
 		runSplitter(pipe, splitter, input, splitterBuffer, errC, wgrp)
 	}()
+
 	pipe.errcList.add(decoratedError)
 
 	return splitter, nil
