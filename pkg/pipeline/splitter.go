@@ -91,6 +91,7 @@ func prepareSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], t
 }
 
 func runSplitter[I any](
+	ctx context.Context,
 	pipe *Pipeline,
 	splitter *Splitter[I],
 	input *model.Step[I],
@@ -111,8 +112,8 @@ outer:
 	for {
 		startIter := time.Now()
 		select {
-		case <-pipe.ctx.Done():
-			errC <- pipe.ctx.Err()
+		case <-ctx.Done():
+			errC <- ctx.Err()
 
 			break outer
 		case entry, ok := <-input.Output:
@@ -125,8 +126,8 @@ outer:
 				localBuf := buf
 
 				select {
-				case <-pipe.ctx.Done():
-					errC <- pipe.ctx.Err()
+				case <-ctx.Done():
+					errC <- ctx.Err()
 
 					break outer
 				case localBuf <- localEntry:
@@ -169,29 +170,32 @@ func AddSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], total
 		localBuf := buf
 		localI := i
 
-		go func() {
-			defer wgrp.Done()
-		outer:
+		pipe.goFn = append(pipe.goFn, func(ctx context.Context) {
+			defer func() {
+				close(splitter.splittedSteps[localI].Output)
+				wgrp.Done()
+			}()
+
 			for {
 				select {
+				case <-ctx.Done():
+					errC <- ctx.Err()
+
+					return
 				case elem, ok := <-localBuf:
 					if !ok {
-						break outer
+						return
 					}
-					splitter.splittedSteps[localI].Output <- elem
-				case <-pipe.ctx.Done():
-					errC <- pipe.ctx.Err()
 
-					break outer
+					splitter.splittedSteps[localI].Output <- elem
 				}
 			}
-			close(splitter.splittedSteps[localI].Output)
-		}()
+		})
 	}
 
-	go func() {
-		runSplitter(pipe, splitter, input, splitterBuffer, errC, wgrp)
-	}()
+	pipe.goFn = append(pipe.goFn, func(ctx context.Context) {
+		runSplitter(ctx, pipe, splitter, input, splitterBuffer, errC, wgrp)
+	})
 
 	pipe.errcList.add(decoratedError)
 
@@ -231,7 +235,7 @@ func AddSplitterFn[I any](
 		localBuf := buf
 		localI := i
 
-		go func() {
+		pipe.goFn = append(pipe.goFn, func(ctx context.Context) {
 			defer func() {
 				close(splitter.splittedSteps[localI].Output)
 				wgrp.Done()
@@ -239,8 +243,8 @@ func AddSplitterFn[I any](
 		outer:
 			for {
 				select {
-				case <-pipe.ctx.Done():
-					errC <- pipe.ctx.Err()
+				case <-ctx.Done():
+					errC <- ctx.Err()
 
 					break outer
 
@@ -248,7 +252,7 @@ func AddSplitterFn[I any](
 					if !ok {
 						break outer
 					}
-					ok, err := fns[localI](pipe.ctx, elem)
+					ok, err := fns[localI](ctx, elem)
 					if err != nil {
 						errC <- errors.Wrap(err, "unable to run splitter function")
 					}
@@ -259,12 +263,12 @@ func AddSplitterFn[I any](
 					splitter.splittedSteps[localI].Output <- elem
 				}
 			}
-		}()
+		})
 	}
 
-	go func() {
-		runSplitter(pipe, splitter, input, splitterBuffer, errC, wgrp)
-	}()
+	pipe.goFn = append(pipe.goFn, func(ctx context.Context) {
+		runSplitter(ctx, pipe, splitter, input, splitterBuffer, errC, wgrp)
+	})
 
 	pipe.errcList.add(decoratedError)
 

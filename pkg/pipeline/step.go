@@ -252,7 +252,7 @@ func addStep[I any, O any](
 		return nil, err
 	}
 
-	go func() {
+	pipe.goFn = append(pipe.goFn, func(ctx context.Context) {
 		defer func() {
 			close(errC)
 
@@ -261,11 +261,12 @@ func addStep[I any, O any](
 			}
 		}()
 
-		err := stepToStep(pipe.ctx, input, step)
+		err := stepToStep(ctx, input, step)
 		if err != nil {
 			errC <- err
 		}
-	}()
+	})
+
 	pipe.errcList.add(decoratedError)
 
 	return step, nil

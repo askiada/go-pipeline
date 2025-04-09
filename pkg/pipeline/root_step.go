@@ -51,7 +51,7 @@ func AddRootStep[O any](
 		return nil, err
 	}
 
-	go func() {
+	pipe.goFn = append(pipe.goFn, func(ctx context.Context) {
 		defer func() {
 			if !step.KeepOpen {
 				close(step.Output)
@@ -60,11 +60,11 @@ func AddRootStep[O any](
 			close(errC)
 		}()
 
-		err := stepFn(pipe.ctx, step.Output)
+		err := stepFn(ctx, step.Output)
 		if err != nil {
 			errC <- err
 		}
-	}()
+	})
 
 	pipe.errcList.add(decoratedError)
 

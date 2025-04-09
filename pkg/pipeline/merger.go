@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -34,12 +35,12 @@ func prepareMerger[I any](pipe *Pipeline, output chan I, name string, steps ...*
 	return outputStep, nil
 }
 
-func runStepMerger[I any](pipe *Pipeline, errC chan error, step, outputStep *model.Step[I]) {
+func runStepMerger[I any](ctx context.Context, pipe *Pipeline, errC chan error, step, outputStep *model.Step[I]) {
 	for {
 		startIter := time.Now()
 		select {
-		case <-pipe.ctx.Done():
-			errC <- pipe.ctx.Err()
+		case <-ctx.Done():
+			errC <- ctx.Err()
 
 			return
 		case entry, ok := <-step.Output:
@@ -48,8 +49,8 @@ func runStepMerger[I any](pipe *Pipeline, errC chan error, step, outputStep *mod
 			}
 
 			select {
-			case <-pipe.ctx.Done():
-				errC <- pipe.ctx.Err()
+			case <-ctx.Done():
+				errC <- ctx.Err()
 			case outputStep.Output <- entry:
 				endIter := time.Since(startIter)
 				for _, opt := range pipe.opts {
@@ -84,10 +85,10 @@ func AddMerger[I any](pipe *Pipeline, name string, steps ...*model.Step[I]) (*mo
 	}()
 
 	for _, step := range steps {
-		go func(step *model.Step[I]) {
+		pipe.goFn = append(pipe.goFn, func(ctx context.Context) {
 			defer wgrp.Done()
-			runStepMerger(pipe, errC, step, outputStep)
-		}(step)
+			runStepMerger(ctx, pipe, errC, step, outputStep)
+		})
 	}
 
 	pipe.errcList.add(decoratedError)

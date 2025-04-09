@@ -27,7 +27,7 @@ func TestAddStepOneToOneNilPipe(t *testing.T) {
 func TestAddStepOneToOneNilInput(t *testing.T) {
 	t.Parallel()
 
-	pipe, err := pipeline.New(t.Context())
+	pipe, err := pipeline.New()
 	require.NoError(t, err)
 	_, err = pipeline.AddStepOneToOne(pipe, "root step", nil, func(ctx context.Context, input int) (int, error) {
 		return input, nil
@@ -41,7 +41,7 @@ func TestAddStepOneToOne(t *testing.T) {
 	var got []int
 
 	ctx := t.Context()
-	pipe, err := pipeline.New(ctx)
+	pipe, err := pipeline.New()
 	require.NoError(t, err)
 	step := model.Step[int]{
 		Output: createInputChan(t, 10),
@@ -58,7 +58,7 @@ func TestAddStepOneToOne(t *testing.T) {
 		done <- struct{}{}
 	}()
 
-	err = pipe.Run()
+	err = pipe.Run(ctx)
 	require.NoError(t, err)
 	<-done
 	assert.ElementsMatch(t, []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, got)
@@ -70,7 +70,7 @@ func TestAddStepOneToOneError(t *testing.T) {
 	var got []int
 
 	ctx := t.Context()
-	pipe, err := pipeline.New(ctx)
+	pipe, err := pipeline.New()
 	require.NoError(t, err)
 	step := model.Step[int]{
 		Output: createInputChan(t, 10),
@@ -92,7 +92,7 @@ func TestAddStepOneToOneError(t *testing.T) {
 		done <- struct{}{}
 	}()
 
-	err = pipe.Run()
+	err = pipe.Run(ctx)
 	assert.Error(t, err)
 	<-done
 
@@ -105,7 +105,7 @@ func TestAddStepOneToOneCancel(t *testing.T) {
 	var got []int
 
 	ctx, cancel := context.WithCancel(t.Context())
-	pipe, err := pipeline.New(ctx)
+	pipe, err := pipeline.New()
 	require.NoError(t, err)
 	step := model.Step[int]{
 		Output: createInputChanWithCancel(t, 10, 5, cancel),
@@ -127,7 +127,7 @@ func TestAddStepOneToOneCancel(t *testing.T) {
 		done <- struct{}{}
 	}()
 
-	err = pipe.Run()
+	err = pipe.Run(ctx)
 	assert.Error(t, err)
 	<-done
 
@@ -146,7 +146,7 @@ func TestAddStepOneToOneOrZeroNilPipe(t *testing.T) {
 func TestAddStepOneToOneOrZeroNilInput(t *testing.T) {
 	t.Parallel()
 
-	pipe, err := pipeline.New(t.Context())
+	pipe, err := pipeline.New()
 	require.NoError(t, err)
 	_, err = pipeline.AddStepOneToOneOrZero(pipe, "root step", nil, func(ctx context.Context, input int) (int, error) {
 		return input, nil
@@ -160,7 +160,7 @@ func TestAddStepOneToOneOrSZero(t *testing.T) {
 	var got []int
 
 	ctx := t.Context()
-	pipe, err := pipeline.New(ctx)
+	pipe, err := pipeline.New()
 	require.NoError(t, err)
 	step := model.Step[int]{
 		Output: createInputChan(t, 10),
@@ -177,7 +177,7 @@ func TestAddStepOneToOneOrSZero(t *testing.T) {
 		done <- struct{}{}
 	}()
 
-	err = pipe.Run()
+	err = pipe.Run(ctx)
 	require.NoError(t, err)
 	<-done
 	assert.ElementsMatch(t, []int{1, 2, 3, 4, 5, 6, 7, 8, 9}, got)
@@ -189,7 +189,7 @@ func TestAddStepOneToOneOrZeroError(t *testing.T) {
 	var got []int
 
 	ctx := t.Context()
-	pipe, err := pipeline.New(ctx)
+	pipe, err := pipeline.New()
 	require.NoError(t, err)
 	step := model.Step[int]{
 		Output: createInputChan(t, 10),
@@ -211,7 +211,7 @@ func TestAddStepOneToOneOrZeroError(t *testing.T) {
 		done <- struct{}{}
 	}()
 
-	err = pipe.Run()
+	err = pipe.Run(ctx)
 	assert.Error(t, err)
 	<-done
 
@@ -224,7 +224,7 @@ func TestAddStepOneToOneOrZeroCancel(t *testing.T) {
 	var got []int
 
 	ctx, cancel := context.WithCancel(t.Context())
-	pipe, err := pipeline.New(ctx)
+	pipe, err := pipeline.New()
 	require.NoError(t, err)
 	step := model.Step[int]{
 		Output: createInputChanWithCancel(t, 10, 5, cancel),
@@ -246,7 +246,7 @@ func TestAddStepOneToOneOrZeroCancel(t *testing.T) {
 		done <- struct{}{}
 	}()
 
-	err = pipe.Run()
+	err = pipe.Run(ctx)
 	assert.Error(t, err)
 	<-done
 
@@ -265,7 +265,7 @@ func TestAddStepOneToManyNilPipe(t *testing.T) {
 func TestAddStepOneToManyNilInput(t *testing.T) {
 	t.Parallel()
 
-	pipe, err := pipeline.New(t.Context())
+	pipe, err := pipeline.New()
 	require.NoError(t, err)
 	_, err = pipeline.AddStepOneToMany(pipe, "root step", nil, func(ctx context.Context, input int) ([]int, error) {
 		return []int{input}, nil
@@ -279,7 +279,7 @@ func TestAddStepOneToMany(t *testing.T) {
 	var got []int
 
 	ctx := t.Context()
-	pipe, err := pipeline.New(ctx)
+	pipe, err := pipeline.New()
 	require.NoError(t, err)
 	step := model.Step[int]{
 		Output: createInputChan(t, 10),
@@ -296,7 +296,7 @@ func TestAddStepOneToMany(t *testing.T) {
 		done <- struct{}{}
 	}()
 
-	err = pipe.Run()
+	err = pipe.Run(ctx)
 	require.NoError(t, err)
 	<-done
 	assert.ElementsMatch(t, []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, got)
@@ -308,7 +308,7 @@ func TestAddStepOneToManyError(t *testing.T) {
 	var got []int
 
 	ctx := t.Context()
-	pipe, err := pipeline.New(ctx)
+	pipe, err := pipeline.New()
 	require.NoError(t, err)
 	step := model.Step[int]{
 		Output: createInputChan(t, 10),
@@ -330,7 +330,7 @@ func TestAddStepOneToManyError(t *testing.T) {
 		done <- struct{}{}
 	}()
 
-	err = pipe.Run()
+	err = pipe.Run(ctx)
 	require.Error(t, err)
 	<-done
 
@@ -343,7 +343,7 @@ func TestAddStepOneToManyCancel(t *testing.T) {
 	var got []int
 
 	ctx, cancel := context.WithCancel(t.Context())
-	pipe, err := pipeline.New(ctx)
+	pipe, err := pipeline.New()
 	require.NoError(t, err)
 	step := model.Step[int]{
 		Output: createInputChanWithCancel(t, 10, 5, cancel),
@@ -365,7 +365,7 @@ func TestAddStepOneToManyCancel(t *testing.T) {
 		done <- struct{}{}
 	}()
 
-	err = pipe.Run()
+	err = pipe.Run(ctx)
 	assert.Error(t, err)
 	<-done
 
@@ -383,7 +383,7 @@ func TestAddSplitterNilPipe(t *testing.T) {
 func TestAddSplitterNilInput(t *testing.T) {
 	t.Parallel()
 
-	pipe, err := pipeline.New(t.Context())
+	pipe, err := pipeline.New()
 	require.NoError(t, err)
 	_, err = pipeline.AddSplitter(pipe, "root step", (*model.Step[int])(nil), 5)
 	require.Error(t, err)
@@ -392,7 +392,7 @@ func TestAddSplitterNilInput(t *testing.T) {
 func TestAddSplitterZero(t *testing.T) {
 	t.Parallel()
 
-	pipe, err := pipeline.New(t.Context())
+	pipe, err := pipeline.New()
 	require.NoError(t, err)
 
 	step := model.Step[int]{
@@ -421,7 +421,7 @@ func TestAddSplitter(t *testing.T) {
 			var got1, got2 []int
 
 			ctx := t.Context()
-			pipe, err := pipeline.New(ctx)
+			pipe, err := pipeline.New()
 			require.NoError(t, err)
 			step := model.Step[int]{
 				Output: createInputChan(t, 10),
@@ -452,7 +452,7 @@ func TestAddSplitter(t *testing.T) {
 				}()
 			}
 
-			err = pipe.Run()
+			err = pipe.Run(ctx)
 			require.NoError(t, err)
 			wg.Wait()
 			assert.ElementsMatch(t, expected, got1)
@@ -467,7 +467,7 @@ func TestAddSplitterCancel(t *testing.T) {
 	var got1, got2 []int
 
 	ctx, cancel := context.WithCancel(t.Context())
-	pipe, err := pipeline.New(ctx)
+	pipe, err := pipeline.New()
 	require.NoError(t, err)
 	step := model.Step[int]{
 		Output: createInputChanWithCancel(t, 10, 5, cancel),
@@ -497,7 +497,7 @@ func TestAddSplitterCancel(t *testing.T) {
 		}()
 	}
 
-	err = pipe.Run()
+	err = pipe.Run(ctx)
 	require.Error(t, err)
 	wg.Wait()
 	// Otherwise the compiler ignores the output channel and checks the ctx.
@@ -521,7 +521,7 @@ func TestAddSinkNilPipe(t *testing.T) {
 func TestAddSinkNilInput(t *testing.T) {
 	t.Parallel()
 
-	pipe, err := pipeline.New(t.Context())
+	pipe, err := pipeline.New()
 	require.NoError(t, err)
 	err = pipeline.AddSink(pipe, "root step", nil, func(ctx context.Context, input <-chan int) error {
 		for i := range input {
@@ -538,7 +538,7 @@ func TestAddSink(t *testing.T) {
 
 	ctx := t.Context()
 	got := []int{}
-	pipe, err := pipeline.New(ctx)
+	pipe, err := pipeline.New()
 	require.NoError(t, err)
 	step := model.Step[int]{
 		Output: createInputChan(t, 10),
@@ -549,7 +549,7 @@ func TestAddSink(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	err = pipe.Run()
+	err = pipe.Run(ctx)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, got)
 }
@@ -559,7 +559,7 @@ func TestAddSinkError(t *testing.T) {
 
 	ctx := t.Context()
 	got := []int{}
-	pipe, err := pipeline.New(ctx)
+	pipe, err := pipeline.New()
 	require.NoError(t, err)
 	step := model.Step[int]{
 		Output: createInputChan(t, 10),
@@ -574,7 +574,7 @@ func TestAddSinkError(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	err = pipe.Run()
+	err = pipe.Run(ctx)
 	assert.Error(t, err)
 }
 
@@ -583,7 +583,7 @@ func TestAddMerger(t *testing.T) {
 
 	ctx := t.Context()
 	got := []int{}
-	pipe, err := pipeline.New(ctx)
+	pipe, err := pipeline.New()
 	require.NoError(t, err)
 	step1 := model.Step[int]{
 		Details: &model.StepInfo{},
@@ -605,7 +605,7 @@ func TestAddMerger(t *testing.T) {
 		done <- struct{}{}
 	}()
 
-	err = pipe.Run()
+	err = pipe.Run(ctx)
 	require.NoError(t, err)
 	<-done
 	assert.ElementsMatch(t, []int{0, 1, 2, 3, 4, 0, 1, 2, 3, 4}, got)
@@ -668,11 +668,11 @@ func TestCompletePipeline(t *testing.T) {
 
 	ctx := t.Context()
 	m := measure.NewDefaultMeasure()
-	pipe, err := pipeline.New(ctx, drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph.gv"), m), measure.PipelineMeasure(m))
+	pipe, err := pipeline.New(drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph.gv"), m), measure.PipelineMeasure(m))
 	require.NoError(t, err)
 	buildPipeline(t, pipe, "A", 10)
 	buildPipeline(t, pipe, "B", 20)
-	err = pipe.Run()
+	err = pipe.Run(ctx)
 	require.NoError(t, err)
 }
 
@@ -682,7 +682,7 @@ func TestSimplePipeline(t *testing.T) {
 	// conc := 1
 	ctx := t.Context()
 	m := measure.NewDefaultMeasure()
-	pipe, err := pipeline.New(ctx, drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple.gv"), m), measure.PipelineMeasure(m))
+	pipe, err := pipeline.New(drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple.gv"), m), measure.PipelineMeasure(m))
 	require.NoError(t, err)
 	rootChan, err := pipeline.AddRootStep(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
 		for i := range 10 {
@@ -711,7 +711,7 @@ func TestSimplePipeline(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	err = pipe.Run()
+	err = pipe.Run(ctx)
 	require.NoError(t, err)
 }
 
@@ -721,7 +721,7 @@ func TestSimpleSplitterPipeline(t *testing.T) {
 	conc := 1
 	ctx := t.Context()
 	m := measure.NewDefaultMeasure()
-	pipe, err := pipeline.New(ctx, drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple-splitter.gv"), m), measure.PipelineMeasure(m))
+	pipe, err := pipeline.New(drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple-splitter.gv"), m), measure.PipelineMeasure(m))
 	require.NoError(t, err)
 	rootChan, err := pipeline.AddRootStep(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
 		for i := range 10 {
@@ -761,7 +761,7 @@ func TestSimpleSplitterPipeline(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	err = pipe.Run()
+	err = pipe.Run(ctx)
 	require.NoError(t, err)
 }
 
@@ -772,7 +772,6 @@ func TestSimpleSplitterV2Pipeline(t *testing.T) {
 	ctx := t.Context()
 	m := measure.NewDefaultMeasure()
 	pipe, err := pipeline.New(
-		ctx,
 		drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple-splitter-v2.gv"), m),
 		measure.PipelineMeasure(m),
 	)
@@ -818,7 +817,7 @@ func TestSimpleSplitterV2Pipeline(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	err = pipe.Run()
+	err = pipe.Run(ctx)
 	require.NoError(t, err)
 }
 
@@ -829,7 +828,6 @@ func TestSimpleSplitterV3Pipeline(t *testing.T) {
 	ctx := t.Context()
 	m := measure.NewDefaultMeasure()
 	pipe, err := pipeline.New(
-		ctx,
 		drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple-splitter-v3.gv"), m),
 		measure.PipelineMeasure(m),
 	)
@@ -894,7 +892,7 @@ func TestSimpleSplitterV3Pipeline(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	err = pipe.Run()
+	err = pipe.Run(ctx)
 	require.NoError(t, err)
 }
 
@@ -905,13 +903,13 @@ func TestSimpleSplitterV4Pipeline(t *testing.T) {
 	ctx := t.Context()
 	m := measure.NewDefaultMeasure()
 	pipe, err := pipeline.New(
-		ctx,
 		drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple-splitter-v4.gv"), m),
 		measure.PipelineMeasure(m),
 	)
 	require.NoError(t, err)
 	rootChan, err := pipeline.AddRootStep(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
 		for i := range 10 {
+			time.Sleep(43 * time.Millisecond)
 			rootChan <- i
 		}
 
@@ -920,13 +918,17 @@ func TestSimpleSplitterV4Pipeline(t *testing.T) {
 	require.NoError(t, err)
 
 	step0Chan, err := pipeline.AddStepOneToOne(pipe, "step 0", rootChan, func(ctx context.Context, input int) (int, error) {
+		time.Sleep(79 * time.Millisecond)
+
 		return input, nil
 	}, pipeline.StepConcurrency[int](conc))
 	require.NoError(t, err)
 
 	step1Chan, err := pipeline.AddStepOneToMany(pipe, "step 1", step0Chan, func(ctx context.Context, input int) ([]int, error) {
+		time.Sleep(97 * time.Millisecond)
+
 		return []int{input * 100}, nil
-	}, pipeline.StepConcurrency[int](conc))
+	}, pipeline.StepConcurrency[int](conc*5))
 	require.NoError(t, err)
 
 	splitterChans, err := pipeline.AddSplitter(pipe, "splitter", step1Chan, 2,
@@ -938,14 +940,16 @@ func TestSimpleSplitterV4Pipeline(t *testing.T) {
 	splitterChan2, _ := splitterChans.Get()
 
 	splittedChan1, err := pipeline.AddStepOneToOne(pipe, "splitted step 1", splitterChan1, func(ctx context.Context, input int) (int, error) {
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(131 * time.Millisecond)
 
 		return input / 100, nil
-	}, pipeline.StepConcurrency[int](conc))
+	}, pipeline.StepConcurrency[int](1))
 	require.NoError(t, err)
 
 	err = pipeline.AddSinkFromChan(pipe, "sink 1", splittedChan1, func(ctx context.Context, input <-chan int) error {
 		for elem := range input {
+			time.Sleep(157 * time.Millisecond)
+
 			_ = elem
 		}
 
@@ -955,16 +959,20 @@ func TestSimpleSplitterV4Pipeline(t *testing.T) {
 
 	splittedChan2, err := pipeline.AddStepOneToMany(pipe, "splitted step 2", splitterChan2,
 		func(ctx context.Context, input int) ([]int, error) {
+			time.Sleep(317 * time.Millisecond)
+
 			return []int{input / 100}, nil
-		}, pipeline.StepConcurrency[int](conc))
+		}, pipeline.StepConcurrency[int](1))
 	require.NoError(t, err)
 
 	err = pipeline.AddSink(pipe, "sink 2", splittedChan2, func(ctx context.Context, input int) error {
 		_ = input
 
+		time.Sleep(419 * time.Millisecond)
+
 		return nil
-	})
+	}, pipeline.StepConcurrency[int](conc*3))
 	require.NoError(t, err)
-	err = pipe.Run()
+	err = pipe.Run(ctx)
 	require.NoError(t, err)
 }

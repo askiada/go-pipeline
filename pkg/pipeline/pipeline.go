@@ -11,20 +11,16 @@ import (
 
 // Pipeline is a pipeline of steps.
 type Pipeline struct {
-	ctx       context.Context //nolint:containedctx // The context for the pipeline. It is used to cancel the pipeline.
 	errcList  *errorChans
-	cancel    context.CancelFunc
 	opts      []model.PipelineOption
 	startTime time.Time
+	goFn      []func(ctx context.Context)
 }
 
 // New creates a new pipeline.
-func New(ctx context.Context, opts ...model.PipelineOption) (*Pipeline, error) {
-	dCtx, cancel := context.WithCancel(ctx)
+func New(opts ...model.PipelineOption) (*Pipeline, error) {
 	pipe := &Pipeline{
-		ctx:       dCtx,
 		errcList:  &errorChans{},
-		cancel:    cancel,
 		startTime: time.Now(),
 		opts:      opts,
 	}
@@ -53,9 +49,15 @@ func waitForPipeline(errs ...*errorChan) error {
 }
 
 // Run starts the pipeline and waits for it to finish.
-func (p *Pipeline) Run() error {
-	defer p.cancel()
+func (p *Pipeline) Run(ctx context.Context) error {
+	dCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
+	for _, fn := range p.goFn {
+		go fn(dCtx)
+	}
+
+	// Wait for all steps to finish.
 	err := waitForPipeline(p.errcList.list...)
 	if err != nil {
 		return err
