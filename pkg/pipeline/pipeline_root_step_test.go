@@ -93,7 +93,7 @@ func TestAddRootStepError(t *testing.T) {
 func TestAddRootStepCancel(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	pipe, err := pipeline.New()
 	require.NoError(t, err)
 
@@ -218,7 +218,7 @@ func TestAddRootStepNoCloseError(t *testing.T) {
 func TestAddRootStepNoCloseCancel(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	pipe, err := pipeline.New()
 	require.NoError(t, err)
 

@@ -1,6 +1,6 @@
 .PHONY: lint
 lint: ## Lint it
-	golangci-lint run --verbose ./...
+	docker run --rm -v $$(pwd):/app -w /app golangci/golangci-lint:v2.0.2 golangci-lint run
 
 .PHONY: unit_test
 unit_test:

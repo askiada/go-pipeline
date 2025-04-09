@@ -279,13 +279,13 @@ func generateDOT[K comparable, T any](gra graph.Graph[K, T], options ...func(*de
 	return desc, nil
 }
 
-func renderDOT(wri io.Writer, desc description) error {
+func renderDOT(wrt io.Writer, desc description) error {
 	tpl, err := template.New("dotTemplate").Parse(dotTemplate)
 	if err != nil {
 		return fmt.Errorf("failed to parse template: %w", err)
 	}
 
-	err = tpl.Execute(wri, desc)
+	err = tpl.Execute(wrt, desc)
 	if err != nil {
 		return errors.Wrap(err, "unable to execute template")
 	}

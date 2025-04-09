@@ -65,6 +65,7 @@ func runStepMerger[I any](ctx context.Context, pipe *Pipeline, errC chan error, 
 }
 
 // AddMerger adds a merger step to the pipeline. It will merge the output of the steps into a single channel.
+// The merger function will be run in a separate goroutine.
 func AddMerger[I any](pipe *Pipeline, name string, steps ...*model.Step[I]) (*model.Step[I], error) {
 	output := make(chan I)
 
