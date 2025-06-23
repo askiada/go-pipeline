@@ -20,6 +20,8 @@ func prepareRootStep[O any](pipe *Pipeline, step *model.Step[O], opts ...StepOpt
 		opt(step)
 	}
 
+	step.Output = make(chan O, step.Details.BufferSize)
+
 	return nil
 }
 
@@ -36,14 +38,12 @@ func AddRootStep[O any](
 
 	errC := make(chan error, 1)
 	decoratedError := newErrorChan(name, errC)
-	output := make(chan O)
 
 	step := &model.Step[O]{
 		Details: &model.StepInfo{
 			Type: model.RootStepType,
 			Name: name,
 		},
-		Output: output,
 	}
 
 	err := prepareRootStep(pipe, step, opts...)
@@ -54,13 +54,13 @@ func AddRootStep[O any](
 	go func() {
 		defer func() {
 			if !step.KeepOpen {
-				close(output)
+				close(step.Output)
 			}
 
 			close(errC)
 		}()
 
-		err := stepFn(pipe.ctx, output)
+		err := stepFn(pipe.ctx, step.Output)
 		if err != nil {
 			errC <- err
 		}

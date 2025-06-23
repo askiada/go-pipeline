@@ -26,7 +26,7 @@ func TestAddRootStepNilPipe(t *testing.T) {
 func TestAddRootStep(t *testing.T) {
 	t.Parallel()
 
-	pipe, err := pipeline.New(context.Background())
+	pipe, err := pipeline.New(t.Context())
 	require.NoError(t, err)
 
 	var got []int
@@ -56,7 +56,7 @@ func TestAddRootStep(t *testing.T) {
 func TestAddRootStepError(t *testing.T) {
 	t.Parallel()
 
-	pipe, err := pipeline.New(context.Background())
+	pipe, err := pipeline.New(t.Context())
 	require.NoError(t, err)
 
 	var got []int
@@ -90,7 +90,7 @@ func TestAddRootStepError(t *testing.T) {
 func TestAddRootStepCancel(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	pipe, err := pipeline.New(ctx)
 	require.NoError(t, err)
 
@@ -143,7 +143,7 @@ func TestAddRootStepNoCloseNilPipe(t *testing.T) {
 func TestAddRootStepNoClose(t *testing.T) {
 	t.Parallel()
 
-	pipe, err := pipeline.New(context.Background())
+	pipe, err := pipeline.New(t.Context())
 	require.NoError(t, err)
 
 	var got []int
@@ -175,7 +175,7 @@ func TestAddRootStepNoClose(t *testing.T) {
 func TestAddRootStepNoCloseError(t *testing.T) {
 	t.Parallel()
 
-	pipe, err := pipeline.New(context.Background())
+	pipe, err := pipeline.New(t.Context())
 	require.NoError(t, err)
 
 	var got []int
@@ -211,7 +211,7 @@ func TestAddRootStepNoCloseError(t *testing.T) {
 func TestAddRootStepNoCloseCancel(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	pipe, err := pipeline.New(ctx)
 	require.NoError(t, err)
 

@@ -52,17 +52,6 @@ func waitForPipeline(errs ...*errorChan) error {
 	return nil
 }
 
-func (p *Pipeline) finishRun() error {
-	for _, opt := range p.opts {
-		err := opt.Finish()
-		if err != nil {
-			return errors.Wrap(err, "unable to finish pipeline option")
-		}
-	}
-
-	return nil
-}
-
 // Run starts the pipeline and waits for it to finish.
 func (p *Pipeline) Run() error {
 	defer p.cancel()
@@ -73,4 +62,15 @@ func (p *Pipeline) Run() error {
 	}
 
 	return p.finishRun()
+}
+
+func (p *Pipeline) finishRun() error {
+	for _, opt := range p.opts {
+		err := opt.Finish()
+		if err != nil {
+			return errors.Wrap(err, "unable to finish pipeline option")
+		}
+	}
+
+	return nil
 }

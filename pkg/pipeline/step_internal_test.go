@@ -26,7 +26,7 @@ func TestOneToOne(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
 			input := &model.Step[int]{Output: createInputChan(t, 10)}
@@ -66,7 +66,7 @@ func TestOneToOneCancelInput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
 			input := &model.Step[int]{Output: createInputChanWithCancel(t, 10, 5, cancel)}
@@ -106,7 +106,7 @@ func TestOneToOneCancelOutput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
 			input := &model.Step[int]{Output: createInputChan(t, 10)}
@@ -152,7 +152,7 @@ func TestOneToOneError(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
 			input := &model.Step[int]{Output: createInputChan(t, 10)}
@@ -196,7 +196,7 @@ func TestOneToOneOrZero(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
 			input := &model.Step[int]{Output: createInputChan(t, 10)}
@@ -236,7 +236,7 @@ func TestOneToOneOrZeroCancelInput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
 			input := &model.Step[int]{Output: createInputChanWithCancel(t, 10, 5, cancel)}
@@ -276,7 +276,7 @@ func TestOneToOneOrZeroCancelOutput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
 			input := &model.Step[int]{Output: createInputChan(t, 10)}
@@ -322,7 +322,7 @@ func TestOneToOneOrZeroError(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
 			input := &model.Step[int]{Output: createInputChan(t, 10)}
@@ -365,7 +365,7 @@ func TestOneToMany(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
 			input := &model.Step[int]{Output: createInputChan(t, 10)}
@@ -404,7 +404,7 @@ func TestOneToManyCancelInput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
 			input := &model.Step[int]{Output: createInputChanWithCancel(t, 10, 5, cancel)}
@@ -443,7 +443,7 @@ func TestOneToManyCancelOutput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
 			input := &model.Step[int]{Output: createInputChan(t, 10)}
@@ -488,7 +488,7 @@ func TestOneToManyError(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
 			input := &model.Step[int]{Output: createInputChan(t, 10)}

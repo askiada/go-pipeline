@@ -47,7 +47,7 @@ func (d *SVGDrawer) AddStep(name string) error {
 func (d *SVGDrawer) AddLink(parentName, childrenName string) error {
 	err := d.graph.AddEdge(parentName, childrenName)
 	if err != nil {
-		return errors.Wrap(err, "unable to add edge")
+		return errors.Wrapf(err, "unable to add edge from %s to %s", parentName, childrenName)
 	}
 
 	return nil
@@ -76,41 +76,6 @@ func (d *SVGDrawer) SetTotalTime(stepName string, startTime time.Time) error {
 	}
 
 	properties.Attributes["xlabel"] = time.Since(startTime).String()
-
-	return nil
-}
-
-func (d *SVGDrawer) updateMetrics(msr measure.Measure, allChanElapsed map[time.Duration]string) error {
-	for name, step := range msr.AllMetrics() {
-		_, properties, err := d.graph.VertexWithProperties(name)
-		if err != nil {
-			return errors.Wrap(err, "unable to get vertex properties")
-		}
-
-		stepAvg := step.AVGDuration()
-		if stepAvg != 0 {
-			properties.Attributes["xlabel"] = stepAvg.String()
-		}
-
-		if step.GetTotalDuration() > 0 {
-			properties.Attributes["xlabel"] += ", end: " + step.GetTotalDuration().String()
-		}
-
-		for inputStep, info := range step.AllTransports() {
-			if info.Elapsed == 0 {
-				continue
-			}
-
-			err := d.graph.UpdateEdge(inputStep, name,
-				graph.EdgeAttribute("label", info.Elapsed.String()),
-				graph.EdgeAttribute("fontcolor", "blue"),
-				graph.EdgeAttribute("color", allChanElapsed[info.Elapsed]), //nolint
-			)
-			if err != nil {
-				return errors.Wrap(err, "unable to update edge")
-			}
-		}
-	}
 
 	return nil
 }
@@ -172,6 +137,41 @@ func (d *SVGDrawer) AddMeasure(msr measure.Measure) error {
 	err = d.updateMetrics(msr, allChanElapsed)
 	if err != nil {
 		return errors.Wrap(err, "unable to update metrics")
+	}
+
+	return nil
+}
+
+func (d *SVGDrawer) updateMetrics(msr measure.Measure, allChanElapsed map[time.Duration]string) error {
+	for name, step := range msr.AllMetrics() {
+		_, properties, err := d.graph.VertexWithProperties(name)
+		if err != nil {
+			return errors.Wrap(err, "unable to get vertex properties")
+		}
+
+		stepAvg := step.AVGDuration()
+		if stepAvg != 0 {
+			properties.Attributes["xlabel"] = stepAvg.String()
+		}
+
+		if step.GetTotalDuration() > 0 {
+			properties.Attributes["xlabel"] += ", end: " + step.GetTotalDuration().String()
+		}
+
+		for inputStep, info := range step.AllTransports() {
+			if info.Elapsed == 0 {
+				continue
+			}
+
+			err := d.graph.UpdateEdge(inputStep, name,
+				graph.EdgeAttribute("label", info.Elapsed.String()),
+				graph.EdgeAttribute("fontcolor", "blue"),
+				graph.EdgeAttribute("color", allChanElapsed[info.Elapsed]), //nolint
+			)
+			if err != nil {
+				return errors.Wrap(err, "unable to update edge")
+			}
+		}
 	}
 
 	return nil
@@ -279,13 +279,13 @@ func generateDOT[K comparable, T any](gra graph.Graph[K, T], options ...func(*de
 	return desc, nil
 }
 
-func renderDOT(w io.Writer, d description) error {
+func renderDOT(wri io.Writer, desc description) error {
 	tpl, err := template.New("dotTemplate").Parse(dotTemplate)
 	if err != nil {
 		return fmt.Errorf("failed to parse template: %w", err)
 	}
 
-	err = tpl.Execute(w, d)
+	err = tpl.Execute(wri, desc)
 	if err != nil {
 		return errors.Wrap(err, "unable to execute template")
 	}

@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -68,7 +69,7 @@ func prepareSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], t
 		splitter.bufferSize = 1
 	}
 
-	for i := range total {
+	for idx := range total {
 		step := model.Step[I]{
 			Details: &model.StepInfo{
 				Type: model.SplitterStepType,
@@ -76,7 +77,7 @@ func prepareSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], t
 			},
 			Output: make(chan I),
 		}
-		splitter.splittedSteps[i] = &step
+		splitter.splittedSteps[idx] = &step
 	}
 
 	for _, opt := range pipe.opts {
@@ -198,7 +199,7 @@ func AddSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], total
 }
 
 // SplitterFn is a function that returns wether to keep the input or not.
-type SplitterFn[I any] func(input I) (bool, error)
+type SplitterFn[I any] func(ctx context.Context, input I) (bool, error)
 
 // AddSplitterFn adds a splitter step to the pipeline. It will split the input into multiple outputs based on the provided functions.
 func AddSplitterFn[I any](
@@ -231,35 +232,40 @@ func AddSplitterFn[I any](
 		localI := i
 
 		go func() {
-			defer wgrp.Done()
+			defer func() {
+				close(splitter.splittedSteps[localI].Output)
+				wgrp.Done()
+			}()
 		outer:
 			for {
 				select {
+				case <-pipe.ctx.Done():
+					errC <- pipe.ctx.Err()
+
+					break outer
+
 				case elem, ok := <-localBuf:
 					if !ok {
 						break outer
 					}
-					ok, err := fns[localI](elem)
+					ok, err := fns[localI](pipe.ctx, elem)
 					if err != nil {
 						errC <- errors.Wrap(err, "unable to run splitter function")
 					}
 					if !ok {
 						continue
 					}
-					splitter.splittedSteps[localI].Output <- elem
-				case <-pipe.ctx.Done():
-					errC <- pipe.ctx.Err()
 
-					break outer
+					splitter.splittedSteps[localI].Output <- elem
 				}
 			}
-			close(splitter.splittedSteps[localI].Output)
 		}()
 	}
 
 	go func() {
 		runSplitter(pipe, splitter, input, splitterBuffer, errC, wgrp)
 	}()
+
 	pipe.errcList.add(decoratedError)
 
 	return splitter, nil
