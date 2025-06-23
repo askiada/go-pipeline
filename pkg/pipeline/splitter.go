@@ -69,7 +69,7 @@ func prepareSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], t
 		splitter.bufferSize = 1
 	}
 
-	for i := range total {
+	for idx := range total {
 		step := model.Step[I]{
 			Details: &model.StepInfo{
 				Type: model.SplitterStepType,
@@ -77,7 +77,7 @@ func prepareSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], t
 			},
 			Output: make(chan I),
 		}
-		splitter.splittedSteps[i] = &step
+		splitter.splittedSteps[idx] = &step
 	}
 
 	for _, opt := range pipe.opts {

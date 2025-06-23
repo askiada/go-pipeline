@@ -12,7 +12,7 @@ import (
 func prepareMerger[I any](pipe *Pipeline, output chan I, name string, steps ...*model.Step[I]) (*model.Step[I], error) {
 	outputStep := &model.Step[I]{
 		Details: &model.StepInfo{
-			Type:       model.MergeStepType,
+			Type:       model.MergerStepType,
 			Name:       name,
 			Concurrent: 1,
 		},

@@ -103,19 +103,19 @@ func (mt *DefaultMetric) AllTransports() map[string]*TransportInfo {
 	return mt.allTransports
 }
 
-func round(d time.Duration) time.Duration {
+func round(dur time.Duration) time.Duration {
 	switch {
-	case d > time.Second:
-		d = d.Round(time.Second)
-	case d > time.Millisecond:
-		d = d.Round(time.Millisecond)
-	case d > time.Microsecond:
-		d = d.Round(time.Microsecond)
-	case d > time.Minute:
-		d = d.Round(time.Minute)
-	case d > time.Hour:
-		d = d.Round(time.Hour)
+	case dur > time.Second:
+		dur = dur.Round(time.Second)
+	case dur > time.Millisecond:
+		dur = dur.Round(time.Millisecond)
+	case dur > time.Microsecond:
+		dur = dur.Round(time.Microsecond)
+	case dur > time.Minute:
+		dur = dur.Round(time.Minute)
+	case dur > time.Hour:
+		dur = dur.Round(time.Hour)
 	}
 
-	return d
+	return dur
 }
