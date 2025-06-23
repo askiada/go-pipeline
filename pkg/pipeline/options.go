@@ -19,9 +19,10 @@ func StepKeepOpen[O any]() StepOption[O] {
 	}
 }
 
-// StepBufferSize sets the buffer size of the step.
-// The output channel of the step will have a buffer of this size.
-// If the buffer size is 0, the output channel will be unbuffered.
+// StepBufferSize sets the buffer size of the step. The default is 0, which means no buffer.
+// The buffer size is the number of items that can be buffered in the channel before it blocks.
+// If the buffer size is 0, the channel will block until the item is consumed.
+// If the buffer size is greater than 0, the channel will not block until the buffer is full.
 func StepBufferSize[O any](bufferSize int) StepOption[O] {
 	return func(s *model.Step[O]) {
 		s.Details.BufferSize = bufferSize

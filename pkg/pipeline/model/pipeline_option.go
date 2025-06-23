@@ -2,9 +2,14 @@ package model
 
 import "time"
 
-// PipelineOption defines the interface for pipeline options.
+// PipelineOption is an interface that defines the methods that can be used to customise the behaviour of a pipeline.
+// It allows users to define custom behaviour for different steps in the pipeline, such as preparation and output handling.
+// Each method corresponds to a specific step type in the pipeline, such as a normal step, splitter, merger, or sink.
+// The methods are called at different points in the pipeline execution, allowing users to hook into the pipeline's lifecycle.
 type PipelineOption interface {
-	// New initialises the pipeline option.
+	// New is called when the pipeline is created.
+	// It is used to initialise any resources needed for the pipeline.
+	// It is called before any steps are created.
 	New() error
 
 	pipelineStepOption
@@ -13,6 +18,8 @@ type PipelineOption interface {
 	pipelineSinkOption
 
 	// Finish runs after the pipeline is finished.
+	// Finish is called when the pipeline is finished.
+	// It is used to perform any cleanup or finalisation needed for the pipeline.
 	Finish() error
 }
 

@@ -1,3 +1,4 @@
+//nolint:gochecknoglobals,revive // it is necessary to have global variables for options
 package model
 
 type stepType string
@@ -54,7 +55,11 @@ var (
 // The KeepOpen flag indicates whether the output channel should remain open after the step is done,
 // allowing for further data to be sent to it.
 type Step[O any] struct {
-	Output   chan O
+	// Output is the output channel of the step.
+	Output chan O
+	// KeepOpen is a flag that indicates whether the step should keep the output channel open at the end of the step.
 	KeepOpen bool
-	Details  *StepInfo
+	// Details contains the details of the step.
+	// It contains the type of the step, the name of the step, the concurrency level of the step, and the buffer size of the output channel.
+	Details *StepInfo
 }

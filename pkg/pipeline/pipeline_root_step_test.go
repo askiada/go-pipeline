@@ -26,7 +26,9 @@ func TestAddRootStepNilPipe(t *testing.T) {
 func TestAddRootStep(t *testing.T) {
 	t.Parallel()
 
-	pipe, err := pipeline.New(t.Context())
+	ctx := t.Context()
+
+	pipe, err := pipeline.New()
 	require.NoError(t, err)
 
 	var got []int
@@ -47,7 +49,7 @@ func TestAddRootStep(t *testing.T) {
 		done <- struct{}{}
 	}()
 
-	err = pipe.Run()
+	err = pipe.Run(ctx)
 	require.NoError(t, err)
 	<-done
 	assert.ElementsMatch(t, []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, got)
@@ -56,7 +58,8 @@ func TestAddRootStep(t *testing.T) {
 func TestAddRootStepError(t *testing.T) {
 	t.Parallel()
 
-	pipe, err := pipeline.New(t.Context())
+	ctx := t.Context()
+	pipe, err := pipeline.New()
 	require.NoError(t, err)
 
 	var got []int
@@ -80,7 +83,7 @@ func TestAddRootStepError(t *testing.T) {
 		done <- struct{}{}
 	}()
 
-	err = pipe.Run()
+	err = pipe.Run(ctx)
 	assert.Error(t, err)
 	<-done
 
@@ -91,7 +94,7 @@ func TestAddRootStepCancel(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(t.Context())
-	pipe, err := pipeline.New(ctx)
+	pipe, err := pipeline.New()
 	require.NoError(t, err)
 
 	var got []int
@@ -118,7 +121,7 @@ func TestAddRootStepCancel(t *testing.T) {
 		done <- struct{}{}
 	}()
 
-	err = pipe.Run()
+	err = pipe.Run(ctx)
 	assert.Error(t, err)
 	<-done
 
@@ -143,7 +146,9 @@ func TestAddRootStepNoCloseNilPipe(t *testing.T) {
 func TestAddRootStepNoClose(t *testing.T) {
 	t.Parallel()
 
-	pipe, err := pipeline.New(t.Context())
+	ctx := t.Context()
+
+	pipe, err := pipeline.New()
 	require.NoError(t, err)
 
 	var got []int
@@ -166,7 +171,7 @@ func TestAddRootStepNoClose(t *testing.T) {
 		done <- struct{}{}
 	}()
 
-	err = pipe.Run()
+	err = pipe.Run(ctx)
 	require.NoError(t, err)
 	<-done
 	assert.ElementsMatch(t, []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, got)
@@ -175,7 +180,9 @@ func TestAddRootStepNoClose(t *testing.T) {
 func TestAddRootStepNoCloseError(t *testing.T) {
 	t.Parallel()
 
-	pipe, err := pipeline.New(t.Context())
+	ctx := t.Context()
+
+	pipe, err := pipeline.New()
 	require.NoError(t, err)
 
 	var got []int
@@ -201,7 +208,7 @@ func TestAddRootStepNoCloseError(t *testing.T) {
 		done <- struct{}{}
 	}()
 
-	err = pipe.Run()
+	err = pipe.Run(ctx)
 	assert.Error(t, err)
 	<-done
 
@@ -212,7 +219,7 @@ func TestAddRootStepNoCloseCancel(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(t.Context())
-	pipe, err := pipeline.New(ctx)
+	pipe, err := pipeline.New()
 	require.NoError(t, err)
 
 	var got []int
@@ -240,7 +247,7 @@ func TestAddRootStepNoCloseCancel(t *testing.T) {
 		done <- struct{}{}
 	}()
 
-	err = pipe.Run()
+	err = pipe.Run(ctx)
 	assert.Error(t, err)
 	<-done
 
