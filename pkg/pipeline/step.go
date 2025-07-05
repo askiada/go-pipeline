@@ -304,7 +304,7 @@ func sequentialStepFromChanFn[I any, O any](
 
 	var end time.Duration
 
-	done := make(chan struct{})
+	done := make(chan struct{}, 1)
 
 	go func() {
 		defer func() {
