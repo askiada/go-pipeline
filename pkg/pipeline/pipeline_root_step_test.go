@@ -44,6 +44,7 @@ func TestAddRootStep(t *testing.T) {
 
 	go func() {
 		got = processOutputChan(t, outputChan.Output)
+
 		done <- struct{}{}
 	}()
 
@@ -66,6 +67,7 @@ func TestAddRootStepError(t *testing.T) {
 			if i == 5 {
 				return assert.AnError
 			}
+
 			rootChan <- i
 		}
 
@@ -77,6 +79,7 @@ func TestAddRootStepError(t *testing.T) {
 
 	go func() {
 		got = processOutputChan(t, outputChan.Output)
+
 		done <- struct{}{}
 	}()
 
@@ -103,6 +106,7 @@ func TestAddRootStepCancel(t *testing.T) {
 
 				return assert.AnError
 			}
+
 			rootChan <- i
 		}
 
@@ -115,6 +119,7 @@ func TestAddRootStepCancel(t *testing.T) {
 
 	go func() {
 		got = processOutputChan(t, outputChan.Output)
+
 		done <- struct{}{}
 	}()
 
@@ -163,6 +168,7 @@ func TestAddRootStepNoClose(t *testing.T) {
 
 	go func() {
 		got = processOutputChan(t, outputChan.Output)
+
 		done <- struct{}{}
 	}()
 
@@ -187,6 +193,7 @@ func TestAddRootStepNoCloseError(t *testing.T) {
 			if i == 5 {
 				return assert.AnError
 			}
+
 			rootChan <- i
 		}
 
@@ -198,6 +205,7 @@ func TestAddRootStepNoCloseError(t *testing.T) {
 
 	go func() {
 		got = processOutputChan(t, outputChan.Output)
+
 		done <- struct{}{}
 	}()
 
@@ -226,6 +234,7 @@ func TestAddRootStepNoCloseCancel(t *testing.T) {
 
 				return assert.AnError
 			}
+
 			rootChan <- i
 		}
 
@@ -237,6 +246,7 @@ func TestAddRootStepNoCloseCancel(t *testing.T) {
 
 	go func() {
 		got = processOutputChan(t, outputChan.Output)
+
 		done <- struct{}{}
 	}()
 

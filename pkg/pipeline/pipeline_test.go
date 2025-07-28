@@ -55,6 +55,7 @@ func TestAddStepOneToOne(t *testing.T) {
 
 	go func() {
 		got = processOutputChan(t, outputChan.Output)
+
 		done <- struct{}{}
 	}()
 
@@ -89,6 +90,7 @@ func TestAddStepOneToOneError(t *testing.T) {
 
 	go func() {
 		got = processOutputChan(t, outputChan.Output)
+
 		done <- struct{}{}
 	}()
 
@@ -124,6 +126,7 @@ func TestAddStepOneToOneCancel(t *testing.T) {
 
 	go func() {
 		got = processOutputChan(t, outputChan.Output)
+
 		done <- struct{}{}
 	}()
 
@@ -174,6 +177,7 @@ func TestAddStepOneToOneOrSZero(t *testing.T) {
 
 	go func() {
 		got = processOutputChan(t, outputChan.Output)
+
 		done <- struct{}{}
 	}()
 
@@ -208,6 +212,7 @@ func TestAddStepOneToOneOrZeroError(t *testing.T) {
 
 	go func() {
 		got = processOutputChan(t, outputChan.Output)
+
 		done <- struct{}{}
 	}()
 
@@ -243,6 +248,7 @@ func TestAddStepOneToOneOrZeroCancel(t *testing.T) {
 
 	go func() {
 		got = processOutputChan(t, outputChan.Output)
+
 		done <- struct{}{}
 	}()
 
@@ -293,6 +299,7 @@ func TestAddStepOneToMany(t *testing.T) {
 
 	go func() {
 		got = processOutputChan(t, outputChan.Output)
+
 		done <- struct{}{}
 	}()
 
@@ -327,6 +334,7 @@ func TestAddStepOneToManyError(t *testing.T) {
 
 	go func() {
 		got = processOutputChan(t, outputChan.Output)
+
 		done <- struct{}{}
 	}()
 
@@ -362,6 +370,7 @@ func TestAddStepOneToManyCancel(t *testing.T) {
 
 	go func() {
 		got = processOutputChan(t, outputChan.Output)
+
 		done <- struct{}{}
 	}()
 
@@ -602,6 +611,7 @@ func TestAddMerger(t *testing.T) {
 
 	go func() {
 		got = processOutputChan(t, outputChan.Output)
+
 		done <- struct{}{}
 	}()
 
@@ -858,6 +868,7 @@ func TestSimpleSplitterV3Pipeline(t *testing.T) {
 					if !ok {
 						break outer
 					}
+
 					select {
 					case <-ctx.Done():
 						break outer

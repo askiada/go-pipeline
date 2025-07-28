@@ -8,6 +8,7 @@ import (
 
 type pipelineMeasure struct {
 	Measure
+
 	steps map[string]Metric
 }
 
