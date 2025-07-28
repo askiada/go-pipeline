@@ -23,6 +23,7 @@ type errorChans struct {
 func (ec *errorChans) add(errChan *errorChan) {
 	ec.mu.Lock()
 	defer ec.mu.Unlock()
+
 	ec.list = append(ec.list, errChan)
 }
 

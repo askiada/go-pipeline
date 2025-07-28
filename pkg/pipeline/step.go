@@ -31,22 +31,26 @@ func sequentialOneToOneFn[I any, O any](
 	ignoreZero bool,
 	opts ...model.PipelineOption,
 ) error {
-outer:
 	for {
 		start := time.Now()
+
 		select {
 		case <-ctx.Done():
 			return errors.Wrapf(ctx.Err(), "go routine %d", goIdx)
 		case in, ok := <-input.Output:
 			if !ok {
-				break outer
+				return nil
 			}
+
 			startFn := time.Now()
+
 			out, err := oneToOne(ctx, in)
 			if err != nil {
 				return errors.Wrapf(err, "go routine %d", goIdx)
 			}
+
 			endFn := time.Since(startFn)
+
 			if ignoreZero && reflect.ValueOf(out).IsZero() {
 				continue
 			}
@@ -66,8 +70,6 @@ outer:
 			}
 		}
 	}
-
-	return nil
 }
 
 func concurrentOneToOneFn[I any, O any](
@@ -90,7 +92,8 @@ func concurrentOneToOneFn[I any, O any](
 		})
 	}
 
-	if err := errGrp.Wait(); err != nil {
+	err := errGrp.Wait()
+	if err != nil {
 		return errors.Wrap(err, "unable to wait for all go routines")
 	}
 
@@ -127,6 +130,7 @@ func sequentialOneToManyFn[I any, O any](
 outer:
 	for {
 		start := time.Now()
+
 		select {
 		case <-ctx.Done():
 			return errors.Wrapf(ctx.Err(), "go routine %d", goIdx)
@@ -134,12 +138,16 @@ outer:
 			if !ok {
 				break outer
 			}
+
 			startFn := time.Now()
+
 			outs, err := oneToMany(ctx, in)
 			if err != nil {
 				return errors.Wrapf(err, "go routine %d", goIdx)
 			}
+
 			endFn := time.Since(startFn)
+
 			for _, out := range outs {
 				// we check the context again to make sure all go routines currently running
 				// stop to add new elements to the pipeline
@@ -149,6 +157,7 @@ outer:
 				case output.Output <- out:
 				}
 			}
+
 			end := time.Since(start)
 			for _, opt := range opts {
 				err := opt.OnStepOutput(input.Details, output.Details, end-endFn, endFn)
@@ -181,7 +190,8 @@ func concurrentOneToManyFn[I any, O any](
 		})
 	}
 
-	if err := errGrp.Wait(); err != nil {
+	err := errGrp.Wait()
+	if err != nil {
 		return errors.Wrap(err, "unable to wait for all go routines")
 	}
 
@@ -266,6 +276,7 @@ func addStep[I any, O any](
 			errC <- err
 		}
 	}()
+
 	pipe.errcList.add(decoratedError)
 
 	return step, nil
@@ -311,6 +322,7 @@ func sequentialStepFromChanFn[I any, O any](
 			close(inputPlaceholder)
 
 			end = time.Since(start)
+
 			done <- struct{}{}
 		}()
 
@@ -323,6 +335,7 @@ func sequentialStepFromChanFn[I any, O any](
 				if !ok {
 					break outer
 				}
+
 				select {
 				case <-ctx.Done():
 					break outer
@@ -384,7 +397,8 @@ func concurrentStepFromChanFn[I any, O any](
 		})
 	}
 
-	if err := errGrp.Wait(); err != nil {
+	err := errGrp.Wait()
+	if err != nil {
 		return errors.Wrap(err, "unable to wait for all go routines")
 	}
 

@@ -39,6 +39,7 @@ func TestOneToOne(t *testing.T) {
 
 			go func() {
 				defer close(output.Output)
+
 				err := runOneToOne(ctx, input, output, func(ctx context.Context, i int) (int, error) {
 					return i, nil
 				}, false)
@@ -79,6 +80,7 @@ func TestOneToOneCancelInput(t *testing.T) {
 
 			go func() {
 				defer close(output.Output)
+
 				err := runOneToOne(ctx, input, output, func(ctx context.Context, i int) (int, error) {
 					return i, nil
 				}, false)
@@ -119,6 +121,7 @@ func TestOneToOneCancelOutput(t *testing.T) {
 
 			go func() {
 				defer close(output.Output)
+
 				err := runOneToOne(ctx, input, output, func(ctx context.Context, i int) (int, error) {
 					if i == 5 {
 						cancel()
@@ -165,6 +168,7 @@ func TestOneToOneError(t *testing.T) {
 
 			go func() {
 				defer close(output.Output)
+
 				err := runOneToOne(ctx, input, output, func(ctx context.Context, i int) (int, error) {
 					if i == 5 {
 						return 0, assert.AnError
@@ -209,6 +213,7 @@ func TestOneToOneOrZero(t *testing.T) {
 
 			go func() {
 				defer close(output.Output)
+
 				err := runOneToOne(ctx, input, output, func(ctx context.Context, i int) (int, error) {
 					return i, nil
 				}, true)
@@ -249,6 +254,7 @@ func TestOneToOneOrZeroCancelInput(t *testing.T) {
 
 			go func() {
 				defer close(output.Output)
+
 				err := runOneToOne(ctx, input, output, func(ctx context.Context, i int) (int, error) {
 					return i, nil
 				}, false)
@@ -289,6 +295,7 @@ func TestOneToOneOrZeroCancelOutput(t *testing.T) {
 
 			go func() {
 				defer close(output.Output)
+
 				err := runOneToOne(ctx, input, output, func(ctx context.Context, i int) (int, error) {
 					if i == 5 {
 						cancel()
@@ -335,6 +342,7 @@ func TestOneToOneOrZeroError(t *testing.T) {
 
 			go func() {
 				defer close(output.Output)
+
 				err := runOneToOne(ctx, input, output, func(ctx context.Context, i int) (int, error) {
 					if i == 5 {
 						return 0, assert.AnError
@@ -378,6 +386,7 @@ func TestOneToMany(t *testing.T) {
 
 			go func() {
 				defer close(output.Output)
+
 				err := runOneToMany(ctx, input, output, func(ctx context.Context, i int) ([]int, error) {
 					return []int{i, i * 10}, nil
 				})
@@ -417,6 +426,7 @@ func TestOneToManyCancelInput(t *testing.T) {
 
 			go func() {
 				defer close(output.Output)
+
 				err := runOneToMany(ctx, input, output, func(ctx context.Context, i int) ([]int, error) {
 					return []int{i, i * 10}, nil
 				})
@@ -456,6 +466,7 @@ func TestOneToManyCancelOutput(t *testing.T) {
 
 			go func() {
 				defer close(output.Output)
+
 				err := runOneToMany(ctx, input, output, func(ctx context.Context, i int) ([]int, error) {
 					if i == 5 {
 						cancel()

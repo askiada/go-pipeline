@@ -33,6 +33,7 @@ func createInputChanWithCancel(t *testing.T, total int, offset int, cancel conte
 			if i == offset {
 				cancel()
 			}
+
 			inputChan <- i
 		}
 	}()

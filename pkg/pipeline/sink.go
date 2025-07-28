@@ -50,9 +50,11 @@ func AddSink[I any](pipe *Pipeline, name string, input *model.Step[I], sinkFn fu
 		defer func() {
 			close(errC)
 		}()
+
 	outer:
 		for {
 			startInputChan := time.Now()
+
 			select {
 			case <-pipe.ctx.Done():
 				errC <- pipe.ctx.Err()
@@ -64,10 +66,12 @@ func AddSink[I any](pipe *Pipeline, name string, input *model.Step[I], sinkFn fu
 				}
 
 				startFn := time.Now()
+
 				err := sinkFn(pipe.ctx, entry)
 				if err != nil {
 					errC <- err
 				}
+
 				endFn := time.Since(startFn)
 
 				endInputChan := time.Since(startInputChan)
@@ -119,6 +123,7 @@ func AddSinkFromChan[I any](
 		defer func() {
 			close(inputPlaceholder)
 		}()
+
 	outer:
 		for {
 			select {
@@ -128,6 +133,7 @@ func AddSinkFromChan[I any](
 				if !ok {
 					break outer
 				}
+
 				select {
 				case <-pipe.ctx.Done():
 					break outer

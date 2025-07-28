@@ -11,6 +11,7 @@ import (
 
 type pipelineDrawer struct {
 	Drawer
+
 	m         measure.Measure
 	startTime time.Time
 }

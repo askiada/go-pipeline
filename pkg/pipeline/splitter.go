@@ -23,6 +23,7 @@ type Splitter[I any] struct {
 // Get returns the next splitted step.
 func (s *Splitter[I]) Get() (*model.Step[I], bool) {
 	s.mu.Lock()
+
 	defer func() {
 		s.currIdx++
 		s.mu.Unlock()
@@ -107,19 +108,21 @@ func runSplitter[I any](
 		close(errC)
 	}()
 
-outer:
 	for {
 		startIter := time.Now()
+
 		select {
 		case <-pipe.ctx.Done():
 			errC <- pipe.ctx.Err()
 
-			break outer
+			return
 		case entry, ok := <-input.Output:
 			if !ok {
-				break outer
+				return
 			}
+
 			startFn := time.Now()
+
 			for _, buf := range splitterBuffer {
 				localEntry := entry
 				localBuf := buf
@@ -128,7 +131,7 @@ outer:
 				case <-pipe.ctx.Done():
 					errC <- pipe.ctx.Err()
 
-					break outer
+					return
 				case localBuf <- localEntry:
 				}
 			}
@@ -170,22 +173,25 @@ func AddSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], total
 		localI := i
 
 		go func() {
-			defer wgrp.Done()
-		outer:
+			defer func() {
+				close(splitter.splittedSteps[localI].Output)
+				wgrp.Done()
+			}()
+
 			for {
 				select {
 				case elem, ok := <-localBuf:
 					if !ok {
-						break outer
+						return
 					}
+
 					splitter.splittedSteps[localI].Output <- elem
 				case <-pipe.ctx.Done():
 					errC <- pipe.ctx.Err()
 
-					break outer
+					return
 				}
 			}
-			close(splitter.splittedSteps[localI].Output)
 		}()
 	}
 
@@ -236,22 +242,24 @@ func AddSplitterFn[I any](
 				close(splitter.splittedSteps[localI].Output)
 				wgrp.Done()
 			}()
-		outer:
+
 			for {
 				select {
 				case <-pipe.ctx.Done():
 					errC <- pipe.ctx.Err()
 
-					break outer
+					return
 
 				case elem, ok := <-localBuf:
 					if !ok {
-						break outer
+						return
 					}
+
 					ok, err := fns[localI](pipe.ctx, elem)
 					if err != nil {
 						errC <- errors.Wrap(err, "unable to run splitter function")
 					}
+
 					if !ok {
 						continue
 					}

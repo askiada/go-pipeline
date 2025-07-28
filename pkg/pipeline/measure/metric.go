@@ -38,6 +38,7 @@ func (mt *DefaultMetric) AddDuration(elapsed time.Duration) {
 func (mt *DefaultMetric) SetTotalDuration(endDuration time.Duration) {
 	mt.mu.Lock()
 	defer mt.mu.Unlock()
+
 	mt.EndDuration = endDuration
 }
 

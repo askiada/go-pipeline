@@ -10,6 +10,7 @@ linters:
     - depguard
     - exhaustruct
     - paralleltest
+    - wsl # deprecated, use wsl_v5
   settings:
     cyclop:
       max-complexity: 15
@@ -60,8 +61,12 @@ linters:
       check-exported: true
     varnamelen:
       min-name-length: 2
-    wsl:
-      allow-cuddle-declarations: true
+    wsl_v5:
+      allow-first-in-block: true
+      allow-whole-block: false
+      branch-max-lines: 2
+      disable:
+        - decl
   exclusions:
     generated: lax
     rules:

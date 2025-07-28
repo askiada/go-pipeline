@@ -19,11 +19,13 @@ func TestErrorChans(t *testing.T) {
 
 	go func() {
 		ecs.add(ec1)
+
 		doneChan <- struct{}{}
 	}()
 
 	go func() {
 		ecs.add(ec2)
+
 		doneChan <- struct{}{}
 	}()
 
@@ -79,7 +81,9 @@ func TestMergeErrorsOneNil(t *testing.T) {
 
 	go func() {
 		defer close(chan2)
+
 		chan2 <- expectedError1
+
 		chan2 <- expectedError2
 	}()
 
@@ -112,7 +116,9 @@ func TestMergeErrors(t *testing.T) {
 	go func() {
 		defer close(chan1)
 		defer close(chan2)
+
 		chan1 <- expectedError1
+
 		chan2 <- expectedError2
 	}()
 

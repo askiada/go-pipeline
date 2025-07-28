@@ -37,6 +37,7 @@ func prepareMerger[I any](pipe *Pipeline, output chan I, name string, steps ...*
 func runStepMerger[I any](pipe *Pipeline, errC chan error, step, outputStep *model.Step[I]) {
 	for {
 		startIter := time.Now()
+
 		select {
 		case <-pipe.ctx.Done():
 			errC <- pipe.ctx.Err()
@@ -86,6 +87,7 @@ func AddMerger[I any](pipe *Pipeline, name string, steps ...*model.Step[I]) (*mo
 	for _, step := range steps {
 		go func(step *model.Step[I]) {
 			defer wgrp.Done()
+
 			runStepMerger(pipe, errC, step, outputStep)
 		}(step)
 	}
