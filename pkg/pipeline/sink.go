@@ -91,6 +91,7 @@ func concurrentSinkFn[I any](
 ) error {
 	errGrp, dCtx := errgroup.WithContext(ctx)
 	errGrp.SetLimit(step.Details.Concurrent)
+
 	for goIdx := range step.Details.Concurrent {
 		errGrp.Go(func() error {
 			return sequentialSinkFn(dCtx, goIdx, input, step, sinkFn, opts...)
@@ -199,6 +200,7 @@ func SinkFromChan[I any](
 
 	errC := make(chan error, 1)
 	decoratedError := newErrorChan(name, errC)
+
 	pipe.addRunner(func(ctx context.Context) {
 		go func() {
 			defer close(errC)
@@ -243,7 +245,9 @@ func sequentialSinkFromChanFn[I any](
 	go func() {
 		defer func() {
 			close(inputPlaceholder)
+
 			end = time.Since(start)
+
 			done <- struct{}{}
 		}()
 
@@ -308,6 +312,7 @@ func concurrentSinkFromChanFn[I any](
 ) error {
 	errGrp, dCtx := errgroup.WithContext(ctx)
 	errGrp.SetLimit(step.Details.Concurrent)
+
 	for goIdx := range step.Details.Concurrent {
 		localGoIdx := goIdx
 

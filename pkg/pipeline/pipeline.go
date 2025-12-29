@@ -35,16 +35,16 @@ func New(opts ...model.PipelineOption) (*Pipeline, error) {
 		}
 
 		isDefaults := false
+
 		switch defaults := opt.(type) {
 		case PipelineDefaults:
 			pipe.defaults = defaults
 			isDefaults = true
 		case *PipelineDefaults:
 			if defaults == nil {
-				isDefaults = true
-
 				continue
 			}
+
 			pipe.defaults = *defaults
 			isDefaults = true
 		}
@@ -89,6 +89,10 @@ func (p *Pipeline) Run(ctx context.Context) error {
 
 	if ctx == nil {
 		return ErrContextMustBeSet
+	}
+
+	if !p.startTime.IsZero() {
+		return ErrPipelineAlreadyRan
 	}
 
 	runCtx, cancel := context.WithCancel(ctx)

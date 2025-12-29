@@ -87,6 +87,7 @@ func (mt *DefaultMetric) AVGTransportDuration() map[string]*TransportInfo {
 
 	transport := make(map[string]*TransportInfo, len(mt.allTransports))
 	concurrent := mt.concurrent
+
 	if concurrent < 1 {
 		concurrent = 1
 	}

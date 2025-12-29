@@ -102,7 +102,7 @@ func prepareSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], t
 	return splitter, nil
 }
 
-func warnSplitterBuffer(name string, bufferSize int, inputConcurrent int) {
+func warnSplitterBuffer(name string, bufferSize, inputConcurrent int) {
 	if bufferSize < 1 {
 		return
 	}
@@ -112,13 +112,26 @@ func warnSplitterBuffer(name string, bufferSize int, inputConcurrent int) {
 	}
 
 	if bufferSize < inputConcurrent {
-		log.Printf("go-pipeline: splitter %q buffer size %d is smaller than input concurrency %d; expect upstream backpressure", name, bufferSize, inputConcurrent)
+		log.Printf(
+			"go-pipeline: splitter %q buffer size %d is smaller than input concurrency %d; "+
+				"expect upstream backpressure",
+			name,
+			bufferSize,
+			inputConcurrent,
+		)
+
 		return
 	}
 
 	const warnFactor = 8
 	if bufferSize > inputConcurrent*warnFactor {
-		log.Printf("go-pipeline: splitter %q buffer size %d is much larger than input concurrency %d; large per-branch buffers can increase memory use", name, bufferSize, inputConcurrent)
+		log.Printf(
+			"go-pipeline: splitter %q buffer size %d is much larger than input concurrency %d; "+
+				"large per-branch buffers can increase memory use",
+			name,
+			bufferSize,
+			inputConcurrent,
+		)
 	}
 }
 
@@ -181,6 +194,51 @@ func runSplitter[I any](
 	}
 }
 
+func startSplitterWorkers[I any](
+	ctx context.Context,
+	splitter *Splitter[I],
+	splitterBuffer []chan I,
+	errC chan error,
+	wgrp *sync.WaitGroup,
+	handle func(ctx context.Context, idx int, elem I) (bool, error),
+) {
+	for i, buf := range splitterBuffer {
+		localBuf := buf
+		localI := i
+
+		go func() {
+			defer func() {
+				close(splitter.splittedSteps[localI].Output)
+				wgrp.Done()
+			}()
+
+			for {
+				select {
+				case <-ctx.Done():
+					errC <- ctx.Err()
+
+					return
+				case elem, ok := <-localBuf:
+					if !ok {
+						return
+					}
+
+					ok, err := handle(ctx, localI, elem)
+					if err != nil {
+						errC <- err
+					}
+
+					if !ok {
+						continue
+					}
+
+					splitter.splittedSteps[localI].Output <- elem
+				}
+			}
+		}()
+	}
+}
+
 // Split adds a splitter step to the pipeline. It will split the input into multiple outputs based on the total.
 func Split[I any](pipe *Pipeline, name string, input *model.Step[I], total int, opts ...SplitterOption[I]) *Splitter[I] {
 	if pipe == nil {
@@ -211,32 +269,9 @@ func Split[I any](pipe *Pipeline, name string, input *model.Step[I], total int, 
 	wgrp.Add(len(splitterBuffer))
 
 	pipe.addRunner(func(ctx context.Context) {
-		for i, buf := range splitterBuffer {
-			localBuf := buf
-			localI := i
-
-			go func() {
-				defer func() {
-					close(splitter.splittedSteps[localI].Output)
-					wgrp.Done()
-				}()
-
-				for {
-					select {
-					case elem, ok := <-localBuf:
-						if !ok {
-							return
-						}
-
-						splitter.splittedSteps[localI].Output <- elem
-					case <-ctx.Done():
-						errC <- ctx.Err()
-
-						return
-					}
-				}
-			}()
-		}
+		startSplitterWorkers(ctx, splitter, splitterBuffer, errC, wgrp, func(_ context.Context, _ int, _ I) (bool, error) {
+			return true, nil
+		})
 
 		go func() {
 			runSplitter(ctx, pipe, splitter, input, splitterBuffer, errC, wgrp)
@@ -288,42 +323,14 @@ func SplitBy[I any](
 	wgrp.Add(len(splitterBuffer))
 
 	pipe.addRunner(func(ctx context.Context) {
-		for i, buf := range splitterBuffer {
-			localBuf := buf
-			localI := i
+		startSplitterWorkers(ctx, splitter, splitterBuffer, errC, wgrp, func(ctx context.Context, idx int, elem I) (bool, error) {
+			ok, err := fns[idx](ctx, elem)
+			if err != nil {
+				return ok, errors.Wrap(err, "unable to run splitter function")
+			}
 
-			go func() {
-				defer func() {
-					close(splitter.splittedSteps[localI].Output)
-					wgrp.Done()
-				}()
-
-				for {
-					select {
-					case <-ctx.Done():
-						errC <- ctx.Err()
-
-						return
-
-					case elem, ok := <-localBuf:
-						if !ok {
-							return
-						}
-
-						ok, err := fns[localI](ctx, elem)
-						if err != nil {
-							errC <- errors.Wrap(err, "unable to run splitter function")
-						}
-
-						if !ok {
-							continue
-						}
-
-						splitter.splittedSteps[localI].Output <- elem
-					}
-				}
-			}()
-		}
+			return ok, nil
+		})
 
 		go func() {
 			runSplitter(ctx, pipe, splitter, input, splitterBuffer, errC, wgrp)

@@ -59,6 +59,7 @@ func (d *SVGDrawer) Draw() (err error) {
 	if err != nil {
 		return errors.Wrapf(err, "unable to create file %s", d.svgFileName)
 	}
+
 	defer func() {
 		closeErr := file.Close()
 		if closeErr != nil && err == nil {

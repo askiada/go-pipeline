@@ -9,6 +9,8 @@ import (
 var (
 	// ErrPipelineMustBeSet is returned when the pipeline is not set.
 	ErrPipelineMustBeSet = errors.New("pipe must be set")
+	// ErrPipelineAlreadyRan is returned when a pipeline Run is invoked more than once.
+	ErrPipelineAlreadyRan = errors.New("pipeline already ran")
 	// ErrContextMustBeSet is returned when the context is not set.
 	ErrContextMustBeSet = errors.New("context must be set")
 	// ErrInputMustBeSet is returned when the input is not set.

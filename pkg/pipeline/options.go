@@ -11,6 +11,7 @@ func StepConcurrency[O any](concurrent int) StepOption[O] {
 		if concurrent < 1 {
 			concurrent = 1
 		}
+
 		s.Details.Concurrent = concurrent
 	}
 }
