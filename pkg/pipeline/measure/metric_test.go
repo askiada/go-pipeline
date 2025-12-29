@@ -95,3 +95,24 @@ func TestMetricsConcurrentAccess(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestDefaultMetricRetryMetrics(t *testing.T) {
+	m := measure.NewDefaultMeasure()
+	metric := m.AddMetric("step", 1)
+
+	retryMetric, ok := metric.(measure.RetryMetric)
+	if !ok {
+		t.Fatal("expected retry metrics to be supported")
+	}
+
+	retryMetric.AddRetryDuration(10 * time.Millisecond)
+	retryMetric.AddRetryDuration(20 * time.Millisecond)
+
+	if retryMetric.RetryCount() != 2 {
+		t.Fatalf("expected 2 retries, got %d", retryMetric.RetryCount())
+	}
+
+	if retryMetric.AVGRetryDuration() != 15*time.Millisecond {
+		t.Fatalf("expected average retry duration to be 15ms, got %s", retryMetric.AVGRetryDuration())
+	}
+}

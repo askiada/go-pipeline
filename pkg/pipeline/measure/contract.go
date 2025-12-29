@@ -27,3 +27,13 @@ type Metric interface {
 	// AllTransports returns a snapshot of all transports.
 	AllTransports() map[string]*TransportInfo
 }
+
+// RetryMetric exposes retry-specific metrics when supported by a Metric.
+type RetryMetric interface {
+	// AddRetryDuration adds the duration for a retry attempt.
+	AddRetryDuration(elapsed time.Duration)
+	// AVGRetryDuration returns the average retry duration.
+	AVGRetryDuration() time.Duration
+	// RetryCount returns the number of retry attempts recorded.
+	RetryCount() int64
+}

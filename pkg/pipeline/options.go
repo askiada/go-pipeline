@@ -5,6 +5,9 @@ import "github.com/askiada/go-pipeline/pkg/pipeline/model"
 // StepOption is a function that modifies a Step.
 type StepOption[O any] func(s *model.Step[O])
 
+// RetryPolicy configures per-item retry behaviour for steps.
+type RetryPolicy = model.RetryPolicy
+
 // StepConcurrency sets the concurrency of the step.
 func StepConcurrency[O any](concurrent int) StepOption[O] {
 	return func(s *model.Step[O]) {
@@ -29,6 +32,35 @@ func StepKeepOpen[O any]() StepOption[O] {
 func StepBufferSize[O any](bufferSize int) StepOption[O] {
 	return func(s *model.Step[O]) {
 		s.Details.BufferSize = bufferSize
+	}
+}
+
+// StepRetry configures per-item retry behaviour for step functions.
+// MaxAttempts includes the initial attempt; values below 2 disable retries.
+func StepRetry[O any](policy RetryPolicy) StepOption[O] {
+	return func(step *model.Step[O]) {
+		if policy.MaxAttempts < 2 {
+			return
+		}
+
+		if policy.Backoff < 0 {
+			policy.Backoff = 0
+		}
+
+		if policy.MaxBackoff < 0 {
+			policy.MaxBackoff = 0
+		}
+
+		if policy.Jitter < 0 {
+			policy.Jitter = 0
+		}
+
+		if policy.Jitter > 1 {
+			policy.Jitter = 1
+		}
+
+		policyCopy := policy
+		step.RetryPolicy = &policyCopy
 	}
 }
 

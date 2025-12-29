@@ -167,6 +167,18 @@ Use `OneToOne` when each input item maps to a single output item. Use `OneToMany
 ### Per-step concurrency
 Use `pipeline.StepConcurrency[...]` on `OneToOne`, `OneToMany`, `FromChan`, and sink steps to control worker concurrency.
 
+### Per-step retry
+Use `pipeline.StepRetry[...]` on `OneToOne`, `OneToMany`, and `Sink` to retry failed items without blocking other workers. Retries do not apply to `FromChan`/`SinkFromChan`.
+Retry metrics are tracked separately (average retry duration and count) so step averages remain focused on successful attempts. Drawer output includes retry averages and counts in step labels.
+```go
+step := pipeline.OneToOne(pipe, "enrich", root, enrichFn,
+    pipeline.StepRetry[int](pipeline.RetryPolicy{
+        MaxAttempts: 3,
+        Backoff:     50 * time.Millisecond,
+    }),
+)
+```
+
 ### Channel closing behavior
 By default, the library closes step output channels when a step finishes, including when using `FromChan`. To keep a channel open, pass the keep-open option (for example, `pipeline.StepKeepOpen[...]()`).
 
@@ -186,6 +198,7 @@ Each example directory includes a README with expected output. Use `make example
 - Splitter + merger: `go run ./examples/splitter-merger`
 - Sink: `go run ./examples/sink`
 - SinkFromChan: `go run ./examples/sink-from-chan`
+- Retry (sink): `go run ./examples/retry`
 - Pipeline defaults: `go run ./examples/pipeline-defaults`
 - Step options: `go run ./examples/step-options`
 - Metrics + drawer: `go run ./examples/metrics-drawer`

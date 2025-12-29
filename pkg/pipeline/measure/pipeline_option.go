@@ -61,6 +61,17 @@ func (pm *pipelineMeasure) OnStepOutput(parentStep, step *model.StepInfo, iterat
 	return nil
 }
 
+// OnStepRetry is called after a retry attempt fails.
+//
+//nolint:unparam // Required by the pipeline option interface.
+func (pm *pipelineMeasure) OnStepRetry(_, step *model.StepInfo, _ int, computationDuration time.Duration) error {
+	if metric, ok := pm.GetMetric(step.Name).(RetryMetric); ok {
+		metric.AddRetryDuration(computationDuration)
+	}
+
+	return nil
+}
+
 // OnSplitterOutput is called after each splitter step output is processed.
 func (pm *pipelineMeasure) OnSplitterOutput(
 	parentStep, splitterStep *model.StepInfo,

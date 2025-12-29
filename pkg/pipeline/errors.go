@@ -17,6 +17,8 @@ var (
 	ErrInputMustBeSet = errors.New("input must be set")
 	// ErrSplitterTotal is returned when the total is not set.
 	ErrSplitterTotal = errors.New("total must be greater than 0")
+	// ErrRetryUnsupported is returned when retry is configured on an unsupported step.
+	ErrRetryUnsupported = errors.New("retry is not supported for this step type")
 )
 
 type errorChans struct {

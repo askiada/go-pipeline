@@ -67,3 +67,31 @@ func TestSVGDrawerSetTotalTimeWritesLabel(t *testing.T) {
 	require.Contains(t, content, "\"step\"")
 	require.Contains(t, content, "1h")
 }
+
+func TestSVGDrawerIncludesRetryMetrics(t *testing.T) {
+	t.Parallel()
+
+	outPath := filepath.Join(t.TempDir(), "graph.dot")
+	drw := drawer.NewSVGDrawer(outPath)
+
+	require.NoError(t, drw.AddStep("step"))
+
+	msr := measure.NewDefaultMeasure()
+	metric := msr.AddMetric("step", 1)
+	metric.AddDuration(2 * time.Millisecond)
+
+	retryMetric, ok := metric.(measure.RetryMetric)
+	require.True(t, ok)
+	retryMetric.AddRetryDuration(3 * time.Millisecond)
+	retryMetric.AddRetryDuration(3 * time.Millisecond)
+
+	require.NoError(t, drw.AddMeasure(msr))
+	require.NoError(t, drw.Draw())
+
+	data, err := os.ReadFile(outPath)
+	require.NoError(t, err)
+
+	content := string(data)
+	require.Contains(t, content, "retry avg: 3ms")
+	require.Contains(t, content, "retries: 2")
+}

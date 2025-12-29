@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strings"
 	"text/template"
 	"time"
 
@@ -115,6 +116,15 @@ func (d *SVGDrawer) AddMeasure(msr measure.Measure) error {
 		return sortedAllChanElapsed[i] > sortedAllChanElapsed[j]
 	})
 
+	if len(sortedAllChanElapsed) == 0 {
+		err := d.updateMetrics(msr, allChanElapsed)
+		if err != nil {
+			return errors.Wrap(err, "unable to update metrics")
+		}
+
+		return nil
+	}
+
 	redColor, err := colors.RGB(255, 0, 0) //nolint
 	if err != nil {
 		return errors.Wrap(err, "unable to get colour")
@@ -156,13 +166,27 @@ func (d *SVGDrawer) updateMetrics(msr measure.Measure, allChanElapsed map[time.D
 			return errors.Wrap(err, "unable to get vertex properties")
 		}
 
+		var labelParts []string
+
 		stepAvg := step.AVGDuration()
 		if stepAvg != 0 {
-			properties.Attributes["xlabel"] = stepAvg.String()
+			labelParts = append(labelParts, stepAvg.String())
+		}
+
+		if retryMetric, ok := step.(measure.RetryMetric); ok && retryMetric.RetryCount() > 0 {
+			labelParts = append(
+				labelParts,
+				"retry avg: "+retryMetric.AVGRetryDuration().String(),
+				fmt.Sprintf("retries: %d", retryMetric.RetryCount()),
+			)
 		}
 
 		if step.GetTotalDuration() > 0 {
-			properties.Attributes["xlabel"] += ", end: " + step.GetTotalDuration().String()
+			labelParts = append(labelParts, "end: "+step.GetTotalDuration().String())
+		}
+
+		if len(labelParts) > 0 {
+			properties.Attributes["xlabel"] = strings.Join(labelParts, ", ")
 		}
 
 		for inputStep, info := range step.AVGTransportDuration() {

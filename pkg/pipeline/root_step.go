@@ -53,6 +53,12 @@ func Root[O any](
 		opt(step)
 	}
 
+	if step.RetryPolicy != nil {
+		pipe.recordErr(ErrRetryUnsupported)
+
+		return nil
+	}
+
 	err := prepareRootStep(pipe, step)
 	if err != nil {
 		pipe.recordErr(err)

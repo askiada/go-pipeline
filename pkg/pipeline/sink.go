@@ -62,14 +62,15 @@ func sequentialSinkFn[I any](
 				return nil
 			}
 
-			startFn := time.Now()
-
-			err := sinkFn(ctx, entry)
+			_, endFn, err := executeWithRetry(ctx, step.RetryPolicy, func() (struct{}, error) {
+				return struct{}{}, sinkFn(ctx, entry)
+			}, func(attempt int, duration time.Duration) error {
+				return reportStepRetry(opts, input.Details, step.Details, attempt, duration)
+			})
 			if err != nil {
 				return errors.Wrapf(err, "go routine %d", goIdx)
 			}
 
-			endFn := time.Since(startFn)
 			end := time.Since(start)
 
 			for _, opt := range opts {
@@ -194,6 +195,12 @@ func SinkFromChan[I any](
 	step, err := prepareSink(pipe, name, input, opts...)
 	if err != nil {
 		pipe.recordErr(errors.Wrap(err, "unable to prepare sink"))
+
+		return nil
+	}
+
+	if step.RetryPolicy != nil {
+		pipe.recordErr(ErrRetryUnsupported)
 
 		return nil
 	}
@@ -336,6 +343,10 @@ func runSinkFromChan[I any](
 	stepFn func(ctx context.Context, input <-chan I) error,
 	opts ...model.PipelineOption,
 ) error {
+	if step.RetryPolicy != nil {
+		return ErrRetryUnsupported
+	}
+
 	if step.Details.Concurrent == 0 {
 		step.Details.Concurrent = 1
 	}

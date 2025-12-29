@@ -658,6 +658,105 @@ func TestFromChanConcurrency(t *testing.T) {
 	assert.ElementsMatch(t, expected, <-got)
 }
 
+func TestStepRetryOneToOne(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	msr := measure.NewDefaultMeasure()
+	pipe, err := pipeline.New(measure.PipelineMeasure(msr))
+	require.NoError(t, err)
+
+	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+		out <- 1
+
+		return nil
+	})
+	require.NotNil(t, root)
+
+	attempts := 0
+	step := pipeline.OneToOne(pipe, "step", root, func(ctx context.Context, input int) (int, error) {
+		attempts++
+		if attempts < 3 {
+			time.Sleep(2 * time.Millisecond)
+
+			return 0, assert.AnError
+		}
+
+		time.Sleep(6 * time.Millisecond)
+
+		return input + 1, nil
+	}, pipeline.StepRetry[int](pipeline.RetryPolicy{MaxAttempts: 3}))
+	require.NotNil(t, step)
+
+	results := make(chan int, 1)
+	sink := pipeline.Sink(pipe, "sink", step, func(ctx context.Context, input int) error {
+		results <- input
+
+		return nil
+	})
+	require.NotNil(t, sink)
+
+	require.NoError(t, pipe.Run(ctx))
+	require.Equal(t, 2, <-results)
+
+	metric := msr.GetMetric(step.Details.Name)
+	retryMetric, ok := metric.(measure.RetryMetric)
+	require.True(t, ok)
+	require.Equal(t, int64(2), retryMetric.RetryCount())
+	require.GreaterOrEqual(t, retryMetric.AVGRetryDuration(), 2*time.Millisecond)
+	require.GreaterOrEqual(t, metric.AVGDuration(), 6*time.Millisecond)
+}
+
+func TestSinkRetry(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
+	require.NoError(t, err)
+
+	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+		out <- 1
+
+		return nil
+	})
+	require.NotNil(t, root)
+
+	var mu sync.Mutex
+	attempts := 0
+	received := make([]int, 0, 3)
+
+	sink := pipeline.Sink(pipe, "sink", root, func(ctx context.Context, input int) error {
+		mu.Lock()
+
+		attempts++
+		attempt := attempts
+
+		received = append(received, input)
+
+		mu.Unlock()
+
+		if attempt < 3 {
+			return assert.AnError
+		}
+
+		return nil
+	}, pipeline.StepRetry[int](pipeline.RetryPolicy{MaxAttempts: 3}))
+	require.NotNil(t, sink)
+
+	require.NoError(t, pipe.Run(ctx))
+
+	mu.Lock()
+
+	gotAttempts := attempts
+
+	gotReceived := append([]int(nil), received...)
+
+	mu.Unlock()
+
+	require.Equal(t, 3, gotAttempts)
+	assert.Equal(t, []int{1, 1, 1}, gotReceived)
+}
+
 func TestPipelineDefaultsApplyToSteps(t *testing.T) {
 	t.Parallel()
 
@@ -1086,6 +1185,50 @@ func TestSinkFromChanConcurrency(t *testing.T) {
 
 	assert.ElementsMatch(t, expected, gotItems)
 	assert.GreaterOrEqual(t, gotWorkers, 2, "expected items from different workers")
+}
+
+func TestStepRetryUnsupportedForFromChan(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
+	require.NoError(t, err)
+
+	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+		out <- 1
+
+		return nil
+	})
+	require.NotNil(t, root)
+
+	step := pipeline.FromChan(pipe, "step", root, func(ctx context.Context, input <-chan int, output chan int) error {
+		return nil
+	}, pipeline.StepRetry[int](pipeline.RetryPolicy{MaxAttempts: 2}))
+	require.Nil(t, step)
+	require.ErrorIs(t, pipe.Err(), pipeline.ErrRetryUnsupported)
+	require.ErrorIs(t, pipe.Run(ctx), pipeline.ErrRetryUnsupported)
+}
+
+func TestStepRetryUnsupportedForSinkFromChan(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
+	require.NoError(t, err)
+
+	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+		out <- 1
+
+		return nil
+	})
+	require.NotNil(t, root)
+
+	sink := pipeline.SinkFromChan(pipe, "sink", root, func(ctx context.Context, input <-chan int) error {
+		return nil
+	}, pipeline.StepRetry[int](pipeline.RetryPolicy{MaxAttempts: 2}))
+	require.Nil(t, sink)
+	require.ErrorIs(t, pipe.Err(), pipeline.ErrRetryUnsupported)
+	require.ErrorIs(t, pipe.Run(ctx), pipeline.ErrRetryUnsupported)
 }
 
 func TestMerge(t *testing.T) {

@@ -42,15 +42,16 @@ func sequentialOneToOneFn[I any, O any](
 				return nil
 			}
 
-			startFn := time.Now()
-
-			out, err := oneToOne(ctx, in)
+			outcome, endFn, err := executeWithRetry(ctx, output.RetryPolicy, func() (O, error) {
+				return oneToOne(ctx, in)
+			}, func(attempt int, duration time.Duration) error {
+				return reportStepRetry(opts, input.Details, output.Details, attempt, duration)
+			})
 			if err != nil {
 				return errors.Wrapf(err, "go routine %d", goIdx)
 			}
 
-			endFn := time.Since(startFn)
-
+			out := outcome.value
 			if ignoreZero && reflect.ValueOf(out).IsZero() {
 				continue
 			}
@@ -139,15 +140,16 @@ outer:
 				break outer
 			}
 
-			startFn := time.Now()
-
-			outs, err := oneToMany(ctx, in)
+			outcome, endFn, err := executeWithRetry(ctx, output.RetryPolicy, func() ([]O, error) {
+				return oneToMany(ctx, in)
+			}, func(attempt int, duration time.Duration) error {
+				return reportStepRetry(opts, input.Details, output.Details, attempt, duration)
+			})
 			if err != nil {
 				return errors.Wrapf(err, "go routine %d", goIdx)
 			}
 
-			endFn := time.Since(startFn)
-
+			outs := outcome.value
 			for _, out := range outs {
 				// we check the context again to make sure all go routines currently running
 				// stop to add new elements to the pipeline
@@ -302,6 +304,10 @@ func runStepFromChan[I, O any](
 	stepFn StepFromChanFn[I, O],
 	opts ...model.PipelineOption,
 ) error {
+	if output.RetryPolicy != nil {
+		return ErrRetryUnsupported
+	}
+
 	if output.Details.Concurrent == 0 {
 		output.Details.Concurrent = 1
 	}
@@ -465,7 +471,15 @@ func FromChan[I any, O any](
 	stepFromChan StepFromChanFn[I, O],
 	opts ...StepOption[O],
 ) *model.Step[O] {
-	return addStep(pipe, name, input, func(ctx context.Context, in *model.Step[I], out *model.Step[O]) error {
+	step := addStep(pipe, name, input, func(ctx context.Context, in *model.Step[I], out *model.Step[O]) error {
 		return runStepFromChan(ctx, in, out, stepFromChan, pipe.opts...)
 	}, opts...)
+
+	if step != nil && step.RetryPolicy != nil {
+		pipe.recordErr(ErrRetryUnsupported)
+
+		return nil
+	}
+
+	return step
 }

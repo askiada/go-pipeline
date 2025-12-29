@@ -56,5 +56,7 @@ var (
 type Step[O any] struct {
 	Output   chan O
 	KeepOpen bool
-	Details  *StepInfo
+	// RetryPolicy configures per-item retries for step functions.
+	RetryPolicy *RetryPolicy
+	Details     *StepInfo
 }
