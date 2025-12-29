@@ -1,0 +1,23 @@
+strict digraph {
+	
+	
+		"start" [   weight=0 ];
+	
+		"start" -> "source" [  weight=0 ];
+	
+		"end" [ label=<end <BR /> <FONT POINT-SIZE="12">25.867584ms</FONT>>,   weight=0 ];
+	
+		"source" [   weight=0 ];
+	
+		"source" -> "process" [ color="#0000f0", fontcolor="blue", label="273µs",  weight=0 ];
+	
+		"process" [ label=<process <BR /> <FONT POINT-SIZE="12">10ms</FONT>>,   weight=0 ];
+	
+		"process" -> "collect" [ color="#f00000", fontcolor="blue", label="146ms",  weight=0 ];
+	
+		"collect" [ label=<collect <BR /> <FONT POINT-SIZE="12">154ms, end: 25.755833ms</FONT>>,   weight=0 ];
+	
+		"collect" -> "end" [  weight=0 ];
+	
+	}
+	

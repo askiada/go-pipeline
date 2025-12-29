@@ -17,7 +17,7 @@ func newPipeline(withDrawer bool) (*pipeline.Pipeline, error) {
 	}
 
 	msr := measure.NewDefaultMeasure()
-	drw := drawer.NewSVGDrawer("examples/quick-start/pipeline.dot")
+	drw := drawer.NewSVGDrawer("examples/sink/pipeline.dot")
 
 	return pipeline.New(
 		measure.PipelineMeasure(msr),
@@ -26,7 +26,7 @@ func newPipeline(withDrawer bool) (*pipeline.Pipeline, error) {
 }
 
 func main() {
-	drawerEnabled := flag.Bool("drawer", false, "write examples/quick-start/pipeline.dot with metrics")
+	drawerEnabled := flag.Bool("drawer", false, "write examples/sink/pipeline.dot with metrics")
 	flag.Parse()
 
 	pipe, err := newPipeline(*drawerEnabled)
@@ -34,19 +34,15 @@ func main() {
 		log.Fatal(err)
 	}
 
-	root := pipeline.Root(pipe, "source", func(ctx context.Context, out chan<- int) error {
-		for i := range 3 {
-			out <- i
+	root := pipeline.Root(pipe, "source", func(ctx context.Context, out chan<- string) error {
+		for _, name := range []string{"alpha", "beta", "gamma"} {
+			out <- name
 		}
 		return nil
 	})
 
-	formatted := pipeline.OneToOne(pipe, "format", root, func(ctx context.Context, in int) (string, error) {
-		return fmt.Sprintf("item-%d", in), nil
-	})
-
-	pipeline.Sink(pipe, "print", formatted, func(ctx context.Context, in string) error {
-		fmt.Println(in)
+	pipeline.Sink(pipe, "store", root, func(ctx context.Context, in string) error {
+		fmt.Println("saved:", in)
 		return nil
 	})
 

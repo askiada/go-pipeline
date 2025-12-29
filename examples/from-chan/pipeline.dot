@@ -1,0 +1,23 @@
+strict digraph {
+	
+	
+		"start" [   weight=0 ];
+	
+		"start" -> "source" [  weight=0 ];
+	
+		"end" [ label=<end <BR /> <FONT POINT-SIZE="12">4.05825ms</FONT>>,   weight=0 ];
+	
+		"source" [   weight=0 ];
+	
+		"source" -> "format" [ color="#f00000", fontcolor="blue", label="15ms",  weight=0 ];
+	
+		"format" [ label=<format <BR /> <FONT POINT-SIZE="12">17ms</FONT>>,   weight=0 ];
+	
+		"format" -> "print" [ color="#0000f0", fontcolor="blue", label="362µs",  weight=0 ];
+	
+		"print" [ label=<print <BR /> <FONT POINT-SIZE="12">162µs, end: 3.826667ms</FONT>>,   weight=0 ];
+	
+		"print" -> "end" [  weight=0 ];
+	
+	}
+	

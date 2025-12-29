@@ -57,7 +57,7 @@ import (
 
 func main() {
 	ctx := context.Background()
-	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
+	pipe, err := pipeline.New()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -177,9 +177,24 @@ By default, the library closes step output channels when a step finishes, includ
 Build the pipeline before calling `Run(ctx)`; avoid mutating steps while a run is in progress. Pipelines are single-run; create a new pipeline instance for each execution.
 
 ## Examples
+Each example directory includes a README with expected output. Use `make examples_<name>` to run with drawer output and generate a PNG, `make examples_run EXAMPLE=<name>` to run by folder name, or `make examples_all` to run everything.
+
+### Core examples
 - Quick start: `go run ./examples/quick-start`
+- One-to-many: `go run ./examples/one-to-many`
+- FromChan: `go run ./examples/from-chan`
 - Splitter + merger: `go run ./examples/splitter-merger`
+- Sink: `go run ./examples/sink`
+- SinkFromChan: `go run ./examples/sink-from-chan`
+- Pipeline defaults: `go run ./examples/pipeline-defaults`
+- Step options: `go run ./examples/step-options`
 - Metrics + drawer: `go run ./examples/metrics-drawer`
+
+### Advanced examples
+- Split + merge + metrics: `go run ./examples/split-merge-metrics`
+- Concurrency + aggregation: `go run ./examples/concurrency-aggregate`
+- Backpressure + buffering: `go run ./examples/backpressure-buffering`
+- SplitBy routing: `go run ./examples/splitby-routing`
 
 ![Pipeline diagram](examples/metrics-drawer/pipeline.png)
 
@@ -200,7 +215,6 @@ func buildPipeline() (*pipeline.Pipeline, error) {
 	drw := drawer.NewSVGDrawer("pipeline.dot")
 
 	return pipeline.New(
-		pipeline.PipelineDefaults{},
 		measure.PipelineMeasure(msr),
 		drawer.PipelineDrawer(drw, msr),
 	)

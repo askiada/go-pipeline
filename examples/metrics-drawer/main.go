@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"time"
 
@@ -10,12 +11,25 @@ import (
 	"github.com/askiada/go-pipeline/pkg/pipeline/measure"
 )
 
-func main() {
-	ctx := context.Background()
+func newPipeline(withDrawer bool) (*pipeline.Pipeline, error) {
+	if !withDrawer {
+		return pipeline.New()
+	}
+
 	msr := measure.NewDefaultMeasure()
 	drw := drawer.NewSVGDrawer("examples/metrics-drawer/pipeline.dot")
 
-	pipe, err := pipeline.New(pipeline.PipelineDefaults{}, measure.PipelineMeasure(msr), drawer.PipelineDrawer(drw, msr))
+	return pipeline.New(
+		measure.PipelineMeasure(msr),
+		drawer.PipelineDrawer(drw, msr),
+	)
+}
+
+func main() {
+	drawerEnabled := flag.Bool("drawer", false, "write examples/metrics-drawer/pipeline.dot with metrics")
+	flag.Parse()
+
+	pipe, err := newPipeline(*drawerEnabled)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -42,7 +56,7 @@ func main() {
 		return nil
 	})
 
-	if err := pipe.Run(ctx); err != nil {
+	if err := pipe.Run(context.Background()); err != nil {
 		log.Fatal(err)
 	}
 }

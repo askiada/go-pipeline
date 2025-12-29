@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"sort"
 
 	"github.com/askiada/go-pipeline/pkg/pipeline"
 	"github.com/askiada/go-pipeline/pkg/pipeline/drawer"
@@ -17,7 +18,7 @@ func newPipeline(withDrawer bool) (*pipeline.Pipeline, error) {
 	}
 
 	msr := measure.NewDefaultMeasure()
-	drw := drawer.NewSVGDrawer("examples/quick-start/pipeline.dot")
+	drw := drawer.NewSVGDrawer("examples/sink-from-chan/pipeline.dot")
 
 	return pipeline.New(
 		measure.PipelineMeasure(msr),
@@ -26,7 +27,7 @@ func newPipeline(withDrawer bool) (*pipeline.Pipeline, error) {
 }
 
 func main() {
-	drawerEnabled := flag.Bool("drawer", false, "write examples/quick-start/pipeline.dot with metrics")
+	drawerEnabled := flag.Bool("drawer", false, "write examples/sink-from-chan/pipeline.dot with metrics")
 	flag.Parse()
 
 	pipe, err := newPipeline(*drawerEnabled)
@@ -35,18 +36,20 @@ func main() {
 	}
 
 	root := pipeline.Root(pipe, "source", func(ctx context.Context, out chan<- int) error {
-		for i := range 3 {
+		for i := range 6 {
 			out <- i
 		}
 		return nil
 	})
 
-	formatted := pipeline.OneToOne(pipe, "format", root, func(ctx context.Context, in int) (string, error) {
-		return fmt.Sprintf("item-%d", in), nil
-	})
+	pipeline.SinkFromChan(pipe, "collect", root, func(ctx context.Context, input <-chan int) error {
+		values := make([]int, 0, 6)
+		for v := range input {
+			values = append(values, v)
+		}
 
-	pipeline.Sink(pipe, "print", formatted, func(ctx context.Context, in string) error {
-		fmt.Println(in)
+		sort.Ints(values)
+		fmt.Println("values:", values)
 		return nil
 	})
 

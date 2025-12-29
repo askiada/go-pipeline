@@ -1,0 +1,27 @@
+strict digraph {
+	
+	
+		"start" [   weight=0 ];
+	
+		"start" -> "root" [  weight=0 ];
+	
+		"end" [ label=<end <BR /> <FONT POINT-SIZE="12">98.165542ms</FONT>>,   weight=0 ];
+	
+		"root" [   weight=0 ];
+	
+		"root" -> "step-1" [ color="#0000f0", fontcolor="blue", label="274µs",  weight=0 ];
+	
+		"step-1" [ label=<step-1 <BR /> <FONT POINT-SIZE="12">16ms</FONT>>,   weight=0 ];
+	
+		"step-1" -> "step-2" [ color="#f00000", fontcolor="blue", label="12ms",  weight=0 ];
+	
+		"step-2" [ label=<step-2 <BR /> <FONT POINT-SIZE="12">5ms</FONT>>,   weight=0 ];
+	
+		"step-2" -> "sink" [ color="#0000f0", fontcolor="blue", label="9ms",  weight=0 ];
+	
+		"sink" [ label=<sink <BR /> <FONT POINT-SIZE="12">11ms, end: 97.988708ms</FONT>>,   weight=0 ];
+	
+		"sink" -> "end" [  weight=0 ];
+	
+	}
+	

@@ -1,5 +1,6 @@
 *.gv
 *.png
+!examples/**/pipeline.png
 .codex/
 .cache/
 docs/

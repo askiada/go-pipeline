@@ -19,7 +19,20 @@ unit_test:
 	rm pkg/pipeline/mygraph-simple-splitter-v3.dot
 	rm pkg/pipeline/mygraph-simple-splitter-v4.dot
 
-.PHONY: example_metrics_drawer
-example_metrics_drawer:
-	go run ./examples/metrics-drawer
-	dot -Tpng examples/metrics-drawer/pipeline.dot -o examples/metrics-drawer/pipeline.png
+EXAMPLE_DIRS := $(patsubst %/,%,$(sort $(dir $(wildcard examples/*/main.go))))
+
+.PHONY: examples_all
+examples_all:
+	$(MAKE) -C examples all
+
+.PHONY: examples_run
+examples_run:
+	$(MAKE) -C examples run EXAMPLE=$(EXAMPLE)
+
+.PHONY: examples_list
+examples_list:
+	$(MAKE) -C examples list
+
+.PHONY: $(addprefix examples_,$(EXAMPLE_DIRS))
+$(addprefix examples_,$(EXAMPLE_DIRS)):
+	$(MAKE) -C examples $(@:examples_%=%)

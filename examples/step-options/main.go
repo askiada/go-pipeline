@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/askiada/go-pipeline/pkg/pipeline"
 	"github.com/askiada/go-pipeline/pkg/pipeline/drawer"
@@ -17,7 +18,7 @@ func newPipeline(withDrawer bool) (*pipeline.Pipeline, error) {
 	}
 
 	msr := measure.NewDefaultMeasure()
-	drw := drawer.NewSVGDrawer("examples/quick-start/pipeline.dot")
+	drw := drawer.NewSVGDrawer("examples/step-options/pipeline.dot")
 
 	return pipeline.New(
 		measure.PipelineMeasure(msr),
@@ -26,7 +27,7 @@ func newPipeline(withDrawer bool) (*pipeline.Pipeline, error) {
 }
 
 func main() {
-	drawerEnabled := flag.Bool("drawer", false, "write examples/quick-start/pipeline.dot with metrics")
+	drawerEnabled := flag.Bool("drawer", false, "write examples/step-options/pipeline.dot with metrics")
 	flag.Parse()
 
 	pipe, err := newPipeline(*drawerEnabled)
@@ -35,17 +36,22 @@ func main() {
 	}
 
 	root := pipeline.Root(pipe, "source", func(ctx context.Context, out chan<- int) error {
-		for i := range 3 {
-			out <- i
-		}
+		go func() {
+			defer close(out)
+			for i := range 5 {
+				out <- i
+			}
+		}()
+
 		return nil
-	})
+	}, pipeline.StepKeepOpen[int](), pipeline.StepBufferSize[int](2))
 
-	formatted := pipeline.OneToOne(pipe, "format", root, func(ctx context.Context, in int) (string, error) {
-		return fmt.Sprintf("item-%d", in), nil
-	})
+	work := pipeline.OneToOne(pipe, "work", root, func(ctx context.Context, in int) (string, error) {
+		time.Sleep(10 * time.Millisecond)
+		return fmt.Sprintf("task-%d", in), nil
+	}, pipeline.StepConcurrency[string](2), pipeline.StepBufferSize[string](2))
 
-	pipeline.Sink(pipe, "print", formatted, func(ctx context.Context, in string) error {
+	pipeline.Sink(pipe, "print", work, func(ctx context.Context, in string) error {
 		fmt.Println(in)
 		return nil
 	})

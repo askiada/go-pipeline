@@ -1,0 +1,41 @@
+strict digraph {
+	
+	
+		"source" [   weight=0 ];
+	
+		"source" -> "double" [ color="#0000f0", fontcolor="blue", label="10µs",  weight=0 ];
+	
+		"right" [ label=<right <BR /> <FONT POINT-SIZE="12">15µs</FONT>>,   weight=0 ];
+	
+		"right" -> "merge" [ color="#f00000", fontcolor="blue", label="1ms",  weight=0 ];
+	
+		"double" [ label=<double <BR /> <FONT POINT-SIZE="12">1µs</FONT>>,   weight=0 ];
+	
+		"double" -> "split" [ color="#0000f0", fontcolor="blue", label="822µs",  weight=0 ];
+	
+		"merge" [   weight=0 ];
+	
+		"merge" -> "print" [ color="#0000f0", fontcolor="blue", label="263µs",  weight=0 ];
+	
+		"print" [ label=<print <BR /> <FONT POINT-SIZE="12">127µs, end: 5.365ms</FONT>>,   weight=0 ];
+	
+		"print" -> "end" [  weight=0 ];
+	
+		"start" [   weight=0 ];
+	
+		"start" -> "source" [  weight=0 ];
+	
+		"split" [ label=<split <BR /> <FONT POINT-SIZE="12">125µs</FONT>>,   weight=0 ];
+	
+		"split" -> "left" [ color="#0000f0", fontcolor="blue", label="430µs",  weight=0 ];
+	
+		"split" -> "right" [ color="#f00000", fontcolor="blue", label="1ms",  weight=0 ];
+	
+		"left" [ label=<left <BR /> <FONT POINT-SIZE="12">312ns</FONT>>,   weight=0 ];
+	
+		"left" -> "merge" [ color="#f00000", fontcolor="blue", label="1ms",  weight=0 ];
+	
+		"end" [ label=<end <BR /> <FONT POINT-SIZE="12">5.505541ms</FONT>>,   weight=0 ];
+	
+	}
+	

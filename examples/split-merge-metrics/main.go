@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/askiada/go-pipeline/pkg/pipeline"
 	"github.com/askiada/go-pipeline/pkg/pipeline/drawer"
@@ -17,7 +18,7 @@ func newPipeline(withDrawer bool) (*pipeline.Pipeline, error) {
 	}
 
 	msr := measure.NewDefaultMeasure()
-	drw := drawer.NewSVGDrawer("examples/splitter-merger/pipeline.dot")
+	drw := drawer.NewSVGDrawer("examples/split-merge-metrics/pipeline.dot")
 
 	return pipeline.New(
 		measure.PipelineMeasure(msr),
@@ -26,7 +27,7 @@ func newPipeline(withDrawer bool) (*pipeline.Pipeline, error) {
 }
 
 func main() {
-	drawerEnabled := flag.Bool("drawer", false, "write examples/splitter-merger/pipeline.dot with metrics")
+	drawerEnabled := flag.Bool("drawer", false, "write examples/split-merge-metrics/pipeline.dot with metrics")
 	flag.Parse()
 
 	pipe, err := newPipeline(*drawerEnabled)
@@ -35,30 +36,39 @@ func main() {
 	}
 
 	root := pipeline.Root(pipe, "source", func(ctx context.Context, out chan<- int) error {
-		for i := range 5 {
-			out <- i
+		for i := range 4 {
+			out <- i + 1
 		}
 		return nil
 	})
 
-	step1 := pipeline.OneToOne(pipe, "step-1", root, func(ctx context.Context, in int) (int, error) {
-		return in + 1, nil
+	prep := pipeline.OneToOne(pipe, "prep", root, func(ctx context.Context, in int) (int, error) {
+		time.Sleep(5 * time.Millisecond)
+		return in, nil
 	})
 
-	splitter := pipeline.Split(pipe, "split", step1, 2)
+	splitter := pipeline.Split(pipe, "fan-out", prep, 3)
 
 	left, _ := splitter.Get()
+	middle, _ := splitter.Get()
 	right, _ := splitter.Get()
 
 	leftOut := pipeline.OneToOne(pipe, "left", left, func(ctx context.Context, in int) (int, error) {
-		return in * 10, nil
+		time.Sleep(8 * time.Millisecond)
+		return in + 10, nil
+	})
+
+	middleOut := pipeline.OneToOne(pipe, "middle", middle, func(ctx context.Context, in int) (int, error) {
+		time.Sleep(4 * time.Millisecond)
+		return in + 20, nil
 	})
 
 	rightOut := pipeline.OneToOne(pipe, "right", right, func(ctx context.Context, in int) (int, error) {
-		return in * 100, nil
+		time.Sleep(2 * time.Millisecond)
+		return in + 30, nil
 	})
 
-	merged := pipeline.Merge(pipe, "merge", leftOut, rightOut)
+	merged := pipeline.Merge(pipe, "merge", leftOut, middleOut, rightOut)
 
 	pipeline.Sink(pipe, "print", merged, func(ctx context.Context, in int) error {
 		fmt.Println(in)
