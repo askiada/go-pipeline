@@ -60,6 +60,8 @@ func prepareSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], t
 		},
 	}
 
+	applySplitterDefaults(pipe, splitter)
+
 	for _, opt := range opts {
 		opt(splitter)
 	}
@@ -150,14 +152,23 @@ func runSplitter[I any](
 	}
 }
 
-// AddSplitter adds a splitter step to the pipeline. It will split the input into multiple outputs based on the total.
-func AddSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], total int, opts ...SplitterOption[I]) (*Splitter[I], error) {
+// Split adds a splitter step to the pipeline. It will split the input into multiple outputs based on the total.
+func Split[I any](pipe *Pipeline, name string, input *model.Step[I], total int, opts ...SplitterOption[I]) *Splitter[I] {
+	if pipe == nil {
+		return nil
+	}
+
+	if pipe.buildErr != nil {
+		return nil
+	}
+
 	errC := make(chan error, 1)
 	decoratedError := newErrorChan(name, errC)
 
 	splitter, err := prepareSplitter(pipe, name, input, total, opts...)
 	if err != nil {
-		return nil, err
+		pipe.recordErr(err)
+		return nil
 	}
 
 	splitterBuffer := make([]chan I, total)
@@ -202,27 +213,36 @@ func AddSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], total
 
 	pipe.errcList.add(decoratedError)
 
-	return splitter, nil
+	return splitter
 }
 
-// SplitterFn is a function that returns wether to keep the input or not.
-type SplitterFn[I any] func(ctx context.Context, input I) (bool, error)
+// SplitFn is a function that returns whether to keep the input or not.
+type SplitFn[I any] func(ctx context.Context, input I) (bool, error)
 
-// AddSplitterFn adds a splitter step to the pipeline. It will split the input into multiple outputs based on the provided functions.
-func AddSplitterFn[I any](
+// SplitBy adds a splitter step to the pipeline. It will split the input into multiple outputs based on the provided functions.
+func SplitBy[I any](
 	pipe *Pipeline,
 	name string,
 	input *model.Step[I],
-	fns []SplitterFn[I],
+	fns []SplitFn[I],
 	opts ...SplitterOption[I],
-) (*Splitter[I], error) {
+) *Splitter[I] {
+	if pipe == nil {
+		return nil
+	}
+
+	if pipe.buildErr != nil {
+		return nil
+	}
+
 	total := len(fns)
 	errC := make(chan error, 1)
 	decoratedError := newErrorChan(name, errC)
 
 	splitter, err := prepareSplitter(pipe, name, input, total, opts...)
 	if err != nil {
-		return nil, err
+		pipe.recordErr(err)
+		return nil
 	}
 
 	splitterBuffer := make([]chan I, total)
@@ -277,5 +297,5 @@ func AddSplitterFn[I any](
 
 	pipe.errcList.add(decoratedError)
 
-	return splitter, nil
+	return splitter
 }

@@ -57,38 +57,47 @@ import (
 
 func main() {
 	ctx := context.Background()
-	pipe, err := pipeline.New(ctx)
+	pipe, err := pipeline.New(ctx, pipeline.PipelineDefaults{})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	root, err := pipeline.AddRootStep(pipe, "root", func(ctx context.Context, out chan<- int) error {
+	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
 		for i := range 5 {
 			out <- i
 		}
 		return nil
 	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
-	double, err := pipeline.AddStepOneToOne(pipe, "double", root, func(ctx context.Context, in int) (int, error) {
+	double := pipeline.OneToOne(pipe, "double", root, func(ctx context.Context, in int) (int, error) {
 		return in * 2, nil
 	}, pipeline.StepConcurrency[int](2))
-	if err != nil {
-		log.Fatal(err)
-	}
 
-	if err := pipeline.AddSink(pipe, "print", double, func(ctx context.Context, in int) error {
+	pipeline.Sink(pipe, "print", double, func(ctx context.Context, in int) error {
 		fmt.Println(in)
 		return nil
-	}); err != nil {
-		log.Fatal(err)
-	}
+	})
 
 	if err := pipe.Run(); err != nil {
 		log.Fatal(err)
 	}
+}
+```
+Construction errors are deferred until `pipe.Run()` so you can wire the pipeline without per-step error checks. `pipe.Err()` is available if you want a preflight check before running.
+
+## Pipeline defaults
+Set defaults once at creation time for step concurrency, buffers, and splitter buffering:
+```go
+defaults := pipeline.PipelineDefaults{
+	StepConcurrency:    4,
+	StepBufferSize:     16,
+	StepKeepOpen:       false,
+	SplitterBufferSize: 4,
+}
+
+pipe, err := pipeline.New(ctx, defaults)
+if err != nil {
+	log.Fatal(err)
 }
 ```
 
@@ -106,61 +115,41 @@ import (
 
 func main() {
 	ctx := context.Background()
-	pipe, err := pipeline.New(ctx)
+	pipe, err := pipeline.New(ctx, pipeline.PipelineDefaults{})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	root, err := pipeline.AddRootStep(pipe, "root", func(ctx context.Context, out chan<- int) error {
+	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
 		for i := range 5 {
 			out <- i
 		}
 		return nil
 	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
-	step1, err := pipeline.AddStepOneToOne(pipe, "step-1", root, func(ctx context.Context, in int) (int, error) {
+	step1 := pipeline.OneToOne(pipe, "step-1", root, func(ctx context.Context, in int) (int, error) {
 		return in + 1, nil
 	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
-	splitter, err := pipeline.AddSplitter(pipe, "split", step1, 2)
-	if err != nil {
-		log.Fatal(err)
-	}
+	splitter := pipeline.Split(pipe, "split", step1, 2)
 
 	left, _ := splitter.Get()
 	right, _ := splitter.Get()
 
-	leftOut, err := pipeline.AddStepOneToOne(pipe, "left", left, func(ctx context.Context, in int) (int, error) {
+	leftOut := pipeline.OneToOne(pipe, "left", left, func(ctx context.Context, in int) (int, error) {
 		return in * 10, nil
 	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
-	rightOut, err := pipeline.AddStepOneToOne(pipe, "right", right, func(ctx context.Context, in int) (int, error) {
+	rightOut := pipeline.OneToOne(pipe, "right", right, func(ctx context.Context, in int) (int, error) {
 		return in * 100, nil
 	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
-	merged, err := pipeline.AddMerger(pipe, "merge", leftOut, rightOut)
-	if err != nil {
-		log.Fatal(err)
-	}
+	merged := pipeline.Merge(pipe, "merge", leftOut, rightOut)
 
-	if err := pipeline.AddSink(pipe, "print", merged, func(ctx context.Context, in int) error {
+	pipeline.Sink(pipe, "print", merged, func(ctx context.Context, in int) error {
 		fmt.Println(in)
 		return nil
-	}); err != nil {
-		log.Fatal(err)
-	}
+	})
 
 	if err := pipe.Run(); err != nil {
 		log.Fatal(err)
@@ -169,14 +158,14 @@ func main() {
 ```
 
 ## Step types and when to use them
-Use `AddStepOneToOne` when each input item maps to a single output item. Use `AddStepOneToMany` when each input item should expand into multiple output items (fan-out).
+Use `OneToOne` when each input item maps to a single output item. Use `OneToMany` when each input item should expand into multiple output items (fan-out).
 
-### AddStepOneToOne vs AddStepOneToMany
-- `AddStepOneToOne`: transform one input into one output (map/transform).
-- `AddStepOneToMany`: expand one input into many outputs (fan-out or split).
+### OneToOne vs OneToMany
+- `OneToOne`: transform one input into one output (map/transform).
+- `OneToMany`: expand one input into many outputs (fan-out or split).
 
 ### Channel closing behavior
-By default, the library closes step output channels when a step finishes, including when using `Add*FromChan`. To keep a channel open, pass the keep-open option (for example, `pipeline.StepKeepOpen[...]()`).
+By default, the library closes step output channels when a step finishes, including when using `FromChan`. To keep a channel open, pass the keep-open option (for example, `pipeline.StepKeepOpen[...]()`).
 
 ## Examples
 - Quick start: `go run ./examples/quick-start`
@@ -204,7 +193,7 @@ func buildPipeline(ctx context.Context) (*pipeline.Pipeline, error) {
 	drw := drawer.NewSVGDrawer("pipeline.dot")
 
 	return pipeline.New(
-		ctx,
+		ctx, pipeline.PipelineDefaults{},
 		measure.PipelineMeasure(msr),
 		drawer.PipelineDrawer(drw, msr),
 	)

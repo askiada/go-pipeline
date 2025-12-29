@@ -10,35 +10,35 @@ import (
 	"github.com/askiada/go-pipeline/pkg/pipeline"
 )
 
-func TestAddRootStepNilPipe(t *testing.T) {
+func TestRootNilPipe(t *testing.T) {
 	t.Parallel()
 
-	_, err := pipeline.AddRootStep(nil, "root step", func(ctx context.Context, rootChan chan<- int) error {
+	outputChan := pipeline.Root(nil, "root step", func(ctx context.Context, rootChan chan<- int) error {
 		for i := range 10 {
 			rootChan <- i
 		}
 
 		return nil
 	})
-	assert.Error(t, err)
+	assert.Nil(t, outputChan)
 }
 
-func TestAddRootStep(t *testing.T) {
+func TestRoot(t *testing.T) {
 	t.Parallel()
 
-	pipe, err := pipeline.New(t.Context())
+	pipe, err := pipeline.New(t.Context(), pipeline.PipelineDefaults{})
 	require.NoError(t, err)
 
 	var got []int
 
-	outputChan, err := pipeline.AddRootStep(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
+	outputChan := pipeline.Root(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
 		for i := range 10 {
 			rootChan <- i
 		}
 
 		return nil
 	})
-	require.NoError(t, err)
+	require.NotNil(t, outputChan)
 
 	done := make(chan struct{})
 
@@ -54,15 +54,15 @@ func TestAddRootStep(t *testing.T) {
 	assert.ElementsMatch(t, []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, got)
 }
 
-func TestAddRootStepError(t *testing.T) {
+func TestRootError(t *testing.T) {
 	t.Parallel()
 
-	pipe, err := pipeline.New(t.Context())
+	pipe, err := pipeline.New(t.Context(), pipeline.PipelineDefaults{})
 	require.NoError(t, err)
 
 	var got []int
 
-	outputChan, err := pipeline.AddRootStep(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
+	outputChan := pipeline.Root(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
 		for i := range 10 {
 			if i == 5 {
 				return assert.AnError
@@ -73,7 +73,7 @@ func TestAddRootStepError(t *testing.T) {
 
 		return nil
 	})
-	require.NoError(t, err)
+	require.NotNil(t, outputChan)
 
 	done := make(chan struct{})
 
@@ -90,16 +90,16 @@ func TestAddRootStepError(t *testing.T) {
 	_ = got
 }
 
-func TestAddRootStepCancel(t *testing.T) {
+func TestRootCancel(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(t.Context())
-	pipe, err := pipeline.New(ctx)
+	pipe, err := pipeline.New(ctx, pipeline.PipelineDefaults{})
 	require.NoError(t, err)
 
 	var got []int
 
-	outputChan, err := pipeline.AddRootStep(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
+	outputChan := pipeline.Root(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
 		for i := range 10 {
 			if i == 5 {
 				cancel()
@@ -113,7 +113,7 @@ func TestAddRootStepCancel(t *testing.T) {
 		return nil
 	})
 
-	require.NoError(t, err)
+	require.NotNil(t, outputChan)
 
 	done := make(chan struct{})
 
@@ -130,10 +130,10 @@ func TestAddRootStepCancel(t *testing.T) {
 	_ = got
 }
 
-func TestAddRootStepNoCloseNilPipe(t *testing.T) {
+func TestRootNoCloseNilPipe(t *testing.T) {
 	t.Parallel()
 
-	_, err := pipeline.AddRootStep(nil, "root step", func(ctx context.Context, rootChan chan<- int) error {
+	outputChan := pipeline.Root(nil, "root step", func(ctx context.Context, rootChan chan<- int) error {
 		defer close(rootChan)
 
 		for i := range 10 {
@@ -142,18 +142,18 @@ func TestAddRootStepNoCloseNilPipe(t *testing.T) {
 
 		return nil
 	}, pipeline.StepKeepOpen[int]())
-	assert.Error(t, err)
+	assert.Nil(t, outputChan)
 }
 
-func TestAddRootStepNoClose(t *testing.T) {
+func TestRootNoClose(t *testing.T) {
 	t.Parallel()
 
-	pipe, err := pipeline.New(t.Context())
+	pipe, err := pipeline.New(t.Context(), pipeline.PipelineDefaults{})
 	require.NoError(t, err)
 
 	var got []int
 
-	outputChan, err := pipeline.AddRootStep(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
+	outputChan := pipeline.Root(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
 		defer close(rootChan)
 
 		for i := range 10 {
@@ -162,7 +162,7 @@ func TestAddRootStepNoClose(t *testing.T) {
 
 		return nil
 	}, pipeline.StepKeepOpen[int]())
-	require.NoError(t, err)
+	require.NotNil(t, outputChan)
 
 	done := make(chan struct{})
 
@@ -178,15 +178,15 @@ func TestAddRootStepNoClose(t *testing.T) {
 	assert.ElementsMatch(t, []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, got)
 }
 
-func TestAddRootStepNoCloseError(t *testing.T) {
+func TestRootNoCloseError(t *testing.T) {
 	t.Parallel()
 
-	pipe, err := pipeline.New(t.Context())
+	pipe, err := pipeline.New(t.Context(), pipeline.PipelineDefaults{})
 	require.NoError(t, err)
 
 	var got []int
 
-	outputChan, err := pipeline.AddRootStep(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
+	outputChan := pipeline.Root(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
 		defer close(rootChan)
 
 		for i := range 10 {
@@ -199,7 +199,7 @@ func TestAddRootStepNoCloseError(t *testing.T) {
 
 		return nil
 	}, pipeline.StepKeepOpen[int]())
-	require.NoError(t, err)
+	require.NotNil(t, outputChan)
 
 	done := make(chan struct{})
 
@@ -216,16 +216,16 @@ func TestAddRootStepNoCloseError(t *testing.T) {
 	_ = got
 }
 
-func TestAddRootStepNoCloseCancel(t *testing.T) {
+func TestRootNoCloseCancel(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(t.Context())
-	pipe, err := pipeline.New(ctx)
+	pipe, err := pipeline.New(ctx, pipeline.PipelineDefaults{})
 	require.NoError(t, err)
 
 	var got []int
 
-	outputChan, err := pipeline.AddRootStep(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
+	outputChan := pipeline.Root(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
 		defer close(rootChan)
 
 		for i := range 10 {
@@ -240,7 +240,7 @@ func TestAddRootStepNoCloseCancel(t *testing.T) {
 
 		return nil
 	}, pipeline.StepKeepOpen[int]())
-	require.NoError(t, err)
+	require.NotNil(t, outputChan)
 
 	done := make(chan struct{})
 

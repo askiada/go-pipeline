@@ -36,11 +36,20 @@ func prepareSink[I any](pipe *Pipeline, name string, input *model.Step[I]) (*mod
 	return step, nil
 }
 
-// AddSink adds a sink step to the pipeline. It will consume the input channel and run the sink function.
-func AddSink[I any](pipe *Pipeline, name string, input *model.Step[I], sinkFn func(ctx context.Context, input I) error) error {
+// Sink adds a sink step to the pipeline. It will consume the input channel and run the sink function.
+func Sink[I any](pipe *Pipeline, name string, input *model.Step[I], sinkFn func(ctx context.Context, input I) error) *model.Step[I] {
+	if pipe == nil {
+		return nil
+	}
+
+	if pipe.buildErr != nil {
+		return nil
+	}
+
 	step, err := prepareSink(pipe, name, input)
 	if err != nil {
-		return errors.Wrap(err, "unable to perpare sink")
+		pipe.recordErr(errors.Wrap(err, "unable to prepare sink"))
+		return nil
 	}
 
 	errC := make(chan error, 1)
@@ -96,19 +105,28 @@ func AddSink[I any](pipe *Pipeline, name string, input *model.Step[I], sinkFn fu
 
 	pipe.errcList.add(decoratedError)
 
-	return nil
+	return step
 }
 
-// AddSinkFromChan adds a sink step to the pipeline. It will consume the input channel.
-func AddSinkFromChan[I any](
+// SinkFromChan adds a sink step to the pipeline. It will consume the input channel.
+func SinkFromChan[I any](
 	pipe *Pipeline,
 	name string,
 	input *model.Step[I],
 	stepFn func(ctx context.Context, input <-chan I) error,
-) error {
+) *model.Step[I] {
+	if pipe == nil {
+		return nil
+	}
+
+	if pipe.buildErr != nil {
+		return nil
+	}
+
 	step, err := prepareSink(pipe, name, input)
 	if err != nil {
-		return errors.Wrap(err, "unable to perpare sink")
+		pipe.recordErr(errors.Wrap(err, "unable to prepare sink"))
+		return nil
 	}
 
 	errC := make(chan error, 1)
@@ -179,5 +197,5 @@ func AddSinkFromChan[I any](
 
 	pipe.errcList.add(decoratedError)
 
-	return nil
+	return step
 }

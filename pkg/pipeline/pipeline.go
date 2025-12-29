@@ -15,11 +15,13 @@ type Pipeline struct {
 	errcList  *errorChans
 	cancel    context.CancelFunc
 	opts      []model.PipelineOption
+	defaults  PipelineDefaults
+	buildErr  error
 	startTime time.Time
 }
 
 // New creates a new pipeline.
-func New(ctx context.Context, opts ...model.PipelineOption) (*Pipeline, error) {
+func New(ctx context.Context, defaults PipelineDefaults, opts ...model.PipelineOption) (*Pipeline, error) {
 	dCtx, cancel := context.WithCancel(ctx)
 	pipe := &Pipeline{
 		ctx:       dCtx,
@@ -27,6 +29,7 @@ func New(ctx context.Context, opts ...model.PipelineOption) (*Pipeline, error) {
 		cancel:    cancel,
 		startTime: time.Now(),
 		opts:      opts,
+		defaults:  defaults,
 	}
 
 	for _, opt := range opts {
@@ -54,6 +57,15 @@ func waitForPipeline(errs ...*errorChan) error {
 
 // Run starts the pipeline and waits for it to finish.
 func (p *Pipeline) Run() error {
+	if p == nil {
+		return ErrPipelineMustBeSet
+	}
+
+	if p.buildErr != nil {
+		p.cancel()
+		return p.buildErr
+	}
+
 	defer p.cancel()
 
 	err := waitForPipeline(p.errcList.list...)
@@ -62,6 +74,24 @@ func (p *Pipeline) Run() error {
 	}
 
 	return p.finishRun()
+}
+
+// Err returns the first construction error, if any.
+// Run will return the same error before executing the pipeline.
+func (p *Pipeline) Err() error {
+	if p == nil {
+		return ErrPipelineMustBeSet
+	}
+
+	return p.buildErr
+}
+
+func (p *Pipeline) recordErr(err error) {
+	if p == nil || err == nil || p.buildErr != nil {
+		return
+	}
+
+	p.buildErr = err
 }
 
 func (p *Pipeline) finishRun() error {

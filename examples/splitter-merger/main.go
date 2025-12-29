@@ -10,61 +10,41 @@ import (
 
 func main() {
 	ctx := context.Background()
-	pipe, err := pipeline.New(ctx)
+	pipe, err := pipeline.New(ctx, pipeline.PipelineDefaults{})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	root, err := pipeline.AddRootStep(pipe, "root", func(ctx context.Context, out chan<- int) error {
+	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
 		for i := range 5 {
 			out <- i
 		}
 		return nil
 	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
-	step1, err := pipeline.AddStepOneToOne(pipe, "step-1", root, func(ctx context.Context, in int) (int, error) {
+	step1 := pipeline.OneToOne(pipe, "step-1", root, func(ctx context.Context, in int) (int, error) {
 		return in + 1, nil
 	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
-	splitter, err := pipeline.AddSplitter(pipe, "split", step1, 2)
-	if err != nil {
-		log.Fatal(err)
-	}
+	splitter := pipeline.Split(pipe, "split", step1, 2)
 
 	left, _ := splitter.Get()
 	right, _ := splitter.Get()
 
-	leftOut, err := pipeline.AddStepOneToOne(pipe, "left", left, func(ctx context.Context, in int) (int, error) {
+	leftOut := pipeline.OneToOne(pipe, "left", left, func(ctx context.Context, in int) (int, error) {
 		return in * 10, nil
 	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
-	rightOut, err := pipeline.AddStepOneToOne(pipe, "right", right, func(ctx context.Context, in int) (int, error) {
+	rightOut := pipeline.OneToOne(pipe, "right", right, func(ctx context.Context, in int) (int, error) {
 		return in * 100, nil
 	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
-	merged, err := pipeline.AddMerger(pipe, "merge", leftOut, rightOut)
-	if err != nil {
-		log.Fatal(err)
-	}
+	merged := pipeline.Merge(pipe, "merge", leftOut, rightOut)
 
-	if err := pipeline.AddSink(pipe, "print", merged, func(ctx context.Context, in int) error {
+	pipeline.Sink(pipe, "print", merged, func(ctx context.Context, in int) error {
 		fmt.Println(in)
 		return nil
-	}); err != nil {
-		log.Fatal(err)
-	}
+	})
 
 	if err := pipe.Run(); err != nil {
 		log.Fatal(err)

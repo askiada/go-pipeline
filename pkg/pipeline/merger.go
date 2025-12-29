@@ -64,13 +64,34 @@ func runStepMerger[I any](pipe *Pipeline, errC chan error, step, outputStep *mod
 	}
 }
 
-// AddMerger adds a merger step to the pipeline. It will merge the output of the steps into a single channel.
-func AddMerger[I any](pipe *Pipeline, name string, steps ...*model.Step[I]) (*model.Step[I], error) {
+// Merge adds a merger step to the pipeline. It will merge the output of the steps into a single channel.
+func Merge[I any](pipe *Pipeline, name string, steps ...*model.Step[I]) *model.Step[I] {
+	if pipe == nil {
+		return nil
+	}
+
+	if pipe.buildErr != nil {
+		return nil
+	}
+
+	if len(steps) == 0 {
+		pipe.recordErr(ErrInputMustBeSet)
+		return nil
+	}
+
+	for _, step := range steps {
+		if step == nil {
+			pipe.recordErr(ErrInputMustBeSet)
+			return nil
+		}
+	}
+
 	output := make(chan I)
 
 	outputStep, err := prepareMerger(pipe, output, name, steps...)
 	if err != nil {
-		return nil, errors.Wrap(err, "unable to prepare merger")
+		pipe.recordErr(errors.Wrap(err, "unable to prepare merger"))
+		return nil
 	}
 
 	errC := make(chan error, len(steps))
@@ -94,5 +115,5 @@ func AddMerger[I any](pipe *Pipeline, name string, steps ...*model.Step[I]) (*mo
 
 	pipe.errcList.add(decoratedError)
 
-	return outputStep, nil
+	return outputStep
 }

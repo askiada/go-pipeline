@@ -235,13 +235,18 @@ func addStep[I any, O any](
 	input *model.Step[I],
 	stepToStep stepToStepFn[I, O],
 	opts ...StepOption[O],
-) (*model.Step[O], error) {
+) *model.Step[O] {
 	if pipe == nil {
-		return nil, ErrPipelineMustBeSet
+		return nil
+	}
+
+	if pipe.buildErr != nil {
+		return nil
 	}
 
 	if input == nil {
-		return nil, ErrInputMustBeSet
+		pipe.recordErr(ErrInputMustBeSet)
+		return nil
 	}
 
 	errC := make(chan error, 1)
@@ -254,13 +259,16 @@ func addStep[I any, O any](
 		},
 	}
 
+	applyStepDefaults(pipe, step)
+
 	for _, opt := range opts {
 		opt(step)
 	}
 
 	err := prepareStep(pipe, input, step)
 	if err != nil {
-		return nil, err
+		pipe.recordErr(err)
+		return nil
 	}
 
 	go func() {
@@ -280,7 +288,7 @@ func addStep[I any, O any](
 
 	pipe.errcList.add(decoratedError)
 
-	return step, nil
+	return step
 }
 
 func runStepFromChan[I, O any](
@@ -406,53 +414,53 @@ func concurrentStepFromChanFn[I any, O any](
 	return nil
 }
 
-// AddStepOneToOne adds a step that takes one input and produces one output.
-func AddStepOneToOne[I any, O any](
+// OneToOne adds a step that takes one input and produces one output.
+func OneToOne[I any, O any](
 	pipe *Pipeline,
 	name string,
 	input *model.Step[I],
 	oneToOne OneToOneFn[I, O],
 	opts ...StepOption[O],
-) (*model.Step[O], error) {
+) *model.Step[O] {
 	return addStep(pipe, name, input, func(ctx context.Context, in *model.Step[I], out *model.Step[O]) error {
 		return runOneToOne(ctx, in, out, oneToOne, false, pipe.opts...)
 	}, opts...)
 }
 
-// AddStepOneToOneOrZero adds a step that takes one input and produces one output. If the output is a zero value, it is ignored.
-func AddStepOneToOneOrZero[I any, O any](
+// OneToOneOrZero adds a step that takes one input and produces one output. If the output is a zero value, it is ignored.
+func OneToOneOrZero[I any, O any](
 	pipe *Pipeline,
 	name string,
 	input *model.Step[I],
 	oneToOne OneToOneFn[I, O],
 	opts ...StepOption[O],
-) (*model.Step[O], error) {
+) *model.Step[O] {
 	return addStep(pipe, name, input, func(ctx context.Context, in *model.Step[I], out *model.Step[O]) error {
 		return runOneToOne(ctx, in, out, oneToOne, true, pipe.opts...)
 	}, opts...)
 }
 
-// AddStepOneToMany adds a step that takes one input and produces many outputs.
-func AddStepOneToMany[I any, O any](
+// OneToMany adds a step that takes one input and produces many outputs.
+func OneToMany[I any, O any](
 	pipe *Pipeline,
 	name string,
 	input *model.Step[I],
 	oneToMany OneToManyFn[I, O],
 	opts ...StepOption[O],
-) (*model.Step[O], error) {
+) *model.Step[O] {
 	return addStep(pipe, name, input, func(ctx context.Context, in *model.Step[I], out *model.Step[O]) error {
 		return runOneToMany(ctx, in, out, oneToMany, pipe.opts...)
 	}, opts...)
 }
 
-// AddStepFromChan adds a step that takes an input channel and produces an output channel.
-func AddStepFromChan[I any, O any](
+// FromChan adds a step that takes an input channel and produces an output channel.
+func FromChan[I any, O any](
 	pipe *Pipeline,
 	name string,
 	input *model.Step[I],
 	stepFromChan StepFromChanFn[I, O],
 	opts ...StepOption[O],
-) (*model.Step[O], error) {
+) *model.Step[O] {
 	return addStep(pipe, name, input, func(ctx context.Context, in *model.Step[I], out *model.Step[O]) error {
 		return runStepFromChan(ctx, in, out, stepFromChan, pipe.opts...)
 	}, opts...)

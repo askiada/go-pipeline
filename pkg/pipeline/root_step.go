@@ -8,7 +8,7 @@ import (
 	"github.com/askiada/go-pipeline/pkg/pipeline/model"
 )
 
-func prepareRootStep[O any](pipe *Pipeline, step *model.Step[O], opts ...StepOption[O]) error {
+func prepareRootStep[O any](pipe *Pipeline, step *model.Step[O]) error {
 	for _, opt := range pipe.opts {
 		err := opt.PrepareStep(model.StartStep.Details, step.Details)
 		if err != nil {
@@ -16,24 +16,24 @@ func prepareRootStep[O any](pipe *Pipeline, step *model.Step[O], opts ...StepOpt
 		}
 	}
 
-	for _, opt := range opts {
-		opt(step)
-	}
-
 	step.Output = make(chan O, step.Details.BufferSize)
 
 	return nil
 }
 
-// AddRootStep adds a root step to the pipeline. It will run the step function.
-func AddRootStep[O any](
+// Root adds a root step to the pipeline. It will run the step function.
+func Root[O any](
 	pipe *Pipeline,
 	name string,
 	stepFn func(ctx context.Context, rootChan chan<- O) error,
 	opts ...StepOption[O],
-) (*model.Step[O], error) {
+) *model.Step[O] {
 	if pipe == nil {
-		return nil, ErrPipelineMustBeSet
+		return nil
+	}
+
+	if pipe.buildErr != nil {
+		return nil
 	}
 
 	errC := make(chan error, 1)
@@ -47,9 +47,16 @@ func AddRootStep[O any](
 		},
 	}
 
-	err := prepareRootStep(pipe, step, opts...)
+	applyStepDefaults(pipe, step)
+
+	for _, opt := range opts {
+		opt(step)
+	}
+
+	err := prepareRootStep(pipe, step)
 	if err != nil {
-		return nil, err
+		pipe.recordErr(err)
+		return nil
 	}
 
 	go func() {
@@ -69,5 +76,5 @@ func AddRootStep[O any](
 
 	pipe.errcList.add(decoratedError)
 
-	return step, nil
+	return step
 }
