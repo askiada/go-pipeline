@@ -90,7 +90,11 @@ func (mt *DefaultMetric) AVGTransportDuration() map[string]*TransportInfo {
 			continue
 		}
 
-		mt.allTransports[name].Elapsed = round(time.Duration((float64(ch.Elapsed) / (float64(ch.total))) / float64(mt.concurrent)))
+		concurrent := mt.concurrent
+		if concurrent < 1 {
+			concurrent = 1
+		}
+		mt.allTransports[name].Elapsed = round(time.Duration((float64(ch.Elapsed) / float64(ch.total)) / float64(concurrent)))
 	}
 
 	return mt.allTransports

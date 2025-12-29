@@ -8,6 +8,9 @@ type StepOption[O any] func(s *model.Step[O])
 // StepConcurrency sets the concurrency of the step.
 func StepConcurrency[O any](concurrent int) StepOption[O] {
 	return func(s *model.Step[O]) {
+		if concurrent < 1 {
+			concurrent = 1
+		}
 		s.Details.Concurrent = concurrent
 	}
 }

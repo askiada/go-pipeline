@@ -1,2 +1,6 @@
 *.gv
 *.png
+.codex/
+.cache/
+docs/
+AGENTS.md

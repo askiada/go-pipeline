@@ -38,13 +38,13 @@ var (
 	// It is the parent of all root steps in the pipeline.
 	//
 	//nolint:gochecknoglobals // This is a global constant that represents the start of the pipeline.
-	StartStep = &Step[any]{Details: &StepInfo{Name: "start"}}
+	StartStep = &Step[any]{Details: &StepInfo{Name: "start", Concurrent: 1}}
 	// EndStep is a special step that represents the end of the pipeline.
 	// It is used to signal the end of the pipeline and is not meant to be used as a regular step.
 	// It is the child of all sink steps in the pipeline.
 	//
 	//nolint:gochecknoglobals // This is a global constant that represents the start of the pipeline.
-	EndStep = &Step[any]{Details: &StepInfo{Name: "end"}}
+	EndStep = &Step[any]{Details: &StepInfo{Name: "end", Concurrent: 1}}
 )
 
 // Step represents a step in the pipeline.

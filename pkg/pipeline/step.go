@@ -248,8 +248,9 @@ func addStep[I any, O any](
 	decoratedError := newErrorChan(name, errC)
 	step := &model.Step[O]{
 		Details: &model.StepInfo{
-			Type: model.NormalStepType,
-			Name: name,
+			Type:       model.NormalStepType,
+			Name:       name,
+			Concurrent: 1,
 		},
 	}
 

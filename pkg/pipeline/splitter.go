@@ -73,8 +73,9 @@ func prepareSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], t
 	for idx := range total {
 		step := model.Step[I]{
 			Details: &model.StepInfo{
-				Type: model.SplitterStepType,
-				Name: name,
+				Type:       model.SplitterStepType,
+				Name:       name,
+				Concurrent: 1,
 			},
 			Output: make(chan I),
 		}

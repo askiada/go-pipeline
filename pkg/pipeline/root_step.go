@@ -41,8 +41,9 @@ func AddRootStep[O any](
 
 	step := &model.Step[O]{
 		Details: &model.StepInfo{
-			Type: model.RootStepType,
-			Name: name,
+			Type:       model.RootStepType,
+			Name:       name,
+			Concurrent: 1,
 		},
 	}
 

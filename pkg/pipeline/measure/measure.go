@@ -19,6 +19,9 @@ func NewDefaultMeasure() *DefaultMeasure {
 
 // AddMetric adds a metric.
 func (m *DefaultMeasure) AddMetric(name string, concurrent int) Metric { //nolint:ireturn // it must implement the interface
+	if concurrent < 1 {
+		concurrent = 1
+	}
 	mt := &DefaultMetric{
 		mu:            &sync.Mutex{},
 		allTransports: make(map[string]*TransportInfo),
