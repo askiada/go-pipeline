@@ -246,6 +246,7 @@ func addStep[I any, O any](
 
 	if input == nil {
 		pipe.recordErr(ErrInputMustBeSet)
+
 		return nil
 	}
 
@@ -268,6 +269,7 @@ func addStep[I any, O any](
 	err := prepareStep(pipe, input, step)
 	if err != nil {
 		pipe.recordErr(err)
+
 		return nil
 	}
 

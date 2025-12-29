@@ -147,6 +147,85 @@ func TestOneToOneCancel(t *testing.T) {
 	_ = got
 }
 
+func TestOneToOneConcurrency(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
+	require.NoError(t, err)
+
+	input := &model.Step[int]{
+		Details: &model.StepInfo{
+			Name:       "input",
+			Concurrent: 1,
+		},
+		Output: make(chan int),
+	}
+
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+
+	closeRelease := func() {
+		releaseOnce.Do(func() {
+			close(release)
+		})
+	}
+
+	var mu sync.Mutex
+	processed := make([]int, 0, 2)
+
+	outputChan := pipeline.OneToOne(pipe, "step", input, func(ctx context.Context, input int) (int, error) {
+		mu.Lock()
+		processed = append(processed, input)
+		mu.Unlock()
+
+		started <- struct{}{}
+		<-release
+
+		return input, nil
+	}, pipeline.StepConcurrency[int](2))
+	require.NotNil(t, outputChan)
+
+	got := make(chan []int, 1)
+	go func() {
+		got <- processOutputChan(t, outputChan.Output)
+	}()
+
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- runPipeline(t, pipe, ctx)
+	}()
+
+	expected := []int{1, 2}
+	input.Output <- expected[0]
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		closeRelease()
+		t.Fatal("expected first one-to-one worker to start")
+	}
+
+	input.Output <- expected[1]
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		closeRelease()
+		t.Fatal("expected second one-to-one worker to start")
+	}
+
+	close(input.Output)
+	closeRelease()
+	require.NoError(t, <-runErr)
+
+	assert.ElementsMatch(t, expected, <-got)
+
+	mu.Lock()
+	gotProcessed := append([]int(nil), processed...)
+	mu.Unlock()
+	assert.ElementsMatch(t, expected, gotProcessed)
+}
+
 func TestOneToOneOrZeroNilPipe(t *testing.T) {
 	t.Parallel()
 
@@ -395,6 +474,146 @@ func TestOneToManyCancel(t *testing.T) {
 	_ = got
 }
 
+func TestOneToManyConcurrency(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
+	require.NoError(t, err)
+
+	input := &model.Step[int]{
+		Details: &model.StepInfo{
+			Name:       "input",
+			Concurrent: 1,
+		},
+		Output: make(chan int),
+	}
+
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+
+	closeRelease := func() {
+		releaseOnce.Do(func() {
+			close(release)
+		})
+	}
+
+	var mu sync.Mutex
+	processed := make([]int, 0, 2)
+
+	outputChan := pipeline.OneToMany(pipe, "step", input, func(ctx context.Context, input int) ([]int, error) {
+		mu.Lock()
+		processed = append(processed, input)
+		mu.Unlock()
+
+		started <- struct{}{}
+		<-release
+
+		return []int{input}, nil
+	}, pipeline.StepConcurrency[int](2))
+	require.NotNil(t, outputChan)
+
+	got := make(chan []int, 1)
+	go func() {
+		got <- processOutputChan(t, outputChan.Output)
+	}()
+
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- runPipeline(t, pipe, ctx)
+	}()
+
+	expected := []int{1, 2}
+	input.Output <- expected[0]
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		closeRelease()
+		t.Fatal("expected first one-to-many worker to start")
+	}
+
+	input.Output <- expected[1]
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		closeRelease()
+		t.Fatal("expected second one-to-many worker to start")
+	}
+
+	close(input.Output)
+	closeRelease()
+	require.NoError(t, <-runErr)
+
+	assert.ElementsMatch(t, expected, <-got)
+
+	mu.Lock()
+	gotProcessed := append([]int(nil), processed...)
+	mu.Unlock()
+	assert.ElementsMatch(t, expected, gotProcessed)
+}
+
+func TestFromChanConcurrency(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
+	require.NoError(t, err)
+
+	input := &model.Step[int]{
+		Details: &model.StepInfo{
+			Name:       "input",
+			Concurrent: 1,
+		},
+		Output: make(chan int),
+	}
+
+	workerReady := make(chan struct{}, 2)
+	startRead := make(chan struct{})
+
+	outputChan := pipeline.FromChan(pipe, "step", input, func(ctx context.Context, input <-chan int, output chan int) error {
+		workerReady <- struct{}{}
+		<-startRead
+
+		for entry := range input {
+			output <- entry
+		}
+
+		return nil
+	}, pipeline.StepConcurrency[int](2))
+	require.NotNil(t, outputChan)
+
+	got := make(chan []int, 1)
+	go func() {
+		got <- processOutputChan(t, outputChan.Output)
+	}()
+
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- runPipeline(t, pipe, ctx)
+	}()
+
+	for i := 0; i < 2; i++ {
+		select {
+		case <-workerReady:
+		case <-time.After(2 * time.Second):
+			t.Fatal("expected from-chan workers to start")
+		}
+	}
+
+	close(startRead)
+	expected := []int{1, 2, 3, 4}
+	go func() {
+		for _, item := range expected {
+			input.Output <- item
+		}
+		close(input.Output)
+	}()
+
+	require.NoError(t, <-runErr)
+	assert.ElementsMatch(t, expected, <-got)
+}
+
 func TestPipelineDefaultsApplyToSteps(t *testing.T) {
 	t.Parallel()
 
@@ -409,6 +628,7 @@ func TestPipelineDefaultsApplyToSteps(t *testing.T) {
 
 	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
 		close(out)
+
 		return nil
 	})
 	require.NotNil(t, root)
@@ -441,6 +661,7 @@ func TestPipelineDefaultsOverrideStepOptions(t *testing.T) {
 
 	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
 		close(out)
+
 		return nil
 	}, pipeline.StepConcurrency[int](5), pipeline.StepBufferSize[int](1), pipeline.StepKeepOpen[int]())
 	require.NotNil(t, root)
@@ -592,6 +813,7 @@ func TestSinkNilPipe(t *testing.T) {
 
 	sinkStep := pipeline.Sink(nil, "root step", nil, func(ctx context.Context, input int) error {
 		_ = input
+
 		return nil
 	})
 	assert.Nil(t, sinkStep)
@@ -604,6 +826,7 @@ func TestSinkNilInput(t *testing.T) {
 	require.NoError(t, err)
 	sinkStep := pipeline.Sink(pipe, "root step", nil, func(ctx context.Context, input int) error {
 		_ = input
+
 		return nil
 	})
 	require.Nil(t, sinkStep)
@@ -654,6 +877,152 @@ func TestSinkError(t *testing.T) {
 	require.NotNil(t, sinkStep)
 	err = runPipeline(t, pipe, ctx)
 	assert.Error(t, err)
+}
+
+func TestSinkConcurrency(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
+	require.NoError(t, err)
+
+	input := &model.Step[int]{
+		Details: &model.StepInfo{
+			Name:       "input",
+			Concurrent: 1,
+		},
+		Output: make(chan int),
+	}
+
+	started := make(chan int, 2)
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+
+	closeRelease := func() {
+		releaseOnce.Do(func() {
+			close(release)
+		})
+	}
+
+	var mu sync.Mutex
+	processed := make([]int, 0, 2)
+
+	sinkStep := pipeline.Sink(pipe, "sink", input, func(ctx context.Context, input int) error {
+		mu.Lock()
+		processed = append(processed, input)
+		mu.Unlock()
+		started <- input
+		<-release
+
+		return nil
+	}, pipeline.StepConcurrency[int](2))
+	require.NotNil(t, sinkStep)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- runPipeline(t, pipe, ctx)
+	}()
+
+	expected := []int{1, 2}
+	input.Output <- expected[0]
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		closeRelease()
+		t.Fatal("expected first sink worker to start")
+	}
+
+	input.Output <- expected[1]
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		closeRelease()
+		t.Fatal("expected second sink worker to start")
+	}
+
+	close(input.Output)
+	closeRelease()
+	require.NoError(t, <-done)
+
+	mu.Lock()
+	got := append([]int(nil), processed...)
+	mu.Unlock()
+	assert.ElementsMatch(t, expected, got)
+}
+
+func TestSinkFromChanConcurrency(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
+	require.NoError(t, err)
+
+	input := &model.Step[int]{
+		Details: &model.StepInfo{
+			Name:       "input",
+			Concurrent: 1,
+		},
+		Output: make(chan int),
+	}
+
+	workerReady := make(chan int, 2)
+	startRead := make(chan struct{})
+	var mu sync.Mutex
+	nextWorkerID := 0
+	workerItems := map[int][]int{}
+
+	sinkStep := pipeline.SinkFromChan(pipe, "sink", input, func(ctx context.Context, input <-chan int) error {
+		mu.Lock()
+		nextWorkerID++
+		workerID := nextWorkerID
+		mu.Unlock()
+
+		workerReady <- workerID
+		<-startRead
+
+		for entry := range input {
+			mu.Lock()
+			workerItems[workerID] = append(workerItems[workerID], entry)
+			mu.Unlock()
+		}
+
+		return nil
+	}, pipeline.StepConcurrency[int](2))
+	require.NotNil(t, sinkStep)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- runPipeline(t, pipe, ctx)
+	}()
+
+	workerIDs := make([]int, 0, 2)
+	for i := 0; i < 2; i++ {
+		select {
+		case id := <-workerReady:
+			workerIDs = append(workerIDs, id)
+		case <-time.After(2 * time.Second):
+			t.Fatal("expected sink-from-chan workers to start")
+		}
+	}
+
+	expected := []int{1, 2}
+	for _, item := range expected {
+		input.Output <- item
+	}
+	close(input.Output)
+	close(startRead)
+	require.NoError(t, <-done)
+
+	mu.Lock()
+	gotItems := make([]int, 0, len(expected))
+	gotWorkers := len(workerItems)
+	for _, items := range workerItems {
+		gotItems = append(gotItems, items...)
+	}
+	mu.Unlock()
+
+	assert.ElementsMatch(t, expected, gotItems)
+	assert.GreaterOrEqual(t, gotWorkers, 2, "expected items from different workers")
 }
 
 func TestMerge(t *testing.T) {
@@ -747,7 +1116,11 @@ func TestCompletePipeline(t *testing.T) {
 
 	ctx := t.Context()
 	m := measure.NewDefaultMeasure()
-	pipe, err := pipeline.New(pipeline.PipelineDefaults{}, drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph.dot"), m), measure.PipelineMeasure(m))
+	pipe, err := pipeline.New(
+		pipeline.PipelineDefaults{},
+		drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph.dot"), m),
+		measure.PipelineMeasure(m),
+	)
 	require.NoError(t, err)
 	buildPipeline(t, pipe, "A", 10)
 	buildPipeline(t, pipe, "B", 20)
@@ -761,7 +1134,11 @@ func TestSimplePipeline(t *testing.T) {
 	// conc := 1
 	ctx := t.Context()
 	m := measure.NewDefaultMeasure()
-	pipe, err := pipeline.New(pipeline.PipelineDefaults{}, drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple.dot"), m), measure.PipelineMeasure(m))
+	pipe, err := pipeline.New(
+		pipeline.PipelineDefaults{},
+		drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple.dot"), m),
+		measure.PipelineMeasure(m),
+	)
 	require.NoError(t, err)
 	rootChan := pipeline.Root(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
 		for i := range 10 {
@@ -800,7 +1177,11 @@ func TestSimpleSplitterPipeline(t *testing.T) {
 	conc := 1
 	ctx := t.Context()
 	m := measure.NewDefaultMeasure()
-	pipe, err := pipeline.New(pipeline.PipelineDefaults{}, drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple-splitter.dot"), m), measure.PipelineMeasure(m))
+	pipe, err := pipeline.New(
+		pipeline.PipelineDefaults{},
+		drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple-splitter.dot"), m),
+		measure.PipelineMeasure(m),
+	)
 	require.NoError(t, err)
 	rootChan := pipeline.Root(pipe, "root step", func(ctx context.Context, rootChan chan<- int) error {
 		for i := range 10 {

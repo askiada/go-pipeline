@@ -56,6 +56,7 @@ func Root[O any](
 	err := prepareRootStep(pipe, step)
 	if err != nil {
 		pipe.recordErr(err)
+
 		return nil
 	}
 

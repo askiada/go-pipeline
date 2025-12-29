@@ -169,6 +169,7 @@ func Split[I any](pipe *Pipeline, name string, input *model.Step[I], total int, 
 	splitter, err := prepareSplitter(pipe, name, input, total, opts...)
 	if err != nil {
 		pipe.recordErr(err)
+
 		return nil
 	}
 
@@ -245,6 +246,7 @@ func SplitBy[I any](
 	splitter, err := prepareSplitter(pipe, name, input, total, opts...)
 	if err != nil {
 		pipe.recordErr(err)
+
 		return nil
 	}
 

@@ -42,6 +42,7 @@ func New(opts ...model.PipelineOption) (*Pipeline, error) {
 		case *PipelineDefaults:
 			if defaults == nil {
 				isDefaults = true
+
 				continue
 			}
 			pipe.defaults = *defaults
@@ -149,6 +150,7 @@ func (p *Pipeline) runnersSnapshot() []func(ctx context.Context) {
 
 	runners := make([]func(ctx context.Context), len(p.runners))
 	copy(runners, p.runners)
+
 	return runners
 }
 

@@ -6,7 +6,7 @@ import (
 	"github.com/askiada/go-pipeline/pkg/pipeline/model"
 )
 
-// PipelineDefaults configures default step and splitter behavior.
+// PipelineDefaults configures default step and splitter behaviour.
 type PipelineDefaults struct {
 	StepConcurrency    int
 	StepKeepOpen       bool

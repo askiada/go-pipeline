@@ -164,6 +164,9 @@ Use `OneToOne` when each input item maps to a single output item. Use `OneToMany
 - `OneToOne`: transform one input into one output (map/transform).
 - `OneToMany`: expand one input into many outputs (fan-out or split).
 
+### Per-step concurrency
+Use `pipeline.StepConcurrency[...]` on `OneToOne`, `OneToMany`, `FromChan`, and sink steps to control worker concurrency.
+
 ### Channel closing behavior
 By default, the library closes step output channels when a step finishes, including when using `FromChan`. To keep a channel open, pass the keep-open option (for example, `pipeline.StepKeepOpen[...]()`).
 
