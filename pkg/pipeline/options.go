@@ -8,6 +8,9 @@ type StepOption[O any] func(s *model.Step[O])
 // RetryPolicy configures per-item retry behaviour for steps.
 type RetryPolicy = model.RetryPolicy
 
+// BatchPolicy configures batching/windowing behaviour for batch steps.
+type BatchPolicy = model.BatchPolicy
+
 // StepConcurrency sets the concurrency of the step.
 func StepConcurrency[O any](concurrent int) StepOption[O] {
 	return func(s *model.Step[O]) {
@@ -61,6 +64,23 @@ func StepRetry[O any](policy RetryPolicy) StepOption[O] {
 
 		policyCopy := policy
 		step.RetryPolicy = &policyCopy
+	}
+}
+
+// StepBatch configures batching/windowing behaviour for batch steps.
+// MaxSize must be at least 1; MaxWait controls the flush window and can be 0 to disable time-based flushing.
+func StepBatch[O any](policy BatchPolicy) StepOption[O] {
+	return func(step *model.Step[O]) {
+		if policy.MaxSize < 1 {
+			return
+		}
+
+		if policy.MaxWait < 0 {
+			policy.MaxWait = 0
+		}
+
+		policyCopy := policy
+		step.BatchPolicy = &policyCopy
 	}
 }
 

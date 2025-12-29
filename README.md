@@ -179,6 +179,38 @@ step := pipeline.OneToOne(pipe, "enrich", root, enrichFn,
 )
 ```
 
+### Batching/windowing
+Use `pipeline.Batch` with `pipeline.StepBatch[...]` to group items into slices before processing, or `pipeline.BatchChan` to stream each batch over a channel for lower memory usage. `MaxSize` is required; `MaxWait` flushes partial batches on a timer. `StepBufferSize` applies to the number of batches buffered, not individual items.
+```go
+batch := pipeline.Batch(pipe, "batch", root,
+    pipeline.StepBatch[[]int](pipeline.BatchPolicy{
+        MaxSize: 10,
+        MaxWait: 50 * time.Millisecond,
+    }),
+)
+
+pipeline.Sink(pipe, "sink", batch, func(ctx context.Context, input []int) error {
+    fmt.Println(input)
+    return nil
+})
+```
+
+```go
+batch := pipeline.BatchChan(pipe, "batch", root,
+    pipeline.StepBatch[<-chan int](pipeline.BatchPolicy{
+        MaxSize: 10,
+        MaxWait: 50 * time.Millisecond,
+    }),
+)
+
+pipeline.Sink(pipe, "sink", batch, func(ctx context.Context, input <-chan int) error {
+    for item := range input {
+        fmt.Println(item)
+    }
+    return nil
+})
+```
+
 ### Channel closing behavior
 By default, the library closes step output channels when a step finishes, including when using `FromChan`. To keep a channel open, pass the keep-open option (for example, `pipeline.StepKeepOpen[...]()`).
 
@@ -199,6 +231,8 @@ Each example directory includes a README with expected output. Use `make example
 - Sink: `go run ./examples/sink`
 - SinkFromChan: `go run ./examples/sink-from-chan`
 - Retry (sink): `go run ./examples/retry`
+- Batching/windowing: `go run ./examples/batching`
+- Batching/windowing (chan): `go run ./examples/batching-chan`
 - Pipeline defaults: `go run ./examples/pipeline-defaults`
 - Step options: `go run ./examples/step-options`
 - Metrics + drawer: `go run ./examples/metrics-drawer`

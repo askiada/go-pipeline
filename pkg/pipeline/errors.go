@@ -19,6 +19,8 @@ var (
 	ErrSplitterTotal = errors.New("total must be greater than 0")
 	// ErrRetryUnsupported is returned when retry is configured on an unsupported step.
 	ErrRetryUnsupported = errors.New("retry is not supported for this step type")
+	// ErrBatchPolicyMustBeSet is returned when a batch step does not define a batch policy.
+	ErrBatchPolicyMustBeSet = errors.New("batch policy must be set")
 )
 
 type errorChans struct {

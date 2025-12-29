@@ -757,6 +757,276 @@ func TestSinkRetry(t *testing.T) {
 	assert.Equal(t, []int{1, 1, 1}, gotReceived)
 }
 
+func TestBatchStepFlushesOnSize(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
+	require.NoError(t, err)
+
+	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+		for i := range 5 {
+			out <- i
+		}
+
+		return nil
+	})
+	require.NotNil(t, root)
+
+	batch := pipeline.Batch(pipe, "batch", root, pipeline.StepBatch[[]int](pipeline.BatchPolicy{MaxSize: 2}))
+	require.NotNil(t, batch)
+
+	var mu sync.Mutex
+	batches := make([][]int, 0, 3)
+
+	sink := pipeline.Sink(pipe, "sink", batch, func(ctx context.Context, input []int) error {
+		mu.Lock()
+
+		batches = append(batches, input)
+
+		mu.Unlock()
+
+		return nil
+	})
+	require.NotNil(t, sink)
+
+	require.NoError(t, pipe.Run(ctx))
+
+	mu.Lock()
+
+	got := append([][]int(nil), batches...)
+
+	mu.Unlock()
+
+	require.Len(t, got, 3)
+	assert.Equal(t, []int{2, 2, 1}, []int{len(got[0]), len(got[1]), len(got[2])})
+
+	var flat []int
+	for _, batch := range got {
+		flat = append(flat, batch...)
+	}
+
+	assert.ElementsMatch(t, []int{0, 1, 2, 3, 4}, flat)
+}
+
+func TestBatchStepFlushesOnWindow(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
+	require.NoError(t, err)
+
+	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+		out <- 1
+
+		time.Sleep(30 * time.Millisecond)
+
+		out <- 2
+
+		return nil
+	})
+	require.NotNil(t, root)
+
+	batch := pipeline.Batch(pipe, "batch", root, pipeline.StepBatch[[]int](pipeline.BatchPolicy{
+		MaxSize: 10,
+		MaxWait: 10 * time.Millisecond,
+	}))
+	require.NotNil(t, batch)
+
+	var mu sync.Mutex
+	batches := make([][]int, 0, 2)
+
+	sink := pipeline.Sink(pipe, "sink", batch, func(ctx context.Context, input []int) error {
+		mu.Lock()
+
+		batches = append(batches, input)
+
+		mu.Unlock()
+
+		return nil
+	})
+	require.NotNil(t, sink)
+
+	require.NoError(t, pipe.Run(ctx))
+
+	mu.Lock()
+
+	got := append([][]int(nil), batches...)
+
+	mu.Unlock()
+
+	require.Len(t, got, 2)
+	assert.Len(t, got[0], 1)
+	assert.Len(t, got[1], 1)
+
+	var flat []int
+	for _, batch := range got {
+		flat = append(flat, batch...)
+	}
+
+	assert.ElementsMatch(t, []int{1, 2}, flat)
+}
+
+func TestBatchStepRequiresPolicy(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
+	require.NoError(t, err)
+
+	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+		out <- 1
+
+		return nil
+	})
+	require.NotNil(t, root)
+
+	batch := pipeline.Batch(pipe, "batch", root)
+	require.Nil(t, batch)
+	require.ErrorIs(t, pipe.Err(), pipeline.ErrBatchPolicyMustBeSet)
+	require.ErrorIs(t, pipe.Run(ctx), pipeline.ErrBatchPolicyMustBeSet)
+}
+
+func TestBatchChanStepFlushesOnSize(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
+	require.NoError(t, err)
+
+	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+		for i := range 5 {
+			out <- i
+		}
+
+		return nil
+	})
+	require.NotNil(t, root)
+
+	batch := pipeline.BatchChan(pipe, "batch", root, pipeline.StepBatch[<-chan int](pipeline.BatchPolicy{MaxSize: 2}))
+	require.NotNil(t, batch)
+
+	var mu sync.Mutex
+	batches := make([][]int, 0, 3)
+
+	sink := pipeline.Sink(pipe, "sink", batch, func(ctx context.Context, input <-chan int) error {
+		var items []int
+		for item := range input {
+			items = append(items, item)
+		}
+
+		mu.Lock()
+
+		batches = append(batches, items)
+
+		mu.Unlock()
+
+		return nil
+	})
+	require.NotNil(t, sink)
+
+	require.NoError(t, pipe.Run(ctx))
+
+	mu.Lock()
+
+	got := append([][]int(nil), batches...)
+
+	mu.Unlock()
+
+	require.Len(t, got, 3)
+	assert.Equal(t, []int{2, 2, 1}, []int{len(got[0]), len(got[1]), len(got[2])})
+
+	var flat []int
+	for _, batch := range got {
+		flat = append(flat, batch...)
+	}
+
+	assert.ElementsMatch(t, []int{0, 1, 2, 3, 4}, flat)
+}
+
+func TestBatchChanStepFlushesOnWindow(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
+	require.NoError(t, err)
+
+	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+		out <- 1
+
+		time.Sleep(30 * time.Millisecond)
+
+		out <- 2
+
+		return nil
+	})
+	require.NotNil(t, root)
+
+	batch := pipeline.BatchChan(pipe, "batch", root, pipeline.StepBatch[<-chan int](pipeline.BatchPolicy{
+		MaxSize: 10,
+		MaxWait: 10 * time.Millisecond,
+	}))
+	require.NotNil(t, batch)
+
+	var mu sync.Mutex
+	batches := make([][]int, 0, 2)
+
+	sink := pipeline.Sink(pipe, "sink", batch, func(ctx context.Context, input <-chan int) error {
+		var items []int
+		for item := range input {
+			items = append(items, item)
+		}
+
+		mu.Lock()
+
+		batches = append(batches, items)
+
+		mu.Unlock()
+
+		return nil
+	})
+	require.NotNil(t, sink)
+
+	require.NoError(t, pipe.Run(ctx))
+
+	mu.Lock()
+
+	got := append([][]int(nil), batches...)
+
+	mu.Unlock()
+
+	require.Len(t, got, 2)
+	assert.Len(t, got[0], 1)
+	assert.Len(t, got[1], 1)
+
+	var flat []int
+	for _, batch := range got {
+		flat = append(flat, batch...)
+	}
+
+	assert.ElementsMatch(t, []int{1, 2}, flat)
+}
+
+func TestBatchChanStepRequiresPolicy(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
+	require.NoError(t, err)
+
+	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+		out <- 1
+
+		return nil
+	})
+	require.NotNil(t, root)
+
+	batch := pipeline.BatchChan(pipe, "batch", root)
+	require.Nil(t, batch)
+	require.ErrorIs(t, pipe.Err(), pipeline.ErrBatchPolicyMustBeSet)
+	require.ErrorIs(t, pipe.Run(ctx), pipeline.ErrBatchPolicyMustBeSet)
+}
+
 func TestPipelineDefaultsApplyToSteps(t *testing.T) {
 	t.Parallel()
 

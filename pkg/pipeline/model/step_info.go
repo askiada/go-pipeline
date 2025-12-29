@@ -58,5 +58,7 @@ type Step[O any] struct {
 	KeepOpen bool
 	// RetryPolicy configures per-item retries for step functions.
 	RetryPolicy *RetryPolicy
+	// BatchPolicy configures batching/windowing for batch steps.
+	BatchPolicy *BatchPolicy
 	Details     *StepInfo
 }
