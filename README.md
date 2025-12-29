@@ -36,7 +36,7 @@ The pipeline package provides a channel-based, concurrent processing model with 
 
 ## Requirements
 - Go 1.24 (per `go.mod`).
-- Graphviz `dot` if you run `make unit_test` or want to render `.dot` files into images.
+- Graphviz `dot` (local-only) to render `.dot` files and to run `make unit_test`; CI uses `go test -v ./...` without Graphviz.
 
 ## Installation
 ```bash
@@ -170,8 +170,11 @@ Use `pipeline.StepConcurrency[...]` on `OneToOne`, `OneToMany`, `FromChan`, and 
 ### Channel closing behavior
 By default, the library closes step output channels when a step finishes, including when using `FromChan`. To keep a channel open, pass the keep-open option (for example, `pipeline.StepKeepOpen[...]()`).
 
+## Splitter buffer sizing and backpressure
+`SplitterBufferSize` controls the per-branch buffer used by splitters. Each input item is copied into every branch buffer, so memory use scales with `buffer size × branches`. Smaller buffers apply backpressure to the upstream step; larger buffers allow more in-flight items but can amplify memory use when downstream steps are slow. As a starting point, set the buffer size close to the upstream step concurrency and tune from there. The splitter logs a warning if the buffer size is much smaller or much larger than the input concurrency.
+
 ## Thread safety
-Build the pipeline before calling `Run(ctx)`; avoid mutating steps while a run is in progress.
+Build the pipeline before calling `Run(ctx)`; avoid mutating steps while a run is in progress. Pipelines are single-run; create a new pipeline instance for each execution.
 
 ## Examples
 - Quick start: `go run ./examples/quick-start`
@@ -209,6 +212,7 @@ Run `dot -Tpng pipeline.dot -O` if you want to render the output file as an imag
 ```bash
 make unit_test
 ```
+`make unit_test` runs `go test -race -timeout 30s ./...` and invokes Graphviz to render example diagrams. CI runs `go test -v ./...` without Graphviz.
 
 ## Linting
 ```bash

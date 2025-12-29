@@ -54,18 +54,24 @@ func (d *SVGDrawer) AddLink(parentName, childrenName string) error {
 }
 
 // Draw creates a SVG file with the pipeline graph.
-func (d *SVGDrawer) Draw() error {
+func (d *SVGDrawer) Draw() (err error) {
 	file, err := os.Create(d.svgFileName)
 	if err != nil {
 		return errors.Wrapf(err, "unable to create file %s", d.svgFileName)
 	}
+	defer func() {
+		closeErr := file.Close()
+		if closeErr != nil && err == nil {
+			err = errors.Wrapf(closeErr, "unable to close file %s", d.svgFileName)
+		}
+	}()
 
 	err = dot(d.graph, file)
 	if err != nil {
 		return errors.Wrapf(err, "unable to create dot file %s", d.svgFileName)
 	}
 
-	return nil
+	return err
 }
 
 // SetTotalTime sets the total time for the step.
@@ -158,7 +164,7 @@ func (d *SVGDrawer) updateMetrics(msr measure.Measure, allChanElapsed map[time.D
 			properties.Attributes["xlabel"] += ", end: " + step.GetTotalDuration().String()
 		}
 
-		for inputStep, info := range step.AllTransports() {
+		for inputStep, info := range step.AVGTransportDuration() {
 			if info.Elapsed == 0 {
 				continue
 			}

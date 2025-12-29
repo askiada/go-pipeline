@@ -85,19 +85,29 @@ func (mt *DefaultMetric) AVGTransportDuration() map[string]*TransportInfo {
 	mt.mu.Lock()
 	defer mt.mu.Unlock()
 
+	transport := make(map[string]*TransportInfo, len(mt.allTransports))
+	concurrent := mt.concurrent
+	if concurrent < 1 {
+		concurrent = 1
+	}
+
 	for name, ch := range mt.allTransports {
-		if ch.Elapsed == 0 {
+		if ch == nil {
 			continue
 		}
 
-		concurrent := mt.concurrent
-		if concurrent < 1 {
-			concurrent = 1
+		avg := time.Duration(0)
+		if ch.total > 0 && ch.Elapsed > 0 {
+			avg = round(time.Duration((float64(ch.Elapsed) / float64(ch.total)) / float64(concurrent)))
 		}
-		mt.allTransports[name].Elapsed = round(time.Duration((float64(ch.Elapsed) / float64(ch.total)) / float64(concurrent)))
+
+		transport[name] = &TransportInfo{
+			Elapsed: avg,
+			total:   ch.total,
+		}
 	}
 
-	return mt.allTransports
+	return transport
 }
 
 // AllTransports returns all transport info.
@@ -105,7 +115,19 @@ func (mt *DefaultMetric) AllTransports() map[string]*TransportInfo {
 	mt.mu.Lock()
 	defer mt.mu.Unlock()
 
-	return mt.allTransports
+	transports := make(map[string]*TransportInfo, len(mt.allTransports))
+	for name, info := range mt.allTransports {
+		if info == nil {
+			continue
+		}
+
+		transports[name] = &TransportInfo{
+			Elapsed: info.Elapsed,
+			total:   info.total,
+		}
+	}
+
+	return transports
 }
 
 func round(dur time.Duration) time.Duration {

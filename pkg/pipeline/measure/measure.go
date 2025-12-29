@@ -46,7 +46,15 @@ func (m *DefaultMeasure) GetMetric(name string) Metric { //nolint:ireturn // it 
 
 // AllMetrics returns all metrics.
 func (m *DefaultMeasure) AllMetrics() map[string]Metric {
-	return m.Steps
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	metrics := make(map[string]Metric, len(m.Steps))
+	for name, metric := range m.Steps {
+		metrics[name] = metric
+	}
+
+	return metrics
 }
 
 var _ Measure = (*DefaultMeasure)(nil)

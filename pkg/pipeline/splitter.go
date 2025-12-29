@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"log"
 	"sync"
 	"time"
 
@@ -72,6 +73,13 @@ func prepareSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], t
 		splitter.bufferSize = 1
 	}
 
+	inputConcurrent := 1
+	if input.Details != nil && input.Details.Concurrent > 0 {
+		inputConcurrent = input.Details.Concurrent
+	}
+
+	warnSplitterBuffer(name, splitter.bufferSize, inputConcurrent)
+
 	for idx := range total {
 		step := model.Step[I]{
 			Details: &model.StepInfo{
@@ -92,6 +100,26 @@ func prepareSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], t
 	}
 
 	return splitter, nil
+}
+
+func warnSplitterBuffer(name string, bufferSize int, inputConcurrent int) {
+	if bufferSize < 1 {
+		return
+	}
+
+	if inputConcurrent < 1 {
+		inputConcurrent = 1
+	}
+
+	if bufferSize < inputConcurrent {
+		log.Printf("go-pipeline: splitter %q buffer size %d is smaller than input concurrency %d; expect upstream backpressure", name, bufferSize, inputConcurrent)
+		return
+	}
+
+	const warnFactor = 8
+	if bufferSize > inputConcurrent*warnFactor {
+		log.Printf("go-pipeline: splitter %q buffer size %d is much larger than input concurrency %d; large per-branch buffers can increase memory use", name, bufferSize, inputConcurrent)
+	}
 }
 
 func runSplitter[I any](

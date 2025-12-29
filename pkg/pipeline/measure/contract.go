@@ -6,6 +6,7 @@ import "time"
 type Measure interface {
 	GetMetric(name string) Metric
 	AddMetric(name string, concurrent int) Metric
+	// AllMetrics returns a snapshot of all metrics.
 	AllMetrics() map[string]Metric
 }
 
@@ -23,6 +24,6 @@ type Metric interface {
 	SetTotalDuration(endDuration time.Duration)
 	// GetTotalDuration returns the total duration.
 	GetTotalDuration() time.Duration
-	// AllTransports returns all transports.
+	// AllTransports returns a snapshot of all transports.
 	AllTransports() map[string]*TransportInfo
 }
