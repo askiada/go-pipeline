@@ -47,3 +47,23 @@ func TestSVGDrawerDrawCreateError(t *testing.T) {
 	err := drw.Draw()
 	require.Error(t, err)
 }
+
+func TestSVGDrawerSetTotalTimeWritesLabel(t *testing.T) {
+	t.Parallel()
+
+	outPath := filepath.Join(t.TempDir(), "graph.dot")
+	drw := drawer.NewSVGDrawer(outPath)
+
+	require.NoError(t, drw.AddStep("step"))
+
+	start := time.Now().Add(-time.Hour)
+	require.NoError(t, drw.SetTotalTime("step", start))
+	require.NoError(t, drw.Draw())
+
+	data, err := os.ReadFile(outPath)
+	require.NoError(t, err)
+
+	content := string(data)
+	require.Contains(t, content, "\"step\"")
+	require.Contains(t, content, "1h")
+}
