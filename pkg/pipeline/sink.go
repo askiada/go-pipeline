@@ -55,53 +55,55 @@ func Sink[I any](pipe *Pipeline, name string, input *model.Step[I], sinkFn func(
 	errC := make(chan error, 1)
 	decoratedError := newErrorChan(name, errC)
 
-	go func() {
-		defer func() {
-			close(errC)
-		}()
+	pipe.addRunner(func(ctx context.Context) {
+		go func() {
+			defer func() {
+				close(errC)
+			}()
 
-	outer:
-		for {
-			startInputChan := time.Now()
+		outer:
+			for {
+				startInputChan := time.Now()
 
-			select {
-			case <-pipe.ctx.Done():
-				errC <- pipe.ctx.Err()
+				select {
+				case <-ctx.Done():
+					errC <- ctx.Err()
 
-				break outer
-			case entry, ok := <-input.Output:
-				if !ok {
 					break outer
-				}
+				case entry, ok := <-input.Output:
+					if !ok {
+						break outer
+					}
 
-				startFn := time.Now()
+					startFn := time.Now()
 
-				err := sinkFn(pipe.ctx, entry)
-				if err != nil {
-					errC <- err
-				}
-
-				endFn := time.Since(startFn)
-
-				endInputChan := time.Since(startInputChan)
-				for _, opt := range pipe.opts {
-					err := opt.OnSinkOutput(input.Details, step.Details, endInputChan-endFn, endFn)
+					err := sinkFn(ctx, entry)
 					if err != nil {
-						errC <- errors.Wrap(err, "unable to run before step function")
+						errC <- err
+					}
+
+					endFn := time.Since(startFn)
+
+					endInputChan := time.Since(startInputChan)
+					for _, opt := range pipe.opts {
+						err := opt.OnSinkOutput(input.Details, step.Details, endInputChan-endFn, endFn)
+						if err != nil {
+							errC <- errors.Wrap(err, "unable to run before step function")
+						}
 					}
 				}
 			}
-		}
 
-		totalDuration := time.Since(pipe.startTime)
+			totalDuration := time.Since(pipe.startTime)
 
-		for _, opt := range pipe.opts {
-			err := opt.AfterSink(step.Details, totalDuration)
-			if err != nil {
-				errC <- errors.Wrap(err, "unable to run before step function")
+			for _, opt := range pipe.opts {
+				err := opt.AfterSink(step.Details, totalDuration)
+				if err != nil {
+					errC <- errors.Wrap(err, "unable to run before step function")
+				}
 			}
-		}
-	}()
+		}()
+	})
 
 	pipe.errcList.add(decoratedError)
 
@@ -137,63 +139,65 @@ func SinkFromChan[I any](
 
 	var end time.Duration
 
-	go func() {
-		defer func() {
-			close(inputPlaceholder)
-		}()
+	pipe.addRunner(func(ctx context.Context) {
+		go func() {
+			defer func() {
+				close(inputPlaceholder)
+			}()
 
-	outer:
-		for {
-			select {
-			case <-pipe.ctx.Done():
-				break outer
-			case entry, ok := <-input.Output:
-				if !ok {
-					break outer
-				}
-
+		outer:
+			for {
 				select {
-				case <-pipe.ctx.Done():
+				case <-ctx.Done():
 					break outer
-				case inputPlaceholder <- entry:
-					total++
+				case entry, ok := <-input.Output:
+					if !ok {
+						break outer
+					}
+
+					select {
+					case <-ctx.Done():
+						break outer
+					case inputPlaceholder <- entry:
+						total++
+					}
 				}
 			}
-		}
 
-		end = time.Since(start)
-	}()
-	go func() {
-		defer func() {
-			close(errC)
+			end = time.Since(start)
 		}()
+		go func() {
+			defer func() {
+				close(errC)
+			}()
 
-		startStep := time.Now()
+			startStep := time.Now()
 
-		err := stepFn(pipe.ctx, inputPlaceholder)
-		if err != nil {
-			errC <- err
-		}
-
-		endStep := time.Since(startStep)
-		iterationDuration := time.Duration(float64(end) / float64(total))
-		computaionDuration := time.Duration(float64(endStep) / float64(total))
-
-		for _, opt := range pipe.opts {
-			err := opt.OnSinkOutput(input.Details, step.Details, iterationDuration, computaionDuration)
+			err := stepFn(ctx, inputPlaceholder)
 			if err != nil {
-				errC <- errors.Wrap(err, "unable to run before step function")
+				errC <- err
 			}
-		}
 
-		totalDuration := time.Since(pipe.startTime)
-		for _, opt := range pipe.opts {
-			err := opt.AfterSink(step.Details, totalDuration)
-			if err != nil {
-				errC <- errors.Wrap(err, "unable to run before step function")
+			endStep := time.Since(startStep)
+			iterationDuration := time.Duration(float64(end) / float64(total))
+			computaionDuration := time.Duration(float64(endStep) / float64(total))
+
+			for _, opt := range pipe.opts {
+				err := opt.OnSinkOutput(input.Details, step.Details, iterationDuration, computaionDuration)
+				if err != nil {
+					errC <- errors.Wrap(err, "unable to run before step function")
+				}
 			}
-		}
-	}()
+
+			totalDuration := time.Since(pipe.startTime)
+			for _, opt := range pipe.opts {
+				err := opt.AfterSink(step.Details, totalDuration)
+				if err != nil {
+					errC <- errors.Wrap(err, "unable to run before step function")
+				}
+			}
+		}()
+	})
 
 	pipe.errcList.add(decoratedError)
 

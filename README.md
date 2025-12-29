@@ -57,7 +57,7 @@ import (
 
 func main() {
 	ctx := context.Background()
-	pipe, err := pipeline.New(ctx, pipeline.PipelineDefaults{})
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -78,15 +78,15 @@ func main() {
 		return nil
 	})
 
-	if err := pipe.Run(); err != nil {
+	if err := pipe.Run(ctx); err != nil {
 		log.Fatal(err)
 	}
 }
 ```
-Construction errors are deferred until `pipe.Run()` so you can wire the pipeline without per-step error checks. `pipe.Err()` is available if you want a preflight check before running.
+Construction errors are deferred until `pipe.Run(ctx)` so you can wire the pipeline without per-step error checks. `pipe.Err()` is available if you want a preflight check before running.
 
 ## Pipeline defaults
-Set defaults once at creation time for step concurrency, buffers, and splitter buffering:
+Pass `PipelineDefaults` as a pipeline option to set step concurrency, buffers, and splitter buffering:
 ```go
 defaults := pipeline.PipelineDefaults{
 	StepConcurrency:    4,
@@ -95,7 +95,7 @@ defaults := pipeline.PipelineDefaults{
 	SplitterBufferSize: 4,
 }
 
-pipe, err := pipeline.New(ctx, defaults)
+pipe, err := pipeline.New(defaults)
 if err != nil {
 	log.Fatal(err)
 }
@@ -115,7 +115,7 @@ import (
 
 func main() {
 	ctx := context.Background()
-	pipe, err := pipeline.New(ctx, pipeline.PipelineDefaults{})
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func main() {
 		return nil
 	})
 
-	if err := pipe.Run(); err != nil {
+	if err := pipe.Run(ctx); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -167,6 +167,9 @@ Use `OneToOne` when each input item maps to a single output item. Use `OneToMany
 ### Channel closing behavior
 By default, the library closes step output channels when a step finishes, including when using `FromChan`. To keep a channel open, pass the keep-open option (for example, `pipeline.StepKeepOpen[...]()`).
 
+## Thread safety
+Build the pipeline before calling `Run(ctx)`; avoid mutating steps while a run is in progress.
+
 ## Examples
 - Quick start: `go run ./examples/quick-start`
 - Splitter + merger: `go run ./examples/splitter-merger`
@@ -181,19 +184,17 @@ You can attach pipeline options to collect metrics and emit Graphviz-ready outpu
 package main
 
 import (
-	"context"
-
 	"github.com/askiada/go-pipeline/pkg/pipeline"
 	"github.com/askiada/go-pipeline/pkg/pipeline/drawer"
 	"github.com/askiada/go-pipeline/pkg/pipeline/measure"
 )
 
-func buildPipeline(ctx context.Context) (*pipeline.Pipeline, error) {
+func buildPipeline() (*pipeline.Pipeline, error) {
 	msr := measure.NewDefaultMeasure()
 	drw := drawer.NewSVGDrawer("pipeline.dot")
 
 	return pipeline.New(
-		ctx, pipeline.PipelineDefaults{},
+		pipeline.PipelineDefaults{},
 		measure.PipelineMeasure(msr),
 		drawer.PipelineDrawer(drw, msr),
 	)

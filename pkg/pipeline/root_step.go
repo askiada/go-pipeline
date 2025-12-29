@@ -59,20 +59,22 @@ func Root[O any](
 		return nil
 	}
 
-	go func() {
-		defer func() {
-			if !step.KeepOpen {
-				close(step.Output)
+	pipe.addRunner(func(ctx context.Context) {
+		go func() {
+			defer func() {
+				if !step.KeepOpen {
+					close(step.Output)
+				}
+
+				close(errC)
+			}()
+
+			err := stepFn(ctx, step.Output)
+			if err != nil {
+				errC <- err
 			}
-
-			close(errC)
 		}()
-
-		err := stepFn(pipe.ctx, step.Output)
-		if err != nil {
-			errC <- err
-		}
-	}()
+	})
 
 	pipe.errcList.add(decoratedError)
 

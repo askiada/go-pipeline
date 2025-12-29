@@ -9,6 +9,8 @@ import (
 var (
 	// ErrPipelineMustBeSet is returned when the pipeline is not set.
 	ErrPipelineMustBeSet = errors.New("pipe must be set")
+	// ErrContextMustBeSet is returned when the context is not set.
+	ErrContextMustBeSet = errors.New("context must be set")
 	// ErrInputMustBeSet is returned when the input is not set.
 	ErrInputMustBeSet = errors.New("input must be set")
 	// ErrSplitterTotal is returned when the total is not set.

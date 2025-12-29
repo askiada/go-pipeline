@@ -26,7 +26,7 @@ func TestRootNilPipe(t *testing.T) {
 func TestRoot(t *testing.T) {
 	t.Parallel()
 
-	pipe, err := pipeline.New(t.Context(), pipeline.PipelineDefaults{})
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
 
 	var got []int
@@ -48,7 +48,7 @@ func TestRoot(t *testing.T) {
 		done <- struct{}{}
 	}()
 
-	err = pipe.Run()
+	err = runPipeline(t, pipe)
 	require.NoError(t, err)
 	<-done
 	assert.ElementsMatch(t, []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, got)
@@ -57,7 +57,7 @@ func TestRoot(t *testing.T) {
 func TestRootError(t *testing.T) {
 	t.Parallel()
 
-	pipe, err := pipeline.New(t.Context(), pipeline.PipelineDefaults{})
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
 
 	var got []int
@@ -83,7 +83,7 @@ func TestRootError(t *testing.T) {
 		done <- struct{}{}
 	}()
 
-	err = pipe.Run()
+	err = runPipeline(t, pipe)
 	assert.Error(t, err)
 	<-done
 
@@ -94,7 +94,7 @@ func TestRootCancel(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(t.Context())
-	pipe, err := pipeline.New(ctx, pipeline.PipelineDefaults{})
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
 
 	var got []int
@@ -123,7 +123,7 @@ func TestRootCancel(t *testing.T) {
 		done <- struct{}{}
 	}()
 
-	err = pipe.Run()
+	err = runPipeline(t, pipe, ctx)
 	assert.Error(t, err)
 	<-done
 
@@ -148,7 +148,7 @@ func TestRootNoCloseNilPipe(t *testing.T) {
 func TestRootNoClose(t *testing.T) {
 	t.Parallel()
 
-	pipe, err := pipeline.New(t.Context(), pipeline.PipelineDefaults{})
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
 
 	var got []int
@@ -172,7 +172,7 @@ func TestRootNoClose(t *testing.T) {
 		done <- struct{}{}
 	}()
 
-	err = pipe.Run()
+	err = runPipeline(t, pipe)
 	require.NoError(t, err)
 	<-done
 	assert.ElementsMatch(t, []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, got)
@@ -181,7 +181,7 @@ func TestRootNoClose(t *testing.T) {
 func TestRootNoCloseError(t *testing.T) {
 	t.Parallel()
 
-	pipe, err := pipeline.New(t.Context(), pipeline.PipelineDefaults{})
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
 
 	var got []int
@@ -209,7 +209,7 @@ func TestRootNoCloseError(t *testing.T) {
 		done <- struct{}{}
 	}()
 
-	err = pipe.Run()
+	err = runPipeline(t, pipe)
 	assert.Error(t, err)
 	<-done
 
@@ -220,7 +220,7 @@ func TestRootNoCloseCancel(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(t.Context())
-	pipe, err := pipeline.New(ctx, pipeline.PipelineDefaults{})
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
 
 	var got []int
@@ -250,7 +250,7 @@ func TestRootNoCloseCancel(t *testing.T) {
 		done <- struct{}{}
 	}()
 
-	err = pipe.Run()
+	err = runPipeline(t, pipe, ctx)
 	assert.Error(t, err)
 	<-done
 

@@ -1,6 +1,10 @@
 package pipeline
 
-import "github.com/askiada/go-pipeline/pkg/pipeline/model"
+import (
+	"time"
+
+	"github.com/askiada/go-pipeline/pkg/pipeline/model"
+)
 
 // PipelineDefaults configures default step and splitter behavior.
 type PipelineDefaults struct {
@@ -8,6 +12,50 @@ type PipelineDefaults struct {
 	StepKeepOpen       bool
 	StepBufferSize     int
 	SplitterBufferSize int
+}
+
+func (PipelineDefaults) New() error {
+	return nil
+}
+
+func (PipelineDefaults) Finish() error {
+	return nil
+}
+
+func (PipelineDefaults) PrepareStep(_, _ *model.StepInfo) error {
+	return nil
+}
+
+func (PipelineDefaults) OnStepOutput(_, _ *model.StepInfo, _, _ time.Duration) error {
+	return nil
+}
+
+func (PipelineDefaults) PrepareSplitter(_, _ *model.StepInfo) error {
+	return nil
+}
+
+func (PipelineDefaults) OnSplitterOutput(_, _ *model.StepInfo, _, _ time.Duration) error {
+	return nil
+}
+
+func (PipelineDefaults) PrepareMerger(_ []*model.StepInfo, _ *model.StepInfo) error {
+	return nil
+}
+
+func (PipelineDefaults) OnMergerOutput(_, _ *model.StepInfo, _ time.Duration) error {
+	return nil
+}
+
+func (PipelineDefaults) PrepareSink(_, _ *model.StepInfo) error {
+	return nil
+}
+
+func (PipelineDefaults) OnSinkOutput(_, _ *model.StepInfo, _, _ time.Duration) error {
+	return nil
+}
+
+func (PipelineDefaults) AfterSink(_ *model.StepInfo, _ time.Duration) error {
+	return nil
 }
 
 func applyStepDefaults[O any](p *Pipeline, step *model.Step[O]) {

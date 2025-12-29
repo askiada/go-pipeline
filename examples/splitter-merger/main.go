@@ -10,7 +10,7 @@ import (
 
 func main() {
 	ctx := context.Background()
-	pipe, err := pipeline.New(ctx, pipeline.PipelineDefaults{})
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func main() {
 		return nil
 	})
 
-	if err := pipe.Run(); err != nil {
+	if err := pipe.Run(ctx); err != nil {
 		log.Fatal(err)
 	}
 }

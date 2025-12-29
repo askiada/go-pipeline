@@ -95,6 +95,7 @@ func prepareSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], t
 }
 
 func runSplitter[I any](
+	ctx context.Context,
 	pipe *Pipeline,
 	splitter *Splitter[I],
 	input *model.Step[I],
@@ -115,8 +116,8 @@ func runSplitter[I any](
 		startIter := time.Now()
 
 		select {
-		case <-pipe.ctx.Done():
-			errC <- pipe.ctx.Err()
+		case <-ctx.Done():
+			errC <- ctx.Err()
 
 			return
 		case entry, ok := <-input.Output:
@@ -131,8 +132,8 @@ func runSplitter[I any](
 				localBuf := buf
 
 				select {
-				case <-pipe.ctx.Done():
-					errC <- pipe.ctx.Err()
+				case <-ctx.Done():
+					errC <- ctx.Err()
 
 					return
 				case localBuf <- localEntry:
@@ -180,36 +181,38 @@ func Split[I any](pipe *Pipeline, name string, input *model.Step[I], total int, 
 	wgrp := &sync.WaitGroup{}
 	wgrp.Add(len(splitterBuffer))
 
-	for i, buf := range splitterBuffer {
-		localBuf := buf
-		localI := i
+	pipe.addRunner(func(ctx context.Context) {
+		for i, buf := range splitterBuffer {
+			localBuf := buf
+			localI := i
 
-		go func() {
-			defer func() {
-				close(splitter.splittedSteps[localI].Output)
-				wgrp.Done()
-			}()
+			go func() {
+				defer func() {
+					close(splitter.splittedSteps[localI].Output)
+					wgrp.Done()
+				}()
 
-			for {
-				select {
-				case elem, ok := <-localBuf:
-					if !ok {
+				for {
+					select {
+					case elem, ok := <-localBuf:
+						if !ok {
+							return
+						}
+
+						splitter.splittedSteps[localI].Output <- elem
+					case <-ctx.Done():
+						errC <- ctx.Err()
+
 						return
 					}
-
-					splitter.splittedSteps[localI].Output <- elem
-				case <-pipe.ctx.Done():
-					errC <- pipe.ctx.Err()
-
-					return
 				}
-			}
-		}()
-	}
+			}()
+		}
 
-	go func() {
-		runSplitter(pipe, splitter, input, splitterBuffer, errC, wgrp)
-	}()
+		go func() {
+			runSplitter(ctx, pipe, splitter, input, splitterBuffer, errC, wgrp)
+		}()
+	})
 
 	pipe.errcList.add(decoratedError)
 
@@ -254,46 +257,48 @@ func SplitBy[I any](
 	wgrp := &sync.WaitGroup{}
 	wgrp.Add(len(splitterBuffer))
 
-	for i, buf := range splitterBuffer {
-		localBuf := buf
-		localI := i
+	pipe.addRunner(func(ctx context.Context) {
+		for i, buf := range splitterBuffer {
+			localBuf := buf
+			localI := i
+
+			go func() {
+				defer func() {
+					close(splitter.splittedSteps[localI].Output)
+					wgrp.Done()
+				}()
+
+				for {
+					select {
+					case <-ctx.Done():
+						errC <- ctx.Err()
+
+						return
+
+					case elem, ok := <-localBuf:
+						if !ok {
+							return
+						}
+
+						ok, err := fns[localI](ctx, elem)
+						if err != nil {
+							errC <- errors.Wrap(err, "unable to run splitter function")
+						}
+
+						if !ok {
+							continue
+						}
+
+						splitter.splittedSteps[localI].Output <- elem
+					}
+				}
+			}()
+		}
 
 		go func() {
-			defer func() {
-				close(splitter.splittedSteps[localI].Output)
-				wgrp.Done()
-			}()
-
-			for {
-				select {
-				case <-pipe.ctx.Done():
-					errC <- pipe.ctx.Err()
-
-					return
-
-				case elem, ok := <-localBuf:
-					if !ok {
-						return
-					}
-
-					ok, err := fns[localI](pipe.ctx, elem)
-					if err != nil {
-						errC <- errors.Wrap(err, "unable to run splitter function")
-					}
-
-					if !ok {
-						continue
-					}
-
-					splitter.splittedSteps[localI].Output <- elem
-				}
-			}
+			runSplitter(ctx, pipe, splitter, input, splitterBuffer, errC, wgrp)
 		}()
-	}
-
-	go func() {
-		runSplitter(pipe, splitter, input, splitterBuffer, errC, wgrp)
-	}()
+	})
 
 	pipe.errcList.add(decoratedError)
 

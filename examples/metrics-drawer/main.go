@@ -15,7 +15,7 @@ func main() {
 	msr := measure.NewDefaultMeasure()
 	drw := drawer.NewSVGDrawer("examples/metrics-drawer/pipeline.dot")
 
-	pipe, err := pipeline.New(ctx, pipeline.PipelineDefaults{}, measure.PipelineMeasure(msr), drawer.PipelineDrawer(drw, msr))
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{}, measure.PipelineMeasure(msr), drawer.PipelineDrawer(drw, msr))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func main() {
 		return nil
 	})
 
-	if err := pipe.Run(); err != nil {
+	if err := pipe.Run(ctx); err != nil {
 		log.Fatal(err)
 	}
 }

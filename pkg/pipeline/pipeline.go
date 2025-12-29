@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -11,33 +12,53 @@ import (
 
 // Pipeline is a pipeline of steps.
 type Pipeline struct {
-	ctx       context.Context //nolint:containedctx // The context for the pipeline. It is used to cancel the pipeline.
 	errcList  *errorChans
 	cancel    context.CancelFunc
 	opts      []model.PipelineOption
 	defaults  PipelineDefaults
 	buildErr  error
 	startTime time.Time
+	runners   []func(ctx context.Context)
+	runnersMu sync.Mutex
 }
 
 // New creates a new pipeline.
-func New(ctx context.Context, defaults PipelineDefaults, opts ...model.PipelineOption) (*Pipeline, error) {
-	dCtx, cancel := context.WithCancel(ctx)
+func New(opts ...model.PipelineOption) (*Pipeline, error) {
 	pipe := &Pipeline{
-		ctx:       dCtx,
-		errcList:  &errorChans{},
-		cancel:    cancel,
-		startTime: time.Now(),
-		opts:      opts,
-		defaults:  defaults,
+		errcList: &errorChans{},
 	}
 
+	pipelineOpts := make([]model.PipelineOption, 0, len(opts))
 	for _, opt := range opts {
+		if opt == nil {
+			continue
+		}
+
+		isDefaults := false
+		switch defaults := opt.(type) {
+		case PipelineDefaults:
+			pipe.defaults = defaults
+			isDefaults = true
+		case *PipelineDefaults:
+			if defaults == nil {
+				isDefaults = true
+				continue
+			}
+			pipe.defaults = *defaults
+			isDefaults = true
+		}
+
 		err := opt.New()
 		if err != nil {
 			return nil, errors.Wrap(err, "unable to apply pipeline option")
 		}
+
+		if !isDefaults {
+			pipelineOpts = append(pipelineOpts, opt)
+		}
 	}
+
+	pipe.opts = pipelineOpts
 
 	return pipe, nil
 }
@@ -56,17 +77,31 @@ func waitForPipeline(errs ...*errorChan) error {
 }
 
 // Run starts the pipeline and waits for it to finish.
-func (p *Pipeline) Run() error {
+func (p *Pipeline) Run(ctx context.Context) error {
 	if p == nil {
 		return ErrPipelineMustBeSet
 	}
 
 	if p.buildErr != nil {
-		p.cancel()
 		return p.buildErr
 	}
 
-	defer p.cancel()
+	if ctx == nil {
+		return ErrContextMustBeSet
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	p.cancel = cancel
+	p.startTime = time.Now()
+
+	runners := p.runnersSnapshot()
+	for _, runner := range runners {
+		if runner != nil {
+			runner(runCtx)
+		}
+	}
+
+	defer cancel()
 
 	err := waitForPipeline(p.errcList.list...)
 	if err != nil {
@@ -92,6 +127,29 @@ func (p *Pipeline) recordErr(err error) {
 	}
 
 	p.buildErr = err
+}
+
+func (p *Pipeline) addRunner(runner func(ctx context.Context)) {
+	if p == nil || runner == nil {
+		return
+	}
+
+	p.runnersMu.Lock()
+	p.runners = append(p.runners, runner)
+	p.runnersMu.Unlock()
+}
+
+func (p *Pipeline) runnersSnapshot() []func(ctx context.Context) {
+	if p == nil {
+		return nil
+	}
+
+	p.runnersMu.Lock()
+	defer p.runnersMu.Unlock()
+
+	runners := make([]func(ctx context.Context), len(p.runners))
+	copy(runners, p.runners)
+	return runners
 }
 
 func (p *Pipeline) finishRun() error {
