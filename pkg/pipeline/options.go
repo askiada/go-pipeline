@@ -1,6 +1,10 @@
 package pipeline
 
-import "github.com/askiada/go-pipeline/pkg/pipeline/model"
+import (
+	"time"
+
+	"github.com/askiada/go-pipeline/pkg/pipeline/model"
+)
 
 // StepOption is a function that modifies a Step.
 type StepOption[O any] func(s *model.Step[O])
@@ -10,6 +14,9 @@ type RetryPolicy = model.RetryPolicy
 
 // BatchPolicy configures batching/windowing behaviour for batch steps.
 type BatchPolicy = model.BatchPolicy
+
+// RateLimitPolicy configures per-item rate limiting for step functions.
+type RateLimitPolicy = model.RateLimitPolicy
 
 // StepConcurrency sets the concurrency of the step.
 func StepConcurrency[O any](concurrent int) StepOption[O] {
@@ -67,20 +74,41 @@ func StepRetry[O any](policy RetryPolicy) StepOption[O] {
 	}
 }
 
-// StepBatch configures batching/windowing behaviour for batch steps.
-// MaxSize must be at least 1; MaxWait controls the flush window and can be 0 to disable time-based flushing.
-func StepBatch[O any](policy BatchPolicy) StepOption[O] {
+// StepTimeout configures a per-item timeout for step functions.
+func StepTimeout[O any](timeout time.Duration) StepOption[O] {
 	return func(step *model.Step[O]) {
-		if policy.MaxSize < 1 {
+		if timeout <= 0 {
 			return
 		}
 
-		if policy.MaxWait < 0 {
-			policy.MaxWait = 0
+		step.Timeout = timeout
+	}
+}
+
+// StepRateLimit configures per-item rate limiting for step functions.
+func StepRateLimit[O any](policy RateLimitPolicy) StepOption[O] {
+	return func(step *model.Step[O]) {
+		if policy.Every <= 0 {
+			return
+		}
+
+		if policy.Burst < 1 {
+			policy.Burst = 1
 		}
 
 		policyCopy := policy
-		step.BatchPolicy = &policyCopy
+		step.RateLimitPolicy = &policyCopy
+	}
+}
+
+// StepMaxInFlight caps the number of in-flight items per step.
+func StepMaxInFlight[O any](maxInFlight int) StepOption[O] {
+	return func(step *model.Step[O]) {
+		if maxInFlight < 1 {
+			return
+		}
+
+		step.MaxInFlight = maxInFlight
 	}
 }
 

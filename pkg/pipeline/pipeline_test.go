@@ -3,6 +3,7 @@ package pipeline_test
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -773,7 +774,7 @@ func TestBatchStepFlushesOnSize(t *testing.T) {
 	})
 	require.NotNil(t, root)
 
-	batch := pipeline.Batch(pipe, "batch", root, pipeline.StepBatch[[]int](pipeline.BatchPolicy{MaxSize: 2}))
+	batch := pipeline.Batch(pipe, "batch", root, pipeline.BatchPolicy{MaxSize: 2})
 	require.NotNil(t, batch)
 
 	var mu sync.Mutex
@@ -827,10 +828,10 @@ func TestBatchStepFlushesOnWindow(t *testing.T) {
 	})
 	require.NotNil(t, root)
 
-	batch := pipeline.Batch(pipe, "batch", root, pipeline.StepBatch[[]int](pipeline.BatchPolicy{
+	batch := pipeline.Batch(pipe, "batch", root, pipeline.BatchPolicy{
 		MaxSize: 10,
 		MaxWait: 10 * time.Millisecond,
-	}))
+	})
 	require.NotNil(t, batch)
 
 	var mu sync.Mutex
@@ -881,7 +882,7 @@ func TestBatchStepRequiresPolicy(t *testing.T) {
 	})
 	require.NotNil(t, root)
 
-	batch := pipeline.Batch(pipe, "batch", root)
+	batch := pipeline.Batch(pipe, "batch", root, pipeline.BatchPolicy{})
 	require.Nil(t, batch)
 	require.ErrorIs(t, pipe.Err(), pipeline.ErrBatchPolicyMustBeSet)
 	require.ErrorIs(t, pipe.Run(ctx), pipeline.ErrBatchPolicyMustBeSet)
@@ -903,7 +904,7 @@ func TestBatchChanStepFlushesOnSize(t *testing.T) {
 	})
 	require.NotNil(t, root)
 
-	batch := pipeline.BatchChan(pipe, "batch", root, pipeline.StepBatch[<-chan int](pipeline.BatchPolicy{MaxSize: 2}))
+	batch := pipeline.BatchChan(pipe, "batch", root, pipeline.BatchPolicy{MaxSize: 2})
 	require.NotNil(t, batch)
 
 	var mu sync.Mutex
@@ -962,10 +963,10 @@ func TestBatchChanStepFlushesOnWindow(t *testing.T) {
 	})
 	require.NotNil(t, root)
 
-	batch := pipeline.BatchChan(pipe, "batch", root, pipeline.StepBatch[<-chan int](pipeline.BatchPolicy{
+	batch := pipeline.BatchChan(pipe, "batch", root, pipeline.BatchPolicy{
 		MaxSize: 10,
 		MaxWait: 10 * time.Millisecond,
-	}))
+	})
 	require.NotNil(t, batch)
 
 	var mu sync.Mutex
@@ -1021,10 +1022,136 @@ func TestBatchChanStepRequiresPolicy(t *testing.T) {
 	})
 	require.NotNil(t, root)
 
-	batch := pipeline.BatchChan(pipe, "batch", root)
+	batch := pipeline.BatchChan(pipe, "batch", root, pipeline.BatchPolicy{})
 	require.Nil(t, batch)
 	require.ErrorIs(t, pipe.Err(), pipeline.ErrBatchPolicyMustBeSet)
 	require.ErrorIs(t, pipe.Run(ctx), pipeline.ErrBatchPolicyMustBeSet)
+}
+
+func TestStepTimeoutOneToOne(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
+	require.NoError(t, err)
+
+	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+		out <- 1
+
+		return nil
+	})
+	require.NotNil(t, root)
+
+	step := pipeline.OneToOne(pipe, "timeout", root, func(ctx context.Context, input int) (int, error) {
+		<-ctx.Done()
+
+		return 0, ctx.Err()
+	}, pipeline.StepTimeout[int](10*time.Millisecond))
+	require.NotNil(t, step)
+
+	sink := pipeline.Sink(pipe, "sink", step, func(ctx context.Context, input int) error {
+		return nil
+	})
+	require.NotNil(t, sink)
+
+	err = pipe.Run(ctx)
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+func TestStepRateLimit(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
+	require.NoError(t, err)
+
+	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+		for i := range 3 {
+			out <- i
+		}
+
+		return nil
+	})
+	require.NotNil(t, root)
+
+	step := pipeline.OneToOne(pipe, "throttle", root, func(ctx context.Context, input int) (int, error) {
+		return input, nil
+	}, pipeline.StepRateLimit[int](pipeline.RateLimitPolicy{Every: 20 * time.Millisecond, Burst: 1}))
+	require.NotNil(t, step)
+
+	sink := pipeline.Sink(pipe, "sink", step, func(ctx context.Context, input int) error {
+		return nil
+	})
+	require.NotNil(t, sink)
+
+	start := time.Now()
+
+	require.NoError(t, pipe.Run(ctx))
+	require.GreaterOrEqual(t, time.Since(start), 35*time.Millisecond)
+}
+
+func TestStepMaxInFlightCapsConcurrency(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
+	require.NoError(t, err)
+
+	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+		out <- 1
+
+		out <- 2
+
+		return nil
+	})
+	require.NotNil(t, root)
+
+	var active int32
+	overlap := make(chan struct{}, 1)
+
+	step := pipeline.OneToOne(pipe, "limited", root, func(ctx context.Context, input int) (int, error) {
+		if atomic.AddInt32(&active, 1) > 1 {
+			select {
+			case overlap <- struct{}{}:
+			default:
+			}
+		}
+
+		time.Sleep(10 * time.Millisecond)
+
+		atomic.AddInt32(&active, -1)
+
+		return input, nil
+	}, pipeline.StepConcurrency[int](2), pipeline.StepMaxInFlight[int](1))
+	require.NotNil(t, step)
+
+	var mu sync.Mutex
+	var got []int
+
+	sink := pipeline.Sink(pipe, "sink", step, func(ctx context.Context, input int) error {
+		mu.Lock()
+
+		got = append(got, input)
+
+		mu.Unlock()
+
+		return nil
+	})
+	require.NotNil(t, sink)
+
+	require.NoError(t, pipe.Run(ctx))
+
+	select {
+	case <-overlap:
+		t.Fatal("expected max in-flight to prevent concurrent processing")
+	default:
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	assert.ElementsMatch(t, []int{1, 2}, got)
 }
 
 func TestPipelineDefaultsApplyToSteps(t *testing.T) {
@@ -1499,6 +1626,260 @@ func TestStepRetryUnsupportedForSinkFromChan(t *testing.T) {
 	require.Nil(t, sink)
 	require.ErrorIs(t, pipe.Err(), pipeline.ErrRetryUnsupported)
 	require.ErrorIs(t, pipe.Run(ctx), pipeline.ErrRetryUnsupported)
+}
+
+func TestStepOptionsUnsupportedForFromChan(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		opt  pipeline.StepOption[int]
+		err  error
+	}{
+		{
+			name: "timeout",
+			opt:  pipeline.StepTimeout[int](time.Millisecond),
+			err:  pipeline.ErrTimeoutUnsupported,
+		},
+		{
+			name: "rate limit",
+			opt: pipeline.StepRateLimit[int](pipeline.RateLimitPolicy{
+				Every: time.Millisecond,
+				Burst: 1,
+			}),
+			err: pipeline.ErrRateLimitUnsupported,
+		},
+		{
+			name: "max in-flight",
+			opt:  pipeline.StepMaxInFlight[int](1),
+			err:  pipeline.ErrMaxInFlightUnsupported,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			pipe, err := pipeline.New(pipeline.PipelineDefaults{})
+			require.NoError(t, err)
+
+			root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+				out <- 1
+
+				return nil
+			})
+			require.NotNil(t, root)
+
+			step := pipeline.FromChan(pipe, "step", root, func(ctx context.Context, input <-chan int, output chan int) error {
+				return nil
+			}, tc.opt)
+			require.Nil(t, step)
+			require.ErrorIs(t, pipe.Err(), tc.err)
+			require.ErrorIs(t, pipe.Run(ctx), tc.err)
+		})
+	}
+}
+
+func TestStepOptionsUnsupportedForSinkFromChan(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		opt  pipeline.StepOption[int]
+		err  error
+	}{
+		{
+			name: "timeout",
+			opt:  pipeline.StepTimeout[int](time.Millisecond),
+			err:  pipeline.ErrTimeoutUnsupported,
+		},
+		{
+			name: "rate limit",
+			opt: pipeline.StepRateLimit[int](pipeline.RateLimitPolicy{
+				Every: time.Millisecond,
+				Burst: 1,
+			}),
+			err: pipeline.ErrRateLimitUnsupported,
+		},
+		{
+			name: "max in-flight",
+			opt:  pipeline.StepMaxInFlight[int](1),
+			err:  pipeline.ErrMaxInFlightUnsupported,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			pipe, err := pipeline.New(pipeline.PipelineDefaults{})
+			require.NoError(t, err)
+
+			root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+				out <- 1
+
+				return nil
+			})
+			require.NotNil(t, root)
+
+			sink := pipeline.SinkFromChan(pipe, "sink", root, func(ctx context.Context, input <-chan int) error {
+				return nil
+			}, tc.opt)
+			require.Nil(t, sink)
+			require.ErrorIs(t, pipe.Err(), tc.err)
+			require.ErrorIs(t, pipe.Run(ctx), tc.err)
+		})
+	}
+}
+
+func TestStepOptionsUnsupportedForRoot(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		opt  pipeline.StepOption[int]
+		err  error
+	}{
+		{
+			name: "timeout",
+			opt:  pipeline.StepTimeout[int](time.Millisecond),
+			err:  pipeline.ErrTimeoutUnsupported,
+		},
+		{
+			name: "rate limit",
+			opt: pipeline.StepRateLimit[int](pipeline.RateLimitPolicy{
+				Every: time.Millisecond,
+				Burst: 1,
+			}),
+			err: pipeline.ErrRateLimitUnsupported,
+		},
+		{
+			name: "max in-flight",
+			opt:  pipeline.StepMaxInFlight[int](1),
+			err:  pipeline.ErrMaxInFlightUnsupported,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			pipe, err := pipeline.New(pipeline.PipelineDefaults{})
+			require.NoError(t, err)
+
+			root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+				return nil
+			}, tc.opt)
+			require.Nil(t, root)
+			require.ErrorIs(t, pipe.Err(), tc.err)
+			require.ErrorIs(t, pipe.Run(ctx), tc.err)
+		})
+	}
+}
+
+func TestStepOptionsUnsupportedForBatch(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		opt  pipeline.StepOption[[]int]
+		err  error
+	}{
+		{
+			name: "timeout",
+			opt:  pipeline.StepTimeout[[]int](time.Millisecond),
+			err:  pipeline.ErrTimeoutUnsupported,
+		},
+		{
+			name: "rate limit",
+			opt: pipeline.StepRateLimit[[]int](pipeline.RateLimitPolicy{
+				Every: time.Millisecond,
+				Burst: 1,
+			}),
+			err: pipeline.ErrRateLimitUnsupported,
+		},
+		{
+			name: "max in-flight",
+			opt:  pipeline.StepMaxInFlight[[]int](1),
+			err:  pipeline.ErrMaxInFlightUnsupported,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			pipe, err := pipeline.New(pipeline.PipelineDefaults{})
+			require.NoError(t, err)
+
+			root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+				out <- 1
+
+				return nil
+			})
+			require.NotNil(t, root)
+
+			batch := pipeline.Batch(pipe, "batch", root, pipeline.BatchPolicy{MaxSize: 1}, tc.opt)
+			require.Nil(t, batch)
+			require.ErrorIs(t, pipe.Err(), tc.err)
+			require.ErrorIs(t, pipe.Run(ctx), tc.err)
+		})
+	}
+}
+
+func TestStepOptionsUnsupportedForBatchChan(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		opt  pipeline.StepOption[<-chan int]
+		err  error
+	}{
+		{
+			name: "timeout",
+			opt:  pipeline.StepTimeout[<-chan int](time.Millisecond),
+			err:  pipeline.ErrTimeoutUnsupported,
+		},
+		{
+			name: "rate limit",
+			opt: pipeline.StepRateLimit[<-chan int](pipeline.RateLimitPolicy{
+				Every: time.Millisecond,
+				Burst: 1,
+			}),
+			err: pipeline.ErrRateLimitUnsupported,
+		},
+		{
+			name: "max in-flight",
+			opt:  pipeline.StepMaxInFlight[<-chan int](1),
+			err:  pipeline.ErrMaxInFlightUnsupported,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			pipe, err := pipeline.New(pipeline.PipelineDefaults{})
+			require.NoError(t, err)
+
+			root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+				out <- 1
+
+				return nil
+			})
+			require.NotNil(t, root)
+
+			batch := pipeline.BatchChan(pipe, "batch", root, pipeline.BatchPolicy{MaxSize: 1}, tc.opt)
+			require.Nil(t, batch)
+			require.ErrorIs(t, pipe.Err(), tc.err)
+			require.ErrorIs(t, pipe.Run(ctx), tc.err)
+		})
+	}
 }
 
 func TestMerge(t *testing.T) {

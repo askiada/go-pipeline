@@ -18,7 +18,7 @@ func newPipeline(withDrawer bool) (*pipeline.Pipeline, error) {
 	}
 
 	msr := measure.NewDefaultMeasure()
-	drw := drawer.NewSVGDrawer("examples/batching-chan/pipeline.dot")
+	drw := drawer.NewSVGDrawer("examples/rate-limit/pipeline.dot")
 
 	return pipeline.New(
 		measure.PipelineMeasure(msr),
@@ -27,7 +27,7 @@ func newPipeline(withDrawer bool) (*pipeline.Pipeline, error) {
 }
 
 func main() {
-	drawerEnabled := flag.Bool("drawer", false, "write examples/batching-chan/pipeline.dot with metrics")
+	drawerEnabled := flag.Bool("drawer", false, "write examples/rate-limit/pipeline.dot with metrics")
 	flag.Parse()
 
 	pipe, err := newPipeline(*drawerEnabled)
@@ -36,29 +36,28 @@ func main() {
 	}
 
 	root := pipeline.Root(pipe, "source", func(ctx context.Context, out chan<- int) error {
-		out <- 1
-		out <- 2
-		time.Sleep(60 * time.Millisecond)
-		out <- 3
-		out <- 4
+		for i := range 5 {
+			out <- i
+		}
 
 		return nil
 	})
-
-	batch := pipeline.BatchChan(pipe, "batch", root, pipeline.BatchPolicy{
-		MaxSize: 10,
-		MaxWait: 25 * time.Millisecond,
-	})
-	if batch == nil {
-		log.Fatal("batch not created")
+	if root == nil {
+		log.Fatal("root not created")
 	}
 
-	sink := pipeline.Sink(pipe, "print", batch, func(ctx context.Context, input <-chan int) error {
-		var items []int
-		for item := range input {
-			items = append(items, item)
-		}
-		fmt.Printf("batch: %v\n", items)
+	limited := pipeline.OneToOne(pipe, "rate-limit", root, func(ctx context.Context, input int) (int, error) {
+		return input, nil
+	},
+		pipeline.StepConcurrency[int](3),
+		pipeline.StepRateLimit[int](pipeline.RateLimitPolicy{Every: 30 * time.Millisecond, Burst: 1}),
+	)
+	if limited == nil {
+		log.Fatal("rate-limit step not created")
+	}
+
+	sink := pipeline.Sink(pipe, "sink", limited, func(ctx context.Context, input int) error {
+		fmt.Printf("value: %d\n", input)
 		return nil
 	})
 	if sink == nil {

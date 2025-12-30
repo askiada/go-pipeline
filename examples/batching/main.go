@@ -45,10 +45,10 @@ func main() {
 		return nil
 	})
 
-	batch := pipeline.Batch(pipe, "batch", root, pipeline.StepBatch[[]int](pipeline.BatchPolicy{
+	batch := pipeline.Batch(pipe, "batch", root, pipeline.BatchPolicy{
 		MaxSize: 10,
 		MaxWait: 25 * time.Millisecond,
-	}))
+	})
 	if batch == nil {
 		log.Fatal("batch not created")
 	}

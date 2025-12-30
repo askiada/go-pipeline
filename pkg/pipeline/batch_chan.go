@@ -229,10 +229,12 @@ func runBatchChan[I any](
 }
 
 // BatchChan adds a step that groups incoming items into channels before emitting them downstream.
+// The batch policy is required (MaxSize must be at least 1).
 func BatchChan[I any](
 	pipe *Pipeline,
 	name string,
 	input *model.Step[I],
+	policy BatchPolicy,
 	opts ...StepOption[<-chan I],
 ) *model.Step[<-chan I] {
 	if pipe == nil {
@@ -261,12 +263,37 @@ func BatchChan[I any](
 
 	applyStepDefaults(pipe, step)
 
+	policyCopy := policy
+	if policyCopy.MaxWait < 0 {
+		policyCopy.MaxWait = 0
+	}
+
+	step.BatchPolicy = &policyCopy
+
 	for _, opt := range opts {
 		opt(step)
 	}
 
 	if step.RetryPolicy != nil {
 		pipe.recordErr(ErrRetryUnsupported)
+
+		return nil
+	}
+
+	if step.Timeout > 0 {
+		pipe.recordErr(ErrTimeoutUnsupported)
+
+		return nil
+	}
+
+	if step.RateLimitPolicy != nil {
+		pipe.recordErr(ErrRateLimitUnsupported)
+
+		return nil
+	}
+
+	if step.MaxInFlight > 0 {
+		pipe.recordErr(ErrMaxInFlightUnsupported)
 
 		return nil
 	}

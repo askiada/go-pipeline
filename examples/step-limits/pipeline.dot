@@ -1,0 +1,27 @@
+strict digraph {
+	
+	
+		"in-flight" [ label=<in-flight <BR /> <FONT POINT-SIZE="12">16ms</FONT>>,   weight=0 ];
+	
+		"in-flight" -> "sink" [ color="#f00000", fontcolor="blue", label="20ms",  weight=0 ];
+	
+		"sink" [ label=<sink <BR /> <FONT POINT-SIZE="12">33µs, end: 99.057625ms</FONT>>,   weight=0 ];
+	
+		"sink" -> "end" [  weight=0 ];
+	
+		"start" [   weight=0 ];
+	
+		"start" -> "source" [  weight=0 ];
+	
+		"end" [ label=<end <BR /> <FONT POINT-SIZE="12">99.363791ms</FONT>>,   weight=0 ];
+	
+		"source" [   weight=0 ];
+	
+		"source" -> "rate-limit" [ color="#0000f0", fontcolor="blue", label="16ms",  weight=0 ];
+	
+		"rate-limit" [ label=<rate-limit <BR /> <FONT POINT-SIZE="12">73µs</FONT>>,   weight=0 ];
+	
+		"rate-limit" -> "in-flight" [ color="#0000f0", fontcolor="blue", label="10ms",  weight=0 ];
+	
+	}
+	

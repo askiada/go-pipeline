@@ -49,35 +49,53 @@ func sequentialSinkFn[I any](
 	input *model.Step[I],
 	step *model.Step[I],
 	sinkFn func(ctx context.Context, input I) error,
+	timeout time.Duration,
+	limiter *rateLimiter,
+	inFlight *inFlightLimiter,
 	opts ...model.PipelineOption,
 ) error {
 	for {
 		start := time.Now()
 
-		select {
-		case <-ctx.Done():
-			return errors.Wrapf(ctx.Err(), "go routine %d", goIdx)
-		case entry, ok := <-input.Output:
-			if !ok {
-				return nil
-			}
+		entry, ok, release, err := nextStepInput(ctx, goIdx, inFlight, input.Output)
+		if err != nil {
+			return err
+		}
 
-			_, endFn, err := executeWithRetry(ctx, step.RetryPolicy, func() (struct{}, error) {
-				return struct{}{}, sinkFn(ctx, entry)
-			}, func(attempt int, duration time.Duration) error {
-				return reportStepRetry(opts, input.Details, step.Details, attempt, duration)
-			})
+		if !ok {
+			return nil
+		}
+
+		err = waitRateLimit(ctx, goIdx, limiter)
+		if err != nil {
+			release()
+
+			return err
+		}
+
+		itemCtx, cancel := stepItemContext(ctx, timeout)
+		_, endFn, err := executeWithRetry(itemCtx, step.RetryPolicy, func() (struct{}, error) {
+			return struct{}{}, sinkFn(itemCtx, entry)
+		}, func(attempt int, duration time.Duration) error {
+			return reportStepRetry(opts, input.Details, step.Details, attempt, duration)
+		})
+
+		cancel()
+
+		if err != nil {
+			release()
+
+			return errors.Wrapf(err, "go routine %d", goIdx)
+		}
+
+		end := time.Since(start)
+
+		release()
+
+		for _, opt := range opts {
+			err := opt.OnSinkOutput(input.Details, step.Details, end-endFn, endFn)
 			if err != nil {
-				return errors.Wrapf(err, "go routine %d", goIdx)
-			}
-
-			end := time.Since(start)
-
-			for _, opt := range opts {
-				err := opt.OnSinkOutput(input.Details, step.Details, end-endFn, endFn)
-				if err != nil {
-					return errors.Wrap(err, "unable to run before step function")
-				}
+				return errors.Wrap(err, "unable to run before step function")
 			}
 		}
 	}
@@ -88,6 +106,9 @@ func concurrentSinkFn[I any](
 	input *model.Step[I],
 	step *model.Step[I],
 	sinkFn func(ctx context.Context, input I) error,
+	timeout time.Duration,
+	limiter *rateLimiter,
+	inFlight *inFlightLimiter,
 	opts ...model.PipelineOption,
 ) error {
 	errGrp, dCtx := errgroup.WithContext(ctx)
@@ -95,7 +116,7 @@ func concurrentSinkFn[I any](
 
 	for goIdx := range step.Details.Concurrent {
 		errGrp.Go(func() error {
-			return sequentialSinkFn(dCtx, goIdx, input, step, sinkFn, opts...)
+			return sequentialSinkFn(dCtx, goIdx, input, step, sinkFn, timeout, limiter, inFlight, opts...)
 		})
 	}
 
@@ -118,11 +139,15 @@ func runSink[I any](
 		step.Details.Concurrent = 1
 	}
 
+	limiter := newRateLimiter(step.RateLimitPolicy)
+	inFlight := newInFlightLimiter(step.MaxInFlight)
+	timeout := step.Timeout
+
 	if step.Details.Concurrent == 1 {
-		return sequentialSinkFn(ctx, 1, input, step, sinkFn, opts...)
+		return sequentialSinkFn(ctx, 1, input, step, sinkFn, timeout, limiter, inFlight, opts...)
 	}
 
-	return concurrentSinkFn(ctx, input, step, sinkFn, opts...)
+	return concurrentSinkFn(ctx, input, step, sinkFn, timeout, limiter, inFlight, opts...)
 }
 
 // Sink adds a sink step to the pipeline. It will consume the input channel and run the sink function.
@@ -201,6 +226,24 @@ func SinkFromChan[I any](
 
 	if step.RetryPolicy != nil {
 		pipe.recordErr(ErrRetryUnsupported)
+
+		return nil
+	}
+
+	if step.Timeout > 0 {
+		pipe.recordErr(ErrTimeoutUnsupported)
+
+		return nil
+	}
+
+	if step.RateLimitPolicy != nil {
+		pipe.recordErr(ErrRateLimitUnsupported)
+
+		return nil
+	}
+
+	if step.MaxInFlight > 0 {
+		pipe.recordErr(ErrMaxInFlightUnsupported)
 
 		return nil
 	}
@@ -345,6 +388,18 @@ func runSinkFromChan[I any](
 ) error {
 	if step.RetryPolicy != nil {
 		return ErrRetryUnsupported
+	}
+
+	if step.Timeout > 0 {
+		return ErrTimeoutUnsupported
+	}
+
+	if step.RateLimitPolicy != nil {
+		return ErrRateLimitUnsupported
+	}
+
+	if step.MaxInFlight > 0 {
+		return ErrMaxInFlightUnsupported
 	}
 
 	if step.Details.Concurrent == 0 {

@@ -1,0 +1,23 @@
+strict digraph {
+	
+	
+		"source" [   weight=0 ];
+	
+		"source" -> "retry" [ color="#0000f0", fontcolor="blue", label="55ms",  weight=0 ];
+	
+		"retry" [ label=<retry <BR /> <FONT POINT-SIZE="12">21ms, retry avg: 41ms, retries: 2</FONT>>,   weight=0 ];
+	
+		"retry" -> "sink" [ color="#f00000", fontcolor="blue", label="76ms",  weight=0 ];
+	
+		"sink" [ label=<sink <BR /> <FONT POINT-SIZE="12">75µs, end: 153.01475ms</FONT>>,   weight=0 ];
+	
+		"sink" -> "end" [  weight=0 ];
+	
+		"start" [   weight=0 ];
+	
+		"start" -> "source" [  weight=0 ];
+	
+		"end" [ label=<end <BR /> <FONT POINT-SIZE="12">153.193125ms</FONT>>,   weight=0 ];
+	
+	}
+	

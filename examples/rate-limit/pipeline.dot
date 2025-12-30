@@ -1,0 +1,23 @@
+strict digraph {
+	
+	
+		"start" [   weight=0 ];
+	
+		"start" -> "source" [  weight=0 ];
+	
+		"end" [ label=<end <BR /> <FONT POINT-SIZE="12">124.663125ms</FONT>>,   weight=0 ];
+	
+		"source" [   weight=0 ];
+	
+		"source" -> "rate-limit" [ color="#0000f0", fontcolor="blue", label="19ms",  weight=0 ];
+	
+		"rate-limit" [ label=<rate-limit <BR /> <FONT POINT-SIZE="12">9µs</FONT>>,   weight=0 ];
+	
+		"rate-limit" -> "sink" [ color="#f00000", fontcolor="blue", label="25ms",  weight=0 ];
+	
+		"sink" [ label=<sink <BR /> <FONT POINT-SIZE="12">28µs, end: 124.44625ms</FONT>>,   weight=0 ];
+	
+		"sink" -> "end" [  weight=0 ];
+	
+	}
+	

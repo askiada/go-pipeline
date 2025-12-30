@@ -1,5 +1,7 @@
 package model
 
+import "time"
+
 type stepType string
 
 const (
@@ -58,6 +60,12 @@ type Step[O any] struct {
 	KeepOpen bool
 	// RetryPolicy configures per-item retries for step functions.
 	RetryPolicy *RetryPolicy
+	// RateLimitPolicy configures per-item rate limiting for step functions.
+	RateLimitPolicy *RateLimitPolicy
+	// Timeout limits how long a single step invocation can run.
+	Timeout time.Duration
+	// MaxInFlight caps the number of in-flight items per step.
+	MaxInFlight int
 	// BatchPolicy configures batching/windowing for batch steps.
 	BatchPolicy *BatchPolicy
 	Details     *StepInfo

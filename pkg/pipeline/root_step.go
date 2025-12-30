@@ -59,6 +59,24 @@ func Root[O any](
 		return nil
 	}
 
+	if step.Timeout > 0 {
+		pipe.recordErr(ErrTimeoutUnsupported)
+
+		return nil
+	}
+
+	if step.RateLimitPolicy != nil {
+		pipe.recordErr(ErrRateLimitUnsupported)
+
+		return nil
+	}
+
+	if step.MaxInFlight > 0 {
+		pipe.recordErr(ErrMaxInFlightUnsupported)
+
+		return nil
+	}
+
 	err := prepareRootStep(pipe, step)
 	if err != nil {
 		pipe.recordErr(err)

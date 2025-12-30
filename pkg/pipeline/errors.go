@@ -21,6 +21,12 @@ var (
 	ErrRetryUnsupported = errors.New("retry is not supported for this step type")
 	// ErrBatchPolicyMustBeSet is returned when a batch step does not define a batch policy.
 	ErrBatchPolicyMustBeSet = errors.New("batch policy must be set")
+	// ErrTimeoutUnsupported is returned when timeout is configured on an unsupported step.
+	ErrTimeoutUnsupported = errors.New("timeout is not supported for this step type")
+	// ErrRateLimitUnsupported is returned when rate limiting is configured on an unsupported step.
+	ErrRateLimitUnsupported = errors.New("rate limit is not supported for this step type")
+	// ErrMaxInFlightUnsupported is returned when max in-flight is configured on an unsupported step.
+	ErrMaxInFlightUnsupported = errors.New("max in-flight is not supported for this step type")
 )
 
 type errorChans struct {

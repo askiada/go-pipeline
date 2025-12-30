@@ -179,15 +179,44 @@ step := pipeline.OneToOne(pipe, "enrich", root, enrichFn,
 )
 ```
 
-### Batching/windowing
-Use `pipeline.Batch` with `pipeline.StepBatch[...]` to group items into slices before processing, or `pipeline.BatchChan` to stream each batch over a channel for lower memory usage. `MaxSize` is required; `MaxWait` flushes partial batches on a timer. `StepBufferSize` applies to the number of batches buffered, not individual items.
+### Per-step timeout, rate limit, and max in-flight
+Use `pipeline.StepTimeout[...]`, `pipeline.StepRateLimit[...]`, and `pipeline.StepMaxInFlight[...]` on `OneToOne`, `OneToMany`, and `Sink` steps to bound per-item execution. These options do not apply to `Root`, `FromChan`, `SinkFromChan`, `Batch`, or `BatchChan`.
+
+- `StepTimeout`: per-item deadline for the step function; applies across retries. Rate limiting happens before the timeout window starts.
+- `StepRateLimit`: shared rate limit across all workers; each item waits for a token before executing the step function.
+- `StepMaxInFlight`: caps the number of items actively processed by the step function, even if `StepConcurrency` is higher; output handoff can still block independently. When unset, no in-flight semaphore is acquired.
+
+`StepBufferSize` still controls output channel buffering; rate limiting and max in-flight apply before items are enqueued downstream.
+For deeper interaction notes (including when to set `StepConcurrency` above `StepMaxInFlight`), see `step-options.md`.
+
 ```go
-batch := pipeline.Batch(pipe, "batch", root,
-    pipeline.StepBatch[[]int](pipeline.BatchPolicy{
-        MaxSize: 10,
-        MaxWait: 50 * time.Millisecond,
-    }),
+step := pipeline.OneToOne(pipe, "limit", root, workFn,
+    pipeline.StepTimeout[int](150*time.Millisecond),
+    pipeline.StepRateLimit[int](pipeline.RateLimitPolicy{Every: 20 * time.Millisecond, Burst: 1}),
+    pipeline.StepMaxInFlight[int](2),
 )
+```
+
+Real-world use cases for rate limiting and max in-flight:
+- Protecting external APIs: use `StepRateLimit` to stay under vendor QPS limits, and `StepTimeout` to avoid hanging calls when the service is unhealthy.
+- Smoothing bursty inputs: use `StepRateLimit` to spread traffic from an upstream queue or file ingest; pair it with `StepBufferSize` if you need to absorb short spikes.
+- Bounding memory-heavy work: use `StepMaxInFlight` to cap concurrent processing when each item allocates large buffers or holds large payloads in memory.
+- Avoiding per-item fanout overload: use `StepMaxInFlight` on a `OneToMany` step to avoid spawning too many concurrent expansions at once.
+- Limiting contention on shared resources: use `StepMaxInFlight` to keep the number of active DB or cache operations low, even if `StepConcurrency` is higher for scheduling flexibility.
+- Cooperative fairness across pipelines: use `StepRateLimit` to reserve a steady slice of throughput for each pipeline rather than letting the fastest one monopolize a downstream service.
+
+Interaction notes:
+- `StepRateLimit` is shared across workers, so the overall step throughput is bounded even with high `StepConcurrency`.
+- `StepMaxInFlight` limits only the step function execution; output sends happen after the slot is released. If downstream backpressure matters, tune `StepBufferSize` and/or reduce `StepConcurrency`.
+- `StepTimeout` starts after the rate-limit wait and applies across retries; the total wall-clock time per item is rate-limit wait + timeout + any retry backoff.
+
+### Batching/windowing
+Use `pipeline.Batch` to group items into slices before processing, or `pipeline.BatchChan` to stream each batch over a channel for lower memory usage. `MaxSize` is required; `MaxWait` flushes partial batches on a timer. `StepBufferSize` applies to the number of batches buffered, not individual items.
+```go
+batch := pipeline.Batch(pipe, "batch", root, pipeline.BatchPolicy{
+    MaxSize: 10,
+    MaxWait: 50 * time.Millisecond,
+})
 
 pipeline.Sink(pipe, "sink", batch, func(ctx context.Context, input []int) error {
     fmt.Println(input)
@@ -196,12 +225,10 @@ pipeline.Sink(pipe, "sink", batch, func(ctx context.Context, input []int) error 
 ```
 
 ```go
-batch := pipeline.BatchChan(pipe, "batch", root,
-    pipeline.StepBatch[<-chan int](pipeline.BatchPolicy{
-        MaxSize: 10,
-        MaxWait: 50 * time.Millisecond,
-    }),
-)
+batch := pipeline.BatchChan(pipe, "batch", root, pipeline.BatchPolicy{
+    MaxSize: 10,
+    MaxWait: 50 * time.Millisecond,
+})
 
 pipeline.Sink(pipe, "sink", batch, func(ctx context.Context, input <-chan int) error {
     for item := range input {
@@ -231,10 +258,14 @@ Each example directory includes a README with expected output. Use `make example
 - Sink: `go run ./examples/sink`
 - SinkFromChan: `go run ./examples/sink-from-chan`
 - Retry (sink): `go run ./examples/retry`
+- Timeout + retry: `go run ./examples/timeout-retry`
 - Batching/windowing: `go run ./examples/batching`
 - Batching/windowing (chan): `go run ./examples/batching-chan`
 - Pipeline defaults: `go run ./examples/pipeline-defaults`
 - Step options: `go run ./examples/step-options`
+- Step limits: `go run ./examples/step-limits`
+- Rate limit: `go run ./examples/rate-limit`
+- Max in-flight: `go run ./examples/max-inflight`
 - Metrics + drawer: `go run ./examples/metrics-drawer`
 
 ### Advanced examples
@@ -282,6 +313,8 @@ make lint
 
 ## Documentation
 - `docs/README.md` explains the docs layout.
+- `step-options.md` is a detailed guide to step options, interactions, and use cases.
+- `examples/timing-diagrams.md` provides timing/behavior diagrams for every example.
 - `docs/diagnoses.md` tracks repo health checks over time.
 - `docs/qa/test-plan.md` lists QA scenarios and implemented tests.
 

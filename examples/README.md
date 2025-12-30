@@ -1,6 +1,7 @@
 # Examples
 
 This folder contains runnable example programs. Each example directory has a `README.md` with its purpose and expected output.
+See `examples/timing-diagrams.md` for timing/behavior diagrams covering every example.
 
 ## Run one example with drawer output
 From repo root:
