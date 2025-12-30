@@ -87,61 +87,62 @@ Record results below with environment details so comparisons stay meaningful.
 
 ## Overhead model
 The pipeline cost is well-approximated as a fixed per-item overhead plus a per-step overhead.
+Overhead columns use loop-serial as the baseline; channels are shown for comparison.
 
 ### Work sweep (conc=1, items=4096)
-| Work iters | Loop per item (ns) | Pipeline per item (ns) | Overhead per item (ns) | Pipeline/Loop |
-| ---: | ---: | ---: | ---: | ---: |
-| 0 | 3.5 | 1,797.5 | 1,794.1 | 515.7x |
-| 4 | 5.7 | 1,747.9 | 1,742.2 | 307.7x |
-| 16 | 18.9 | 1,792.9 | 1,774.1 | 95.1x |
-| 64 | 117.0 | 1,901.8 | 1,784.8 | 16.3x |
-| 256 | 574.8 | 2,469.5 | 1,894.7 | 4.3x |
-| 1024 | 2,402.4 | 4,271.3 | 1,868.9 | 1.8x |
-| 4096 | 9,749.3 | 12,082.8 | 2,333.6 | 1.2x |
+| Work iters | Loop per item (ns) | Channels per item (ns) | Pipeline per item (ns) | Overhead per item (ns) | Pipeline/Loop | Pipeline/Channels |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | 3.9 | 469.8 | 1,806.3 | 1,802.5 | 468.5x | 3.8x |
+| 4 | 6.3 | 486.1 | 1,761.4 | 1,755.0 | 278.5x | 3.6x |
+| 16 | 19.8 | 497.2 | 1,842.3 | 1,822.4 | 92.9x | 3.7x |
+| 64 | 119.5 | 652.7 | 1,934.2 | 1,814.8 | 16.2x | 3.0x |
+| 256 | 594.0 | 1,250.1 | 2,579.5 | 1,985.5 | 4.3x | 2.1x |
+| 1024 | 2,445.8 | 3,254.0 | 4,304.8 | 1,859.0 | 1.8x | 1.3x |
+| 4096 | 10,025.8 | 11,235.9 | 12,487.7 | 2,462.0 | 1.2x | 1.1x |
 
 Overhead per item stays roughly flat while work per item grows, so the overhead ratio shrinks as work increases.
 
 ### Step-count sweep (conc=1, items=4096, work iters=0)
-| Steps | Loop per item (ns) | Pipeline per item (ns) | Overhead per item (ns) | Overhead per step (ns) |
-| ---: | ---: | ---: | ---: | ---: |
-| 1 | 4.6 | 1,751.4 | 1,746.8 | 1,746.8 |
-| 2 | 8.9 | 2,868.1 | 2,859.2 | 1,429.6 |
-| 4 | 16.8 | 4,952.0 | 4,935.2 | 1,233.8 |
-| 8 | 31.6 | 9,338.2 | 9,306.6 | 1,163.3 |
-| 16 | 71.0 | 18,968.8 | 18,897.8 | 1,181.1 |
-| 32 | 131.5 | 38,756.3 | 38,624.7 | 1,207.0 |
-| 64 | 254.2 | 64,257.7 | 64,003.5 | 1,000.1 |
+| Steps | Loop per item (ns) | Channels per item (ns) | Pipeline per item (ns) | Overhead per item (ns) | Overhead per step (ns) | Pipeline/Channels |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 6.5 | 468.2 | 1,755.6 | 1,749.1 | 1,749.1 | 3.7x |
+| 2 | 13.1 | 783.8 | 3,050.5 | 3,037.4 | 1,518.7 | 3.9x |
+| 4 | 26.2 | 1,424.9 | 5,082.5 | 5,056.2 | 1,264.1 | 3.6x |
+| 8 | 49.0 | 2,283.5 | 9,481.3 | 9,432.3 | 1,179.0 | 4.2x |
+| 16 | 102.3 | 3,387.7 | 19,452.6 | 19,350.4 | 1,209.4 | 5.7x |
+| 32 | 195.1 | 5,683.5 | 38,937.7 | 38,742.6 | 1,210.7 | 6.9x |
+| 64 | 386.7 | 8,012.2 | 121,184.3 | 120,797.6 | 1,887.5 | 15.1x |
 
 Per-step overhead is roughly linear in the number of steps in this run.
 
 Linear fit on overhead per item vs steps (conc=1):
-- Overhead per item approx 1,723.2 ns + 1,010.3 ns * steps
+- Overhead per item approx -4958.6 ns + 1,833.7 ns * steps
 
 ### When is it worth it?
 Aim for work per item that is at least 10x the overhead per item (keeps overhead under ~10%).
 
 | Steps | Overhead per item (ns) | Work per item for <10% overhead (ns) |
 | ---: | ---: | ---: |
-| 1 | 1,746.8 | 17,468.3 |
-| 2 | 2,859.2 | 28,591.9 |
-| 4 | 4,935.2 | 49,352.4 |
-| 8 | 9,306.6 | 93,066.5 |
-| 16 | 18,897.8 | 188,977.6 |
-| 32 | 38,624.7 | 386,247.4 |
-| 64 | 64,003.5 | 640,035.1 |
+| 1 | 1,749.1 | 17,491.5 |
+| 2 | 3,037.4 | 30,373.6 |
+| 4 | 5,056.2 | 50,562.3 |
+| 8 | 9,432.3 | 94,323.2 |
+| 16 | 19,350.4 | 193,503.6 |
+| 32 | 38,742.6 | 387,426.5 |
+| 64 | 120,797.6 | 1,207,975.6 |
 
 These thresholds are hardware- and configuration-specific (concurrency, buffers, retries, metrics, etc.). Re-run the benchmarks on your target environment to calibrate.
 
 ### Total overhead estimates (conc=1, steps)
 | Steps | Overhead per item (ns) | Total @1M items (s) | Total @1B items (s) |
 | ---: | ---: | ---: | ---: |
-| 1 | 1,746.8 | 1.7 | 1,746.8 |
-| 2 | 2,859.2 | 2.9 | 2,859.2 |
-| 4 | 4,935.2 | 4.9 | 4,935.2 |
-| 8 | 9,306.6 | 9.3 | 9,306.6 |
-| 16 | 18,897.8 | 18.9 | 18,897.8 |
-| 32 | 38,624.7 | 38.6 | 38,624.7 |
-| 64 | 64,003.5 | 64.0 | 64,003.5 |
+| 1 | 1,749.1 | 1.7 | 1,749.1 |
+| 2 | 3,037.4 | 3.0 | 3,037.4 |
+| 4 | 5,056.2 | 5.1 | 5,056.2 |
+| 8 | 9,432.3 | 9.4 | 9,432.3 |
+| 16 | 19,350.4 | 19.4 | 19,350.4 |
+| 32 | 38,742.6 | 38.7 | 38,742.6 |
+| 64 | 120,797.6 | 120.8 | 120,797.6 |
 
 ### Composite step-count sweeps (fan-out/batch normalization)
 These sweeps chain composite stages that normalize back to one output per input before the next stage:
@@ -149,81 +150,82 @@ These sweeps chain composite stages that normalize back to one output per input 
 - Batch: `Batch(MaxSize=32)` then `OneToMany` unbatch (return the batch as outputs).
 - BatchChan: `BatchChan(MaxSize=32)` then `FromChan` flatten.
 All composite sweeps run with conc=1 so the grouping is deterministic.
+Tables include loop/channels/pipeline baselines; overhead is pipeline minus loop.
 
 #### OneToMany (expand -> reduce) (conc=1, items=4096)
-| Stages | Loop per item (ns) | Pipeline per item (ns) | Overhead per item (ns) | Overhead per stage (ns) |
-| ---: | ---: | ---: | ---: | ---: |
-| 1 | 4.1 | 5,076.1 | 5,072.0 | 5,072.0 |
-| 2 | 8.0 | 8,476.8 | 8,468.8 | 4,234.4 |
-| 4 | 15.0 | 18,864.0 | 18,849.0 | 4,712.2 |
-| 8 | 30.9 | 37,938.0 | 37,907.1 | 4,738.4 |
-| 16 | 58.7 | 65,874.0 | 65,815.3 | 4,113.5 |
-| 32 | 120.1 | 110,643.5 | 110,523.4 | 3,453.9 |
-| 64 | 248.6 | 227,934.3 | 227,685.8 | 3,557.6 |
+| Stages | Loop per item (ns) | Channels per item (ns) | Pipeline per item (ns) | Overhead per item (ns) | Overhead per stage (ns) | Pipeline/Channels |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 4.2 | 537.2 | 4,641.3 | 4,637.1 | 4,637.1 | 8.6x |
+| 2 | 9.7 | 844.5 | 8,465.0 | 8,455.3 | 4,227.6 | 10.0x |
+| 4 | 16.1 | 1,427.8 | 18,573.4 | 18,557.3 | 4,639.3 | 13.0x |
+| 8 | 29.8 | 2,247.1 | 40,460.0 | 40,430.2 | 5,053.8 | 18.0x |
+| 16 | 62.1 | 3,565.0 | 65,468.1 | 65,406.0 | 4,087.9 | 18.4x |
+| 32 | 114.2 | 6,434.5 | 111,656.6 | 111,542.4 | 3,485.7 | 17.4x |
+| 64 | 244.4 | 24,701.1 | 213,699.8 | 213,455.4 | 3,335.2 | 8.7x |
 
 Linear fit on overhead per item vs stages (conc=1):
-- Overhead per item approx 4,790.1 ns + 3,470.8 ns * stages
+- Overhead per item approx 6,842.4 ns + 3,264.5 ns * stages
 
 ### Total overhead estimates (conc=1, stages)
 | Stages | Overhead per item (ns) | Total @1M items (s) | Total @1B items (s) |
 | ---: | ---: | ---: | ---: |
-| 1 | 5,072.0 | 5.1 | 5,072.0 |
-| 2 | 8,468.8 | 8.5 | 8,468.8 |
-| 4 | 18,849.0 | 18.8 | 18,849.0 |
-| 8 | 37,907.1 | 37.9 | 37,907.1 |
-| 16 | 65,815.3 | 65.8 | 65,815.3 |
-| 32 | 110,523.4 | 110.5 | 110,523.4 |
-| 64 | 227,685.8 | 227.7 | 227,685.8 |
+| 1 | 4,637.1 | 4.6 | 4,637.1 |
+| 2 | 8,455.3 | 8.5 | 8,455.3 |
+| 4 | 18,557.3 | 18.6 | 18,557.3 |
+| 8 | 40,430.2 | 40.4 | 40,430.2 |
+| 16 | 65,406.0 | 65.4 | 65,406.0 |
+| 32 | 111,542.4 | 111.5 | 111,542.4 |
+| 64 | 213,455.4 | 213.5 | 213,455.4 |
 
 #### Batch (batch -> unbatch) (conc=1, items=4096)
-| Stages | Loop per item (ns) | Pipeline per item (ns) | Overhead per item (ns) | Overhead per stage (ns) |
-| ---: | ---: | ---: | ---: | ---: |
-| 1 | 3.1 | 1,495.5 | 1,492.4 | 1,492.4 |
-| 2 | 5.2 | 1,834.5 | 1,829.3 | 914.6 |
-| 4 | 31.5 | 3,259.9 | 3,228.4 | 807.1 |
-| 8 | 58.8 | 6,146.4 | 6,087.6 | 761.0 |
-| 16 | 38.8 | 9,990.4 | 9,951.6 | 622.0 |
-| 32 | 78.2 | 18,524.6 | 18,446.4 | 576.5 |
-| 64 | 155.9 | 36,215.9 | 36,059.9 | 563.4 |
+| Stages | Loop per item (ns) | Channels per item (ns) | Pipeline per item (ns) | Overhead per item (ns) | Overhead per stage (ns) | Pipeline/Channels |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 2.8 | 455.6 | 1,318.1 | 1,315.3 | 1,315.3 | 2.9x |
+| 2 | 5.4 | 579.9 | 1,977.0 | 1,971.6 | 985.8 | 3.4x |
+| 4 | 10.0 | 687.9 | 3,236.6 | 3,226.6 | 806.6 | 4.7x |
+| 8 | 18.7 | 889.7 | 5,977.5 | 5,958.8 | 744.9 | 6.7x |
+| 16 | 38.1 | 1,445.0 | 10,246.8 | 10,208.8 | 638.0 | 7.1x |
+| 32 | 80.3 | 2,267.7 | 21,022.5 | 20,942.2 | 654.4 | 9.3x |
+| 64 | 624.6 | 4,070.2 | 41,001.3 | 40,376.6 | 630.9 | 10.1x |
 
 Linear fit on overhead per item vs stages (conc=1):
-- Overhead per item approx 1,097.7 ns + 546.5 ns * stages
+- Overhead per item approx 738.9 ns + 620.7 ns * stages
 
 ### Total overhead estimates (conc=1, stages)
 | Stages | Overhead per item (ns) | Total @1M items (s) | Total @1B items (s) |
 | ---: | ---: | ---: | ---: |
-| 1 | 1,492.4 | 1.5 | 1,492.4 |
-| 2 | 1,829.3 | 1.8 | 1,829.3 |
-| 4 | 3,228.4 | 3.2 | 3,228.4 |
-| 8 | 6,087.6 | 6.1 | 6,087.6 |
-| 16 | 9,951.6 | 10.0 | 9,951.6 |
-| 32 | 18,446.4 | 18.4 | 18,446.4 |
-| 64 | 36,059.9 | 36.1 | 36,059.9 |
+| 1 | 1,315.3 | 1.3 | 1,315.3 |
+| 2 | 1,971.6 | 2.0 | 1,971.6 |
+| 4 | 3,226.6 | 3.2 | 3,226.6 |
+| 8 | 5,958.8 | 6.0 | 5,958.8 |
+| 16 | 10,208.8 | 10.2 | 10,208.8 |
+| 32 | 20,942.2 | 20.9 | 20,942.2 |
+| 64 | 40,376.6 | 40.4 | 40,376.6 |
 
 #### BatchChan (batch -> flatten) (conc=1, items=4096)
-| Stages | Loop per item (ns) | Pipeline per item (ns) | Overhead per item (ns) | Overhead per stage (ns) |
-| ---: | ---: | ---: | ---: | ---: |
-| 1 | 2.8 | 1,819.4 | 1,816.6 | 1,816.6 |
-| 2 | 5.3 | 2,894.9 | 2,889.6 | 1,444.8 |
-| 4 | 10.1 | 5,110.2 | 5,100.1 | 1,275.0 |
-| 8 | 19.4 | 9,380.1 | 9,360.7 | 1,170.1 |
-| 16 | 42.0 | 21,185.2 | 21,143.3 | 1,321.5 |
-| 32 | 78.2 | 32,877.6 | 32,799.3 | 1,025.0 |
-| 64 | 152.5 | 57,656.9 | 57,504.4 | 898.5 |
+| Stages | Loop per item (ns) | Channels per item (ns) | Pipeline per item (ns) | Overhead per item (ns) | Overhead per stage (ns) | Pipeline/Channels |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 2.7 | 851.9 | 1,829.8 | 1,827.1 | 1,827.1 | 2.1x |
+| 2 | 5.1 | 1,263.4 | 2,816.6 | 2,811.5 | 1,405.7 | 2.2x |
+| 4 | 9.4 | 2,250.8 | 4,852.6 | 4,843.2 | 1,210.8 | 2.2x |
+| 8 | 18.5 | 3,156.4 | 9,434.2 | 9,415.7 | 1,177.0 | 3.0x |
+| 16 | 36.6 | 5,199.1 | 21,792.9 | 21,756.3 | 1,359.8 | 4.2x |
+| 32 | 72.8 | 7,612.1 | 32,709.3 | 32,636.5 | 1,019.9 | 4.3x |
+| 64 | 144.9 | 12,919.6 | 55,187.5 | 55,042.6 | 860.0 | 4.3x |
 
 Linear fit on overhead per item vs stages (conc=1):
-- Overhead per item approx 2,559.6 ns + 887.4 ns * stages
+- Overhead per item approx 2,879.1 ns + 851.8 ns * stages
 
 ### Total overhead estimates (conc=1, stages)
 | Stages | Overhead per item (ns) | Total @1M items (s) | Total @1B items (s) |
 | ---: | ---: | ---: | ---: |
-| 1 | 1,816.6 | 1.8 | 1,816.6 |
-| 2 | 2,889.6 | 2.9 | 2,889.6 |
-| 4 | 5,100.1 | 5.1 | 5,100.1 |
-| 8 | 9,360.7 | 9.4 | 9,360.7 |
-| 16 | 21,143.3 | 21.1 | 21,143.3 |
-| 32 | 32,799.3 | 32.8 | 32,799.3 |
-| 64 | 57,504.4 | 57.5 | 57,504.4 |
+| 1 | 1,827.1 | 1.8 | 1,827.1 |
+| 2 | 2,811.5 | 2.8 | 2,811.5 |
+| 4 | 4,843.2 | 4.8 | 4,843.2 |
+| 8 | 9,415.7 | 9.4 | 9,415.7 |
+| 16 | 21,756.3 | 21.8 | 21,756.3 |
+| 32 | 32,636.5 | 32.6 | 32,636.5 |
+| 64 | 55,042.6 | 55.0 | 55,042.6 |
 
 ## Decisions
 - Keep serial baselines in the main summary tables alongside worker baselines.

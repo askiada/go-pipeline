@@ -11,7 +11,6 @@ import (
 )
 
 const (
-	benchItems         = 1024
 	benchBatchSize     = 32
 	benchCompositeFan  = 2
 	benchWorkIters     = 64
@@ -221,6 +220,15 @@ func BenchmarkOverheadWorkSweep(b *testing.B) {
 			}
 		})
 
+		b.Run(caseName+"/channels", func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			for range b.N {
+				benchSink = runChannelsOneToOne(inputs, benchStepWorkers, workFn, false)
+			}
+		})
+
 		b.Run(caseName+"/pipeline", func(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
@@ -252,6 +260,15 @@ func BenchmarkOverheadStepScaling(b *testing.B) {
 				benchSink = runLoopMultiStage(inputs, steps, func(v int) int64 {
 					return int64(workFn(v))
 				})
+			}
+		})
+
+		b.Run(caseName+"/channels", func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			for range b.N {
+				benchSink = runChannelsMultiStage(inputs, steps, benchStepWorkers, workFn)
 			}
 		})
 
@@ -299,6 +316,15 @@ func BenchmarkOverheadCompositeOneToMany(b *testing.B) {
 			}
 		})
 
+		b.Run(caseName+"/channels", func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			for range b.N {
+				benchSink = runChannelsCompositeOneToMany(inputs, stages, benchStepWorkers, oneToManyFn)
+			}
+		})
+
 		b.Run(caseName+"/pipeline", func(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
@@ -331,6 +357,15 @@ func BenchmarkOverheadCompositeBatch(b *testing.B) {
 			}
 		})
 
+		b.Run(caseName+"/channels", func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			for range b.N {
+				benchSink = runChannelsCompositeBatch(inputs, stages, benchStepWorkers, benchBatchSize)
+			}
+		})
+
 		b.Run(caseName+"/pipeline", func(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
@@ -360,6 +395,15 @@ func BenchmarkOverheadCompositeBatchChan(b *testing.B) {
 
 			for range b.N {
 				benchSink = runLoopCompositeStages(inputs, stages, stage)
+			}
+		})
+
+		b.Run(caseName+"/channels", func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			for range b.N {
+				benchSink = runChannelsCompositeBatchChan(inputs, stages, benchStepWorkers, benchBatchSize)
 			}
 		})
 
@@ -1001,6 +1045,50 @@ func runChannelsTwoStage(inputs []int, workers int, stage1 func(int) int, stage2
 	return sum
 }
 
+func runChannelsMultiStage(inputs []int, steps int, workers int, fn func(int) int) int64 {
+	workers = normalizeWorkers(workers)
+	first := make(chan int)
+	in := first
+
+	for range steps {
+		out := make(chan int)
+		var wg sync.WaitGroup
+		wg.Add(workers)
+
+		for range workers {
+			go func(in <-chan int, out chan<- int) {
+				defer wg.Done()
+
+				for v := range in {
+					out <- fn(v)
+				}
+			}(in, out)
+		}
+
+		go func(out chan int) {
+			wg.Wait()
+			close(out)
+		}(out)
+
+		in = out
+	}
+
+	go func() {
+		for _, v := range inputs {
+			first <- v
+		}
+
+		close(first)
+	}()
+
+	var sum int64
+	for v := range in {
+		sum += int64(v)
+	}
+
+	return sum
+}
+
 func runChannelsSplitMerge(inputs []int, workers int, leftFn func(int) int, rightFn func(int) int) int64 {
 	workers = normalizeWorkers(workers)
 	in := make(chan int)
@@ -1193,6 +1281,203 @@ func runChannelsSplitBy(inputs []int, workers int, leftFn func(int) int, rightFn
 	}
 
 	return sum
+}
+
+func runChannelsCompositeOneToMany(inputs []int, stages int, workers int, fn func(int) []int) int64 {
+	workers = normalizeWorkers(workers)
+	first := make(chan int)
+	in := first
+
+	for range stages {
+		out := make(chan int)
+		var wg sync.WaitGroup
+		wg.Add(workers)
+
+		for range workers {
+			go func(in <-chan int, out chan<- int) {
+				defer wg.Done()
+
+				for v := range in {
+					out <- reduceOutputs(fn(v))
+				}
+			}(in, out)
+		}
+
+		go func(out chan int) {
+			wg.Wait()
+			close(out)
+		}(out)
+
+		in = out
+	}
+
+	go func() {
+		for _, v := range inputs {
+			first <- v
+		}
+
+		close(first)
+	}()
+
+	var sum int64
+	for v := range in {
+		sum += int64(v)
+	}
+
+	return sum
+}
+
+func runChannelsCompositeBatch(inputs []int, stages int, workers int, batchSize int) int64 {
+	workers = normalizeWorkers(workers)
+	first := make(chan int)
+	in := first
+
+	for range stages {
+		out := make(chan int)
+		var wg sync.WaitGroup
+		wg.Add(workers)
+
+		for range workers {
+			go func(in <-chan int, out chan<- int) {
+				defer wg.Done()
+
+				batch := make([]int, 0, batchSize)
+				flush := func() {
+					for _, v := range batch {
+						out <- v
+					}
+
+					batch = batch[:0]
+				}
+
+				for v := range in {
+					batch = append(batch, v)
+					if len(batch) >= batchSize {
+						flush()
+					}
+				}
+
+				if len(batch) > 0 {
+					flush()
+				}
+			}(in, out)
+		}
+
+		go func(out chan int) {
+			wg.Wait()
+			close(out)
+		}(out)
+
+		in = out
+	}
+
+	go func() {
+		for _, v := range inputs {
+			first <- v
+		}
+
+		close(first)
+	}()
+
+	var sum int64
+	for v := range in {
+		sum += int64(v)
+	}
+
+	return sum
+}
+
+func runChannelsCompositeBatchChan(inputs []int, stages int, workers int, batchSize int) int64 {
+	workers = normalizeWorkers(workers)
+	first := make(chan int)
+	var in <-chan int = first
+
+	for range stages {
+		in = runChannelsCompositeBatchChanStage(in, workers, batchSize)
+	}
+
+	go func() {
+		for _, v := range inputs {
+			first <- v
+		}
+
+		close(first)
+	}()
+
+	var sum int64
+	for v := range in {
+		sum += int64(v)
+	}
+
+	return sum
+}
+
+func runChannelsCompositeBatchChanStage(in <-chan int, workers int, batchSize int) <-chan int {
+	out := make(chan int)
+	batches := make(chan chan int)
+
+	var wg sync.WaitGroup
+	wg.Add(workers)
+
+	for range workers {
+		go runChannelsCompositeBatchChanWorker(in, batches, batchSize, &wg)
+	}
+
+	go func() {
+		wg.Wait()
+		close(batches)
+	}()
+
+	go func(out chan<- int, batches <-chan chan int) {
+		for batch := range batches {
+			for v := range batch {
+				out <- v
+			}
+		}
+
+		close(out)
+	}(out, batches)
+
+	return out
+}
+
+func runChannelsCompositeBatchChanWorker(
+	in <-chan int,
+	batches chan<- chan int,
+	batchSize int,
+	wg *sync.WaitGroup,
+) {
+	defer wg.Done()
+
+	var batchCh chan int
+	batchCount := 0
+
+	flush := func() {
+		if batchCh == nil {
+			return
+		}
+
+		close(batchCh)
+		batchCh = nil
+		batchCount = 0
+	}
+
+	for v := range in {
+		if batchCh == nil {
+			batchCh = make(chan int)
+			batches <- batchCh
+		}
+
+		batchCh <- v
+
+		batchCount += 1
+
+		if batchCount >= batchSize {
+			flush()
+		}
+	}
+
+	flush()
 }
 
 func runChannelsOneToMany(inputs []int, workers int, fn func(int) []int) int64 {
@@ -2017,15 +2302,20 @@ func runPipelineCompositeBatchChan(inputs []int, stages int, workers int, batchS
 			return 0, pipe.Err()
 		}
 
-		flatten := pipeline.FromChan(pipe, stageName+"-flatten", batch, func(ctx context.Context, input <-chan <-chan int, output chan int) error {
-			for ch := range input {
-				for v := range ch {
-					output <- v
+		flatten := pipeline.FromChan(
+			pipe,
+			stageName+"-flatten",
+			batch,
+			func(ctx context.Context, input <-chan <-chan int, output chan int) error {
+				for ch := range input {
+					for v := range ch {
+						output <- v
+					}
 				}
-			}
 
-			return nil
-		}, stepOptions[int](workers)...)
+				return nil
+			},
+			stepOptions[int](workers)...)
 		if flatten == nil {
 			return 0, pipe.Err()
 		}

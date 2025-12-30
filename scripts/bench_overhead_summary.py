@@ -61,18 +61,25 @@ def linear_fit(xs: list[int], ys: list[float]) -> tuple[float, float]:
 
 def print_work_sweep(vals: dict[str, list[float]], items: int) -> None:
     print(f"### Work sweep (conc=1, items={items})")
-    print("| Work iters | Loop per item (ns) | Pipeline per item (ns) | Overhead per item (ns) | Pipeline/Loop |")
-    print("| ---: | ---: | ---: | ---: | ---: |")
+    print(
+        "| Work iters | Loop per item (ns) | Channels per item (ns) | "
+        "Pipeline per item (ns) | Overhead per item (ns) | Pipeline/Loop | Pipeline/Channels |"
+    )
+    print("| ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
     for iters in WORK_SWEEP:
         loop = median_value(vals, f"BenchmarkOverheadWorkSweep/iters={iters}/loop-serial-8")
+        channels = median_value(vals, f"BenchmarkOverheadWorkSweep/iters={iters}/channels-8")
         pipe = median_value(vals, f"BenchmarkOverheadWorkSweep/iters={iters}/pipeline-8")
         overhead = pipe - loop
         loop_per_item = loop / items
+        channels_per_item = channels / items
         pipe_per_item = pipe / items
         overhead_per_item = overhead / items
         ratio = pipe / loop if loop else 0.0
+        ratio_channels = pipe / channels if channels else 0.0
         print(
-            f"| {iters} | {fmt(loop_per_item)} | {fmt(pipe_per_item)} | {fmt(overhead_per_item)} | {ratio:.1f}x |"
+            f"| {iters} | {fmt(loop_per_item)} | {fmt(channels_per_item)} | {fmt(pipe_per_item)} | "
+            f"{fmt(overhead_per_item)} | {ratio:.1f}x | {ratio_channels:.1f}x |"
         )
     print()
     print("Overhead per item stays roughly flat while work per item grows, so the overhead ratio shrinks as work increases.")
@@ -81,20 +88,27 @@ def print_work_sweep(vals: dict[str, list[float]], items: int) -> None:
 
 def print_step_sweep(vals: dict[str, list[float]], items: int) -> list[tuple[int, float]]:
     print(f"### Step-count sweep (conc=1, items={items}, work iters=0)")
-    print("| Steps | Loop per item (ns) | Pipeline per item (ns) | Overhead per item (ns) | Overhead per step (ns) |")
-    print("| ---: | ---: | ---: | ---: | ---: |")
+    print(
+        "| Steps | Loop per item (ns) | Channels per item (ns) | Pipeline per item (ns) | "
+        "Overhead per item (ns) | Overhead per step (ns) | Pipeline/Channels |"
+    )
+    print("| ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
     overheads: list[tuple[int, float]] = []
     for steps in STEP_COUNTS:
         loop = median_value(vals, f"BenchmarkOverheadStepScaling/steps={steps}/loop-serial-8")
+        channels = median_value(vals, f"BenchmarkOverheadStepScaling/steps={steps}/channels-8")
         pipe = median_value(vals, f"BenchmarkOverheadStepScaling/steps={steps}/pipeline-8")
         overhead = pipe - loop
         loop_per_item = loop / items
+        channels_per_item = channels / items
         pipe_per_item = pipe / items
         overhead_per_item = overhead / items
         overheads.append((steps, overhead_per_item))
         per_step = overhead_per_item / steps
+        ratio_channels = pipe / channels if channels else 0.0
         print(
-            f"| {steps} | {fmt(loop_per_item)} | {fmt(pipe_per_item)} | {fmt(overhead_per_item)} | {fmt(per_step)} |"
+            f"| {steps} | {fmt(loop_per_item)} | {fmt(channels_per_item)} | {fmt(pipe_per_item)} | "
+            f"{fmt(overhead_per_item)} | {fmt(per_step)} | {ratio_channels:.1f}x |"
         )
     print()
     print("Per-step overhead is roughly linear in the number of steps in this run.")
@@ -145,26 +159,41 @@ def print_composite_sweep(
     label: str,
     bench_prefix: str,
 ) -> list[tuple[int, float]]:
-    names = [f"{bench_prefix}/stages={stages}/loop-serial-8" for stages in STEP_COUNTS]
+    names = []
+    for stages in STEP_COUNTS:
+        names.extend(
+            [
+                f"{bench_prefix}/stages={stages}/loop-serial-8",
+                f"{bench_prefix}/stages={stages}/channels-8",
+                f"{bench_prefix}/stages={stages}/pipeline-8",
+            ]
+        )
     if any(name not in vals for name in names):
         return []
 
     print(f"### Composite step-count sweep: {label} (conc=1, items={items})")
-    print("| Stages | Loop per item (ns) | Pipeline per item (ns) | Overhead per item (ns) | Overhead per stage (ns) |")
-    print("| ---: | ---: | ---: | ---: | ---: |")
+    print(
+        "| Stages | Loop per item (ns) | Channels per item (ns) | Pipeline per item (ns) | "
+        "Overhead per item (ns) | Overhead per stage (ns) | Pipeline/Channels |"
+    )
+    print("| ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
 
     overheads: list[tuple[int, float]] = []
     for stages in STEP_COUNTS:
         loop = median_value(vals, f"{bench_prefix}/stages={stages}/loop-serial-8")
+        channels = median_value(vals, f"{bench_prefix}/stages={stages}/channels-8")
         pipe = median_value(vals, f"{bench_prefix}/stages={stages}/pipeline-8")
         overhead = pipe - loop
         loop_per_item = loop / items
+        channels_per_item = channels / items
         pipe_per_item = pipe / items
         overhead_per_item = overhead / items
         overheads.append((stages, overhead_per_item))
         per_stage = overhead_per_item / stages
+        ratio_channels = pipe / channels if channels else 0.0
         print(
-            f"| {stages} | {fmt(loop_per_item)} | {fmt(pipe_per_item)} | {fmt(overhead_per_item)} | {fmt(per_stage)} |"
+            f"| {stages} | {fmt(loop_per_item)} | {fmt(channels_per_item)} | {fmt(pipe_per_item)} | "
+            f"{fmt(overhead_per_item)} | {fmt(per_stage)} | {ratio_channels:.1f}x |"
         )
 
     print()
