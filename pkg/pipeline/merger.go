@@ -10,8 +10,8 @@ import (
 	"github.com/askiada/go-pipeline/pkg/pipeline/model"
 )
 
-func prepareMerger[I any](pipe *Pipeline, output chan I, name string, steps ...*model.Step[I]) (*model.Step[I], error) {
-	outputStep := &model.Step[I]{
+func prepareMerger[I any](pipe *Pipeline, output chan I, name string, steps ...*Step[I]) (*Step[I], error) {
+	outputStep := &Step[I]{
 		Details: &model.StepInfo{
 			Type:       model.MergerStepType,
 			Name:       name,
@@ -35,7 +35,7 @@ func prepareMerger[I any](pipe *Pipeline, output chan I, name string, steps ...*
 	return outputStep, nil
 }
 
-func runStepMerger[I any](ctx context.Context, pipe *Pipeline, errC chan error, step, outputStep *model.Step[I]) {
+func runStepMerger[I any](ctx context.Context, pipe *Pipeline, errC chan error, step, outputStep *Step[I]) {
 	for {
 		startIter := time.Now()
 
@@ -66,7 +66,7 @@ func runStepMerger[I any](ctx context.Context, pipe *Pipeline, errC chan error, 
 }
 
 // Merge adds a merger step to the pipeline. It will merge the output of the steps into a single channel.
-func Merge[I any](pipe *Pipeline, name string, steps ...*model.Step[I]) *model.Step[I] {
+func Merge[I any](pipe *Pipeline, name string, steps ...*Step[I]) *Step[I] {
 	if pipe == nil {
 		return nil
 	}
@@ -111,7 +111,7 @@ func Merge[I any](pipe *Pipeline, name string, steps ...*model.Step[I]) *model.S
 		}()
 
 		for _, step := range steps {
-			go func(step *model.Step[I]) {
+			go func(step *Step[I]) {
 				defer wgrp.Done()
 
 				runStepMerger(ctx, pipe, errC, step, outputStep)

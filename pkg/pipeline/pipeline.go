@@ -10,6 +10,9 @@ import (
 	"github.com/askiada/go-pipeline/pkg/pipeline/model"
 )
 
+// Step is an alias to the model step definition used across the pipeline API.
+type Step[O any] = model.Step[O]
+
 // Pipeline is a pipeline of steps.
 type Pipeline struct {
 	errcList  *errorChans

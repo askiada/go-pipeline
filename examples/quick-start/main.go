@@ -25,6 +25,22 @@ func newPipeline(withDrawer bool) (*pipeline.Pipeline, error) {
 	)
 }
 
+func sourceFn(_ context.Context, out chan<- int) error {
+	for i := range 3 {
+		out <- i
+	}
+	return nil
+}
+
+func formatFn(_ context.Context, in int) (string, error) {
+	return fmt.Sprintf("item-%d", in), nil
+}
+
+func printFn(_ context.Context, in string) error {
+	fmt.Println(in)
+	return nil
+}
+
 func main() {
 	drawerEnabled := flag.Bool("drawer", false, "write examples/quick-start/pipeline.dot with metrics")
 	flag.Parse()
@@ -34,21 +50,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	root := pipeline.Root(pipe, "source", func(ctx context.Context, out chan<- int) error {
-		for i := range 3 {
-			out <- i
-		}
-		return nil
-	})
-
-	formatted := pipeline.OneToOne(pipe, "format", root, func(ctx context.Context, in int) (string, error) {
-		return fmt.Sprintf("item-%d", in), nil
-	})
-
-	pipeline.Sink(pipe, "print", formatted, func(ctx context.Context, in string) error {
-		fmt.Println(in)
-		return nil
-	})
+	root := pipeline.Root(pipe, "source", sourceFn)
+	formatted := pipeline.OneToOne(pipe, "format", root, formatFn)
+	pipeline.Sink(pipe, "print", formatted, printFn)
 
 	if err := pipe.Run(context.Background()); err != nil {
 		log.Fatal(err)

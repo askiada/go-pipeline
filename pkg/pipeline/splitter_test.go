@@ -19,7 +19,7 @@ func TestSplitByRoutesItems(t *testing.T) {
 	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
 
-	input := &model.Step[int]{
+	input := &pipeline.Step[int]{
 		Details: &model.StepInfo{
 			Name:       "input",
 			Concurrent: 1,
@@ -76,7 +76,7 @@ func TestSplitByReturnsError(t *testing.T) {
 	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
 
-	input := &model.Step[int]{
+	input := &pipeline.Step[int]{
 		Details: &model.StepInfo{
 			Name:       "input",
 			Concurrent: 1,

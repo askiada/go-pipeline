@@ -7,7 +7,7 @@ import (
 )
 
 // StepOption is a function that modifies a Step.
-type StepOption[O any] func(s *model.Step[O])
+type StepOption[O any] func(s *Step[O])
 
 // RetryPolicy configures per-item retry behaviour for steps.
 type RetryPolicy = model.RetryPolicy
@@ -20,7 +20,7 @@ type RateLimitPolicy = model.RateLimitPolicy
 
 // StepConcurrency sets the concurrency of the step.
 func StepConcurrency[O any](concurrent int) StepOption[O] {
-	return func(s *model.Step[O]) {
+	return func(s *Step[O]) {
 		if concurrent < 1 {
 			concurrent = 1
 		}
@@ -31,7 +31,7 @@ func StepConcurrency[O any](concurrent int) StepOption[O] {
 
 // StepKeepOpen does not close input channel.
 func StepKeepOpen[O any]() StepOption[O] {
-	return func(s *model.Step[O]) {
+	return func(s *Step[O]) {
 		s.KeepOpen = true
 	}
 }
@@ -40,7 +40,7 @@ func StepKeepOpen[O any]() StepOption[O] {
 // The output channel of the step will have a buffer of this size.
 // If the buffer size is 0, the output channel will be unbuffered.
 func StepBufferSize[O any](bufferSize int) StepOption[O] {
-	return func(s *model.Step[O]) {
+	return func(s *Step[O]) {
 		s.Details.BufferSize = bufferSize
 	}
 }
@@ -48,7 +48,7 @@ func StepBufferSize[O any](bufferSize int) StepOption[O] {
 // StepRetry configures per-item retry behaviour for step functions.
 // MaxAttempts includes the initial attempt; values below 2 disable retries.
 func StepRetry[O any](policy RetryPolicy) StepOption[O] {
-	return func(step *model.Step[O]) {
+	return func(step *Step[O]) {
 		if policy.MaxAttempts < 2 {
 			return
 		}
@@ -76,7 +76,7 @@ func StepRetry[O any](policy RetryPolicy) StepOption[O] {
 
 // StepTimeout configures a per-item timeout for step functions.
 func StepTimeout[O any](timeout time.Duration) StepOption[O] {
-	return func(step *model.Step[O]) {
+	return func(step *Step[O]) {
 		if timeout <= 0 {
 			return
 		}
@@ -87,7 +87,7 @@ func StepTimeout[O any](timeout time.Duration) StepOption[O] {
 
 // StepRateLimit configures per-item rate limiting for step functions.
 func StepRateLimit[O any](policy RateLimitPolicy) StepOption[O] {
-	return func(step *model.Step[O]) {
+	return func(step *Step[O]) {
 		if policy.Every <= 0 {
 			return
 		}
@@ -103,7 +103,7 @@ func StepRateLimit[O any](policy RateLimitPolicy) StepOption[O] {
 
 // StepMaxInFlight caps the number of in-flight items per step.
 func StepMaxInFlight[O any](maxInFlight int) StepOption[O] {
-	return func(step *model.Step[O]) {
+	return func(step *Step[O]) {
 		if maxInFlight < 1 {
 			return
 		}

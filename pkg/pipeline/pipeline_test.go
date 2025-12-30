@@ -72,7 +72,7 @@ func TestOneToOne(t *testing.T) {
 	ctx := t.Context()
 	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
-	step := model.Step[int]{
+	step := pipeline.Step[int]{
 		Output: createInputChan(t, 10),
 	}
 	outputChan := pipeline.OneToOne(pipe, "first step", &step, func(ctx context.Context, input int) (int, error) {
@@ -102,7 +102,7 @@ func TestOneToOneError(t *testing.T) {
 	ctx := t.Context()
 	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
-	step := model.Step[int]{
+	step := pipeline.Step[int]{
 		Output: createInputChan(t, 10),
 	}
 	outputChan := pipeline.OneToOne(pipe, "root step", &step, func(ctx context.Context, input int) (int, error) {
@@ -138,7 +138,7 @@ func TestOneToOneCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
-	step := model.Step[int]{
+	step := pipeline.Step[int]{
 		Output: createInputChanWithCancel(t, 10, 5, cancel),
 	}
 	outputChan := pipeline.OneToOne(pipe, "root step", &step, func(ctx context.Context, input int) (int, error) {
@@ -173,7 +173,7 @@ func TestOneToOneConcurrency(t *testing.T) {
 	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
 
-	input := &model.Step[int]{
+	input := &pipeline.Step[int]{
 		Details: &model.StepInfo{
 			Name:       "input",
 			Concurrent: 1,
@@ -285,7 +285,7 @@ func TestOneToOneOrSZero(t *testing.T) {
 	ctx := t.Context()
 	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
-	step := model.Step[int]{
+	step := pipeline.Step[int]{
 		Output: createInputChan(t, 10),
 	}
 	outputChan := pipeline.OneToOneOrZero(pipe, "first step", &step, func(ctx context.Context, input int) (int, error) {
@@ -315,7 +315,7 @@ func TestOneToOneOrZeroError(t *testing.T) {
 	ctx := t.Context()
 	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
-	step := model.Step[int]{
+	step := pipeline.Step[int]{
 		Output: createInputChan(t, 10),
 	}
 	outputChan := pipeline.OneToOneOrZero(pipe, "root step", &step, func(ctx context.Context, input int) (int, error) {
@@ -351,7 +351,7 @@ func TestOneToOneOrZeroCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
-	step := model.Step[int]{
+	step := pipeline.Step[int]{
 		Output: createInputChanWithCancel(t, 10, 5, cancel),
 	}
 	outputChan := pipeline.OneToOneOrZero(pipe, "root step", &step, func(ctx context.Context, input int) (int, error) {
@@ -410,7 +410,7 @@ func TestOneToMany(t *testing.T) {
 	ctx := t.Context()
 	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
-	step := model.Step[int]{
+	step := pipeline.Step[int]{
 		Output: createInputChan(t, 10),
 	}
 	outputChan := pipeline.OneToMany(pipe, "first step", &step, func(ctx context.Context, input int) ([]int, error) {
@@ -440,7 +440,7 @@ func TestOneToManyError(t *testing.T) {
 	ctx := t.Context()
 	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
-	step := model.Step[int]{
+	step := pipeline.Step[int]{
 		Output: createInputChan(t, 10),
 	}
 	outputChan := pipeline.OneToMany(pipe, "root step", &step, func(ctx context.Context, input int) ([]int, error) {
@@ -476,7 +476,7 @@ func TestOneToManyCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
-	step := model.Step[int]{
+	step := pipeline.Step[int]{
 		Output: createInputChanWithCancel(t, 10, 5, cancel),
 	}
 	outputChan := pipeline.OneToMany(pipe, "root step", &step, func(ctx context.Context, input int) ([]int, error) {
@@ -511,7 +511,7 @@ func TestOneToManyConcurrency(t *testing.T) {
 	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
 
-	input := &model.Step[int]{
+	input := &pipeline.Step[int]{
 		Details: &model.StepInfo{
 			Name:       "input",
 			Concurrent: 1,
@@ -599,7 +599,7 @@ func TestFromChanConcurrency(t *testing.T) {
 	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
 
-	input := &model.Step[int]{
+	input := &pipeline.Step[int]{
 		Details: &model.StepInfo{
 			Name:       "input",
 			Concurrent: 1,
@@ -1215,7 +1215,7 @@ func TestPipelineDefaultsOverrideStepOptions(t *testing.T) {
 func TestSplitNilPipe(t *testing.T) {
 	t.Parallel()
 
-	splitter := pipeline.Split(nil, "root step", (*model.Step[int])(nil), 5)
+	splitter := pipeline.Split(nil, "root step", (*pipeline.Step[int])(nil), 5)
 	require.Nil(t, splitter)
 }
 
@@ -1225,7 +1225,7 @@ func TestSplitNilInput(t *testing.T) {
 	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
 
-	splitter := pipeline.Split(pipe, "root step", (*model.Step[int])(nil), 5)
+	splitter := pipeline.Split(pipe, "root step", (*pipeline.Step[int])(nil), 5)
 	require.Nil(t, splitter)
 	require.ErrorIs(t, pipe.Err(), pipeline.ErrInputMustBeSet)
 	require.ErrorIs(t, runPipeline(t, pipe), pipeline.ErrInputMustBeSet)
@@ -1237,7 +1237,7 @@ func TestSplitZero(t *testing.T) {
 	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
 
-	step := model.Step[int]{
+	step := pipeline.Step[int]{
 		Output: make(chan int),
 	}
 	splitter := pipeline.Split(pipe, "root step", &step, 0)
@@ -1267,7 +1267,7 @@ func TestSplit(t *testing.T) {
 			ctx := t.Context()
 			pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 			require.NoError(t, err)
-			step := model.Step[int]{
+			step := pipeline.Step[int]{
 				Output: createInputChan(t, 10),
 			}
 			splitter := pipeline.Split(pipe, "root step", &step, 2, pipeline.SplitterBufferSize[int](tc.buffersize))
@@ -1313,7 +1313,7 @@ func TestSplitCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
-	step := model.Step[int]{
+	step := pipeline.Step[int]{
 		Output: createInputChanWithCancel(t, 10, 5, cancel),
 	}
 	splitter := pipeline.Split(pipe, "root step", &step, 2)
@@ -1383,7 +1383,7 @@ func TestSink(t *testing.T) {
 	got := []int{}
 	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
-	step := model.Step[int]{
+	step := pipeline.Step[int]{
 		Output: createInputChan(t, 10),
 	}
 	sinkStep := pipeline.Sink(pipe, "root step", &step, func(ctx context.Context, input int) error {
@@ -1404,7 +1404,7 @@ func TestSinkError(t *testing.T) {
 	got := []int{}
 	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
-	step := model.Step[int]{
+	step := pipeline.Step[int]{
 		Output: createInputChan(t, 10),
 	}
 	sinkStep := pipeline.Sink(pipe, "root step", &step, func(ctx context.Context, input int) error {
@@ -1428,7 +1428,7 @@ func TestSinkConcurrency(t *testing.T) {
 	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
 
-	input := &model.Step[int]{
+	input := &pipeline.Step[int]{
 		Details: &model.StepInfo{
 			Name:       "input",
 			Concurrent: 1,
@@ -1508,7 +1508,7 @@ func TestSinkFromChanConcurrency(t *testing.T) {
 	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
 
-	input := &model.Step[int]{
+	input := &pipeline.Step[int]{
 		Details: &model.StepInfo{
 			Name:       "input",
 			Concurrent: 1,
@@ -1889,12 +1889,12 @@ func TestMerge(t *testing.T) {
 	got := []int{}
 	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
 	require.NoError(t, err)
-	step1 := model.Step[int]{
+	step1 := pipeline.Step[int]{
 		Details: &model.StepInfo{},
 		Output:  createInputChan(t, 5),
 	}
 
-	step2 := model.Step[int]{
+	step2 := pipeline.Step[int]{
 		Details: &model.StepInfo{},
 		Output:  createInputChan(t, 5),
 	}

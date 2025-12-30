@@ -8,7 +8,7 @@ import (
 	"github.com/askiada/go-pipeline/pkg/pipeline/model"
 )
 
-func prepareRootStep[O any](pipe *Pipeline, step *model.Step[O]) error {
+func prepareRootStep[O any](pipe *Pipeline, step *Step[O]) error {
 	for _, opt := range pipe.opts {
 		err := opt.PrepareStep(model.StartStep.Details, step.Details)
 		if err != nil {
@@ -27,7 +27,7 @@ func Root[O any](
 	name string,
 	stepFn func(ctx context.Context, rootChan chan<- O) error,
 	opts ...StepOption[O],
-) *model.Step[O] {
+) *Step[O] {
 	if pipe == nil {
 		return nil
 	}
@@ -39,7 +39,7 @@ func Root[O any](
 	errC := make(chan error, 1)
 	decoratedError := newErrorChan(name, errC)
 
-	step := &model.Step[O]{
+	step := &Step[O]{
 		Details: &model.StepInfo{
 			Type:       model.RootStepType,
 			Name:       name,

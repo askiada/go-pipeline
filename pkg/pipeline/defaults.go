@@ -71,7 +71,7 @@ func (PipelineDefaults) AfterSink(_ *model.StepInfo, _ time.Duration) error {
 	return nil
 }
 
-func applyStepDefaults[O any](pipe *Pipeline, step *model.Step[O]) {
+func applyStepDefaults[O any](pipe *Pipeline, step *Step[O]) {
 	if pipe == nil || step == nil || step.Details == nil {
 		return
 	}

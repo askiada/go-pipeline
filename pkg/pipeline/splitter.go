@@ -15,14 +15,14 @@ import (
 type Splitter[I any] struct {
 	mu            sync.Mutex
 	currIdx       int
-	mainStep      *model.Step[I]
-	splittedSteps []*model.Step[I]
+	mainStep      *Step[I]
+	splittedSteps []*Step[I]
 	bufferSize    int
 	Total         int
 }
 
 // Get returns the next splitted step.
-func (s *Splitter[I]) Get() (*model.Step[I], bool) {
+func (s *Splitter[I]) Get() (*Step[I], bool) {
 	s.mu.Lock()
 
 	defer func() {
@@ -37,7 +37,7 @@ func (s *Splitter[I]) Get() (*model.Step[I], bool) {
 	return s.splittedSteps[s.currIdx], true
 }
 
-func prepareSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], total int, opts ...SplitterOption[I]) (*Splitter[I], error) {
+func prepareSplitter[I any](pipe *Pipeline, name string, input *Step[I], total int, opts ...SplitterOption[I]) (*Splitter[I], error) {
 	if pipe == nil {
 		return nil, ErrPipelineMustBeSet
 	}
@@ -52,7 +52,7 @@ func prepareSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], t
 
 	splitter := &Splitter[I]{
 		Total: total,
-		mainStep: &model.Step[I]{
+		mainStep: &Step[I]{
 			Details: &model.StepInfo{
 				Type:       model.SplitterStepType,
 				Name:       name,
@@ -67,7 +67,7 @@ func prepareSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], t
 		opt(splitter)
 	}
 
-	splitter.splittedSteps = make([]*model.Step[I], total)
+	splitter.splittedSteps = make([]*Step[I], total)
 
 	if splitter.bufferSize == 0 {
 		splitter.bufferSize = 1
@@ -81,7 +81,7 @@ func prepareSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], t
 	warnSplitterBuffer(name, splitter.bufferSize, inputConcurrent)
 
 	for idx := range total {
-		step := model.Step[I]{
+		step := Step[I]{
 			Details: &model.StepInfo{
 				Type:       model.SplitterStepType,
 				Name:       name,
@@ -139,7 +139,7 @@ func runSplitter[I any](
 	ctx context.Context,
 	pipe *Pipeline,
 	splitter *Splitter[I],
-	input *model.Step[I],
+	input *Step[I],
 	splitterBuffer []chan I,
 	errC chan error,
 	wgrp *sync.WaitGroup,
@@ -240,7 +240,7 @@ func startSplitterWorkers[I any](
 }
 
 // Split adds a splitter step to the pipeline. It will split the input into multiple outputs based on the total.
-func Split[I any](pipe *Pipeline, name string, input *model.Step[I], total int, opts ...SplitterOption[I]) *Splitter[I] {
+func Split[I any](pipe *Pipeline, name string, input *Step[I], total int, opts ...SplitterOption[I]) *Splitter[I] {
 	if pipe == nil {
 		return nil
 	}
@@ -290,7 +290,7 @@ type SplitFn[I any] func(ctx context.Context, input I) (bool, error)
 func SplitBy[I any](
 	pipe *Pipeline,
 	name string,
-	input *model.Step[I],
+	input *Step[I],
 	fns []SplitFn[I],
 	opts ...SplitterOption[I],
 ) *Splitter[I] {

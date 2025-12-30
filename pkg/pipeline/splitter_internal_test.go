@@ -19,7 +19,7 @@ func TestPipelineDefaultsApplyToSplitter(t *testing.T) {
 	pipe, err := New(defaults)
 	require.NoError(t, err)
 
-	input := &model.Step[int]{
+	input := &Step[int]{
 		Details: &model.StepInfo{
 			Name:       "input",
 			Concurrent: 1,
@@ -42,7 +42,7 @@ func TestPipelineDefaultsOverrideSplitterBufferSize(t *testing.T) {
 	pipe, err := New(defaults)
 	require.NoError(t, err)
 
-	input := &model.Step[int]{
+	input := &Step[int]{
 		Details: &model.StepInfo{
 			Name:       "input",
 			Concurrent: 1,
@@ -96,7 +96,7 @@ func TestSplitterAllowsNilInputDetails(t *testing.T) {
 	pipe, err := New(PipelineDefaults{})
 	require.NoError(t, err)
 
-	input := &model.Step[int]{
+	input := &Step[int]{
 		Output: make(chan int),
 	}
 	close(input.Output)

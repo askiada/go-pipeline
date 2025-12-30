@@ -33,8 +33,8 @@ func stopBatchTimer(timer *time.Timer) {
 
 type batchState[I any] struct {
 	goIdx      int
-	input      *model.Step[I]
-	output     *model.Step[[]I]
+	input      *Step[I]
+	output     *Step[[]I]
 	opts       []model.PipelineOption
 	maxSize    int
 	maxWait    time.Duration
@@ -46,8 +46,8 @@ type batchState[I any] struct {
 
 func newBatchState[I any](
 	goIdx int,
-	input *model.Step[I],
-	output *model.Step[[]I],
+	input *Step[I],
+	output *Step[[]I],
 	policy *model.BatchPolicy,
 	opts []model.PipelineOption,
 ) *batchState[I] {
@@ -143,8 +143,8 @@ func (bs *batchState[I]) handleEntry(ctx context.Context, entry I) error {
 func sequentialBatchFn[I any](
 	ctx context.Context,
 	goIdx int,
-	input *model.Step[I],
-	output *model.Step[[]I],
+	input *Step[I],
+	output *Step[[]I],
 	opts ...model.PipelineOption,
 ) error {
 	policy := output.BatchPolicy
@@ -180,8 +180,8 @@ func sequentialBatchFn[I any](
 
 func concurrentBatchFn[I any](
 	ctx context.Context,
-	input *model.Step[I],
-	output *model.Step[[]I],
+	input *Step[I],
+	output *Step[[]I],
 	opts ...model.PipelineOption,
 ) error {
 	errGrp, dCtx := errgroup.WithContext(ctx)
@@ -205,8 +205,8 @@ func concurrentBatchFn[I any](
 
 func runBatch[I any](
 	ctx context.Context,
-	input *model.Step[I],
-	output *model.Step[[]I],
+	input *Step[I],
+	output *Step[[]I],
 	opts ...model.PipelineOption,
 ) error {
 	err := validateBatchPolicy(output.BatchPolicy)
@@ -230,10 +230,10 @@ func runBatch[I any](
 func Batch[I any](
 	pipe *Pipeline,
 	name string,
-	input *model.Step[I],
+	input *Step[I],
 	policy BatchPolicy,
 	opts ...StepOption[[]I],
-) *model.Step[[]I] {
+) *Step[[]I] {
 	if pipe == nil {
 		return nil
 	}
@@ -250,7 +250,7 @@ func Batch[I any](
 
 	errC := make(chan error, 1)
 	decoratedError := newErrorChan(name, errC)
-	step := &model.Step[[]I]{
+	step := &Step[[]I]{
 		Details: &model.StepInfo{
 			Type:       model.NormalStepType,
 			Name:       name,

@@ -10,7 +10,7 @@ import (
 	"github.com/askiada/go-pipeline/pkg/pipeline/model"
 )
 
-func prepareSink[I any](pipe *Pipeline, name string, input *model.Step[I], opts ...StepOption[I]) (*model.Step[I], error) {
+func prepareSink[I any](pipe *Pipeline, name string, input *Step[I], opts ...StepOption[I]) (*Step[I], error) {
 	if pipe == nil {
 		return nil, ErrPipelineMustBeSet
 	}
@@ -19,7 +19,7 @@ func prepareSink[I any](pipe *Pipeline, name string, input *model.Step[I], opts 
 		return nil, ErrInputMustBeSet
 	}
 
-	step := &model.Step[I]{
+	step := &Step[I]{
 		Details: &model.StepInfo{
 			Type:       model.SinkStepType,
 			Name:       name,
@@ -46,8 +46,8 @@ func prepareSink[I any](pipe *Pipeline, name string, input *model.Step[I], opts 
 func sequentialSinkFn[I any](
 	ctx context.Context,
 	goIdx int,
-	input *model.Step[I],
-	step *model.Step[I],
+	input *Step[I],
+	step *Step[I],
 	sinkFn func(ctx context.Context, input I) error,
 	timeout time.Duration,
 	limiter *rateLimiter,
@@ -103,8 +103,8 @@ func sequentialSinkFn[I any](
 
 func concurrentSinkFn[I any](
 	ctx context.Context,
-	input *model.Step[I],
-	step *model.Step[I],
+	input *Step[I],
+	step *Step[I],
 	sinkFn func(ctx context.Context, input I) error,
 	timeout time.Duration,
 	limiter *rateLimiter,
@@ -130,8 +130,8 @@ func concurrentSinkFn[I any](
 
 func runSink[I any](
 	ctx context.Context,
-	input *model.Step[I],
-	step *model.Step[I],
+	input *Step[I],
+	step *Step[I],
 	sinkFn func(ctx context.Context, input I) error,
 	opts ...model.PipelineOption,
 ) error {
@@ -154,10 +154,10 @@ func runSink[I any](
 func Sink[I any](
 	pipe *Pipeline,
 	name string,
-	input *model.Step[I],
+	input *Step[I],
 	sinkFn func(ctx context.Context, input I) error,
 	opts ...StepOption[I],
-) *model.Step[I] {
+) *Step[I] {
 	if pipe == nil {
 		return nil
 	}
@@ -205,10 +205,10 @@ func Sink[I any](
 func SinkFromChan[I any](
 	pipe *Pipeline,
 	name string,
-	input *model.Step[I],
+	input *Step[I],
 	stepFn func(ctx context.Context, input <-chan I) error,
 	opts ...StepOption[I],
-) *model.Step[I] {
+) *Step[I] {
 	if pipe == nil {
 		return nil
 	}
@@ -278,8 +278,8 @@ func SinkFromChan[I any](
 func sequentialSinkFromChanFn[I any](
 	ctx context.Context,
 	goIdx int,
-	input *model.Step[I],
-	step *model.Step[I],
+	input *Step[I],
+	step *Step[I],
 	stepFn func(ctx context.Context, input <-chan I) error,
 	conc int,
 	opts ...model.PipelineOption,
@@ -355,8 +355,8 @@ func sequentialSinkFromChanFn[I any](
 
 func concurrentSinkFromChanFn[I any](
 	ctx context.Context,
-	input *model.Step[I],
-	step *model.Step[I],
+	input *Step[I],
+	step *Step[I],
 	stepFn func(ctx context.Context, input <-chan I) error,
 	opts ...model.PipelineOption,
 ) error {
@@ -381,8 +381,8 @@ func concurrentSinkFromChanFn[I any](
 
 func runSinkFromChan[I any](
 	ctx context.Context,
-	input *model.Step[I],
-	step *model.Step[I],
+	input *Step[I],
+	step *Step[I],
 	stepFn func(ctx context.Context, input <-chan I) error,
 	opts ...model.PipelineOption,
 ) error {

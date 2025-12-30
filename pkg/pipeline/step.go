@@ -20,7 +20,7 @@ type OneToManyFn[I, O any] func(context.Context, I) ([]O, error)
 // StepFromChanFn is a function that takes an input channel and produces an output channel.
 type StepFromChanFn[I, O any] func(ctx context.Context, input <-chan I, output chan O) error
 
-type stepToStepFn[I, O any] func(ctx context.Context, input *model.Step[I], output *model.Step[O]) error
+type stepToStepFn[I, O any] func(ctx context.Context, input *Step[I], output *Step[O]) error
 
 //nolint:ireturn,gocritic // Generic helper returns entry values; unnamed results keep call sites concise.
 func acquireStepInput[I any](
@@ -106,8 +106,8 @@ func stepItemContext(ctx context.Context, timeout time.Duration) (context.Contex
 func sendStepOutput[I, O any](
 	ctx context.Context,
 	goIdx int,
-	input *model.Step[I],
-	output *model.Step[O],
+	input *Step[I],
+	output *Step[O],
 	value O,
 	start time.Time,
 	fnDuration time.Duration,
@@ -136,8 +136,8 @@ func sendStepOutput[I, O any](
 func sendOneToManyOutputs[I, O any](
 	ctx context.Context,
 	goIdx int,
-	input *model.Step[I],
-	output *model.Step[O],
+	input *Step[I],
+	output *Step[O],
 	values []O,
 	start time.Time,
 	fnDuration time.Duration,
@@ -170,8 +170,8 @@ func sendOneToManyOutputs[I, O any](
 func sequentialOneToOneFn[I any, O any](
 	ctx context.Context,
 	goIdx int,
-	input *model.Step[I],
-	output *model.Step[O],
+	input *Step[I],
+	output *Step[O],
 	oneToOne OneToOneFn[I, O],
 	ignoreZero bool,
 	timeout time.Duration,
@@ -229,8 +229,8 @@ func sequentialOneToOneFn[I any, O any](
 
 func concurrentOneToOneFn[I any, O any](
 	ctx context.Context,
-	input *model.Step[I],
-	output *model.Step[O],
+	input *Step[I],
+	output *Step[O],
 	oneToOne OneToOneFn[I, O],
 	ignoreZero bool,
 	timeout time.Duration,
@@ -260,8 +260,8 @@ func concurrentOneToOneFn[I any, O any](
 
 func runOneToOne[I any, O any](
 	ctx context.Context,
-	input *model.Step[I],
-	output *model.Step[O],
+	input *Step[I],
+	output *Step[O],
 	oneToOne OneToOneFn[I, O],
 	ignoreZero bool,
 	opts ...model.PipelineOption,
@@ -284,8 +284,8 @@ func runOneToOne[I any, O any](
 func sequentialOneToManyFn[I any, O any](
 	ctx context.Context,
 	goIdx int,
-	input *model.Step[I],
-	output *model.Step[O],
+	input *Step[I],
+	output *Step[O],
 	oneToMany OneToManyFn[I, O],
 	timeout time.Duration,
 	limiter *rateLimiter,
@@ -335,8 +335,8 @@ func sequentialOneToManyFn[I any, O any](
 
 func concurrentOneToManyFn[I any, O any](
 	ctx context.Context,
-	input *model.Step[I],
-	output *model.Step[O],
+	input *Step[I],
+	output *Step[O],
 	oneToMany OneToManyFn[I, O],
 	timeout time.Duration,
 	limiter *rateLimiter,
@@ -365,8 +365,8 @@ func concurrentOneToManyFn[I any, O any](
 
 func runOneToMany[I any, O any](
 	ctx context.Context,
-	input *model.Step[I],
-	output *model.Step[O],
+	input *Step[I],
+	output *Step[O],
 	oneToMany func(context.Context, I) ([]O, error),
 	opts ...model.PipelineOption,
 ) error {
@@ -385,7 +385,7 @@ func runOneToMany[I any, O any](
 	return concurrentOneToManyFn(ctx, input, output, oneToMany, timeout, limiter, inFlight, opts...)
 }
 
-func prepareStep[I, O any](pipe *Pipeline, input *model.Step[I], step *model.Step[O]) error {
+func prepareStep[I, O any](pipe *Pipeline, input *Step[I], step *Step[O]) error {
 	for _, opt := range pipe.opts {
 		err := opt.PrepareStep(input.Details, step.Details)
 		if err != nil {
@@ -401,10 +401,10 @@ func prepareStep[I, O any](pipe *Pipeline, input *model.Step[I], step *model.Ste
 func addStep[I any, O any](
 	pipe *Pipeline,
 	name string,
-	input *model.Step[I],
+	input *Step[I],
 	stepToStep stepToStepFn[I, O],
 	opts ...StepOption[O],
-) *model.Step[O] {
+) *Step[O] {
 	if pipe == nil {
 		return nil
 	}
@@ -421,7 +421,7 @@ func addStep[I any, O any](
 
 	errC := make(chan error, 1)
 	decoratedError := newErrorChan(name, errC)
-	step := &model.Step[O]{
+	step := &Step[O]{
 		Details: &model.StepInfo{
 			Type:       model.NormalStepType,
 			Name:       name,
@@ -466,8 +466,8 @@ func addStep[I any, O any](
 
 func runStepFromChan[I, O any](
 	ctx context.Context,
-	input *model.Step[I],
-	output *model.Step[O],
+	input *Step[I],
+	output *Step[O],
 	stepFn StepFromChanFn[I, O],
 	opts ...model.PipelineOption,
 ) error {
@@ -501,8 +501,8 @@ func runStepFromChan[I, O any](
 func sequentialStepFromChanFn[I any, O any](
 	ctx context.Context,
 	goIdx int,
-	input *model.Step[I],
-	output *model.Step[O],
+	input *Step[I],
+	output *Step[O],
 	stepFn StepFromChanFn[I, O],
 	conc int,
 	opts ...model.PipelineOption,
@@ -578,8 +578,8 @@ func sequentialStepFromChanFn[I any, O any](
 
 func concurrentStepFromChanFn[I any, O any](
 	ctx context.Context,
-	input *model.Step[I],
-	output *model.Step[O],
+	input *Step[I],
+	output *Step[O],
 	stepFn StepFromChanFn[I, O],
 	opts ...model.PipelineOption,
 ) error {
@@ -607,11 +607,11 @@ func concurrentStepFromChanFn[I any, O any](
 func OneToOne[I any, O any](
 	pipe *Pipeline,
 	name string,
-	input *model.Step[I],
+	input *Step[I],
 	oneToOne OneToOneFn[I, O],
 	opts ...StepOption[O],
-) *model.Step[O] {
-	return addStep(pipe, name, input, func(ctx context.Context, in *model.Step[I], out *model.Step[O]) error {
+) *Step[O] {
+	return addStep(pipe, name, input, func(ctx context.Context, in *Step[I], out *Step[O]) error {
 		return runOneToOne(ctx, in, out, oneToOne, false, pipe.opts...)
 	}, opts...)
 }
@@ -620,11 +620,11 @@ func OneToOne[I any, O any](
 func OneToOneOrZero[I any, O any](
 	pipe *Pipeline,
 	name string,
-	input *model.Step[I],
+	input *Step[I],
 	oneToOne OneToOneFn[I, O],
 	opts ...StepOption[O],
-) *model.Step[O] {
-	return addStep(pipe, name, input, func(ctx context.Context, in *model.Step[I], out *model.Step[O]) error {
+) *Step[O] {
+	return addStep(pipe, name, input, func(ctx context.Context, in *Step[I], out *Step[O]) error {
 		return runOneToOne(ctx, in, out, oneToOne, true, pipe.opts...)
 	}, opts...)
 }
@@ -633,11 +633,11 @@ func OneToOneOrZero[I any, O any](
 func OneToMany[I any, O any](
 	pipe *Pipeline,
 	name string,
-	input *model.Step[I],
+	input *Step[I],
 	oneToMany OneToManyFn[I, O],
 	opts ...StepOption[O],
-) *model.Step[O] {
-	return addStep(pipe, name, input, func(ctx context.Context, in *model.Step[I], out *model.Step[O]) error {
+) *Step[O] {
+	return addStep(pipe, name, input, func(ctx context.Context, in *Step[I], out *Step[O]) error {
 		return runOneToMany(ctx, in, out, oneToMany, pipe.opts...)
 	}, opts...)
 }
@@ -646,11 +646,11 @@ func OneToMany[I any, O any](
 func FromChan[I any, O any](
 	pipe *Pipeline,
 	name string,
-	input *model.Step[I],
+	input *Step[I],
 	stepFromChan StepFromChanFn[I, O],
 	opts ...StepOption[O],
-) *model.Step[O] {
-	step := addStep(pipe, name, input, func(ctx context.Context, in *model.Step[I], out *model.Step[O]) error {
+) *Step[O] {
+	step := addStep(pipe, name, input, func(ctx context.Context, in *Step[I], out *Step[O]) error {
 		return runStepFromChan(ctx, in, out, stepFromChan, pipe.opts...)
 	}, opts...)
 

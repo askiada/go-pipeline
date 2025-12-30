@@ -15,12 +15,17 @@ from statistics import median
 
 
 BENCH_OVERHEAD_ITEMS = 4096
-WORK_SWEEP = [0, 4, 16, 64, 256]
-STEP_COUNTS = [1, 2, 4, 8]
+WORK_SWEEP = [0, 4, 16, 64, 256, 1024, 4096]
+STEP_COUNTS = [1, 2, 4, 8, 16, 32, 64]
+COMPOSITE_SWEEPS = {
+    "OneToMany (expand -> reduce)": "BenchmarkOverheadCompositeOneToMany",
+    "Batch (batch -> unbatch)": "BenchmarkOverheadCompositeBatch",
+    "BatchChan (batch -> flatten)": "BenchmarkOverheadCompositeBatchChan",
+}
 
 
 def parse_benchmarks(text: str) -> dict[str, list[float]]:
-    pattern = re.compile(r"^(Benchmark\\S+)\\s+\\d+\\s+([0-9.]+) ns/op", re.M)
+    pattern = re.compile(r"^(Benchmark\S+)\s+\d+\s+([0-9.]+) ns/op", re.M)
     vals: dict[str, list[float]] = {}
     for name, ns in pattern.findall(text):
         vals.setdefault(name, []).append(float(ns))
@@ -59,7 +64,7 @@ def print_work_sweep(vals: dict[str, list[float]], items: int) -> None:
     print("| Work iters | Loop per item (ns) | Pipeline per item (ns) | Overhead per item (ns) | Pipeline/Loop |")
     print("| ---: | ---: | ---: | ---: | ---: |")
     for iters in WORK_SWEEP:
-        loop = median_value(vals, f"BenchmarkOverheadWorkSweep/iters={iters}/loop-8")
+        loop = median_value(vals, f"BenchmarkOverheadWorkSweep/iters={iters}/loop-serial-8")
         pipe = median_value(vals, f"BenchmarkOverheadWorkSweep/iters={iters}/pipeline-8")
         overhead = pipe - loop
         loop_per_item = loop / items
@@ -80,7 +85,7 @@ def print_step_sweep(vals: dict[str, list[float]], items: int) -> list[tuple[int
     print("| ---: | ---: | ---: | ---: | ---: |")
     overheads: list[tuple[int, float]] = []
     for steps in STEP_COUNTS:
-        loop = median_value(vals, f"BenchmarkOverheadStepScaling/steps={steps}/loop-8")
+        loop = median_value(vals, f"BenchmarkOverheadStepScaling/steps={steps}/loop-serial-8")
         pipe = median_value(vals, f"BenchmarkOverheadStepScaling/steps={steps}/pipeline-8")
         overhead = pipe - loop
         loop_per_item = loop / items
@@ -121,6 +126,70 @@ def print_fit_and_guidance(overheads: list[tuple[int, float]]) -> None:
         print(f"| {steps} | {fmt(overhead_per_item)} | {fmt(threshold)} |")
     print()
 
+    print_total_overhead_table(overheads, "Steps")
+
+
+def print_total_overhead_table(overheads: list[tuple[int, float]], label: str) -> None:
+    print(f"### Total overhead estimates (conc=1, {label.lower()})")
+    print(f"| {label} | Overhead per item (ns) | Total @1M items (s) | Total @1B items (s) |")
+    print("| ---: | ---: | ---: | ---: |")
+    for count, overhead_per_item in overheads:
+        total_1m = overhead_per_item * 1_000_000 / 1e9
+        total_1b = overhead_per_item * 1_000_000_000 / 1e9
+        print(f"| {count} | {fmt(overhead_per_item)} | {fmt(total_1m)} | {fmt(total_1b)} |")
+    print()
+
+def print_composite_sweep(
+    vals: dict[str, list[float]],
+    items: int,
+    label: str,
+    bench_prefix: str,
+) -> list[tuple[int, float]]:
+    names = [f"{bench_prefix}/stages={stages}/loop-serial-8" for stages in STEP_COUNTS]
+    if any(name not in vals for name in names):
+        return []
+
+    print(f"### Composite step-count sweep: {label} (conc=1, items={items})")
+    print("| Stages | Loop per item (ns) | Pipeline per item (ns) | Overhead per item (ns) | Overhead per stage (ns) |")
+    print("| ---: | ---: | ---: | ---: | ---: |")
+
+    overheads: list[tuple[int, float]] = []
+    for stages in STEP_COUNTS:
+        loop = median_value(vals, f"{bench_prefix}/stages={stages}/loop-serial-8")
+        pipe = median_value(vals, f"{bench_prefix}/stages={stages}/pipeline-8")
+        overhead = pipe - loop
+        loop_per_item = loop / items
+        pipe_per_item = pipe / items
+        overhead_per_item = overhead / items
+        overheads.append((stages, overhead_per_item))
+        per_stage = overhead_per_item / stages
+        print(
+            f"| {stages} | {fmt(loop_per_item)} | {fmt(pipe_per_item)} | {fmt(overhead_per_item)} | {fmt(per_stage)} |"
+        )
+
+    print()
+    return overheads
+
+
+def print_composite_sweeps(vals: dict[str, list[float]], items: int) -> None:
+    for label, bench_prefix in COMPOSITE_SWEEPS.items():
+        overheads = print_composite_sweep(vals, items, label, bench_prefix)
+        if not overheads:
+            continue
+
+        slope, intercept = linear_fit([s for s, _ in overheads], [v for _, v in overheads])
+        print(f"Linear fit on overhead per item vs stages (conc=1) for {label}:")
+        if abs(intercept) < 10:
+            print(
+                f"- Overhead per item approx 0 ns + {fmt(slope)} ns * stages "
+                f"(fit intercept is ~{fmt(intercept)} ns, within noise)."
+            )
+        else:
+            print(f"- Overhead per item approx {fmt(intercept)} ns + {fmt(slope)} ns * stages")
+        print()
+
+        print_total_overhead_table(overheads, "Stages")
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Summarize go-pipeline overhead benchmarks.")
@@ -143,6 +212,7 @@ def main() -> int:
     print_work_sweep(vals, args.items)
     overheads = print_step_sweep(vals, args.items)
     print_fit_and_guidance(overheads)
+    print_composite_sweeps(vals, args.items)
     return 0
 
 

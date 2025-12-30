@@ -12,8 +12,8 @@ import (
 
 type batchChanState[I any] struct {
 	goIdx      int
-	input      *model.Step[I]
-	output     *model.Step[<-chan I]
+	input      *Step[I]
+	output     *Step[<-chan I]
 	opts       []model.PipelineOption
 	maxSize    int
 	maxWait    time.Duration
@@ -26,8 +26,8 @@ type batchChanState[I any] struct {
 
 func newBatchChanState[I any](
 	goIdx int,
-	input *model.Step[I],
-	output *model.Step[<-chan I],
+	input *Step[I],
+	output *Step[<-chan I],
 	policy *model.BatchPolicy,
 	opts []model.PipelineOption,
 ) *batchChanState[I] {
@@ -144,8 +144,8 @@ func (bs *batchChanState[I]) handleEntry(ctx context.Context, entry I) error {
 func sequentialBatchChanFn[I any](
 	ctx context.Context,
 	goIdx int,
-	input *model.Step[I],
-	output *model.Step[<-chan I],
+	input *Step[I],
+	output *Step[<-chan I],
 	opts ...model.PipelineOption,
 ) error {
 	policy := output.BatchPolicy
@@ -183,8 +183,8 @@ func sequentialBatchChanFn[I any](
 
 func concurrentBatchChanFn[I any](
 	ctx context.Context,
-	input *model.Step[I],
-	output *model.Step[<-chan I],
+	input *Step[I],
+	output *Step[<-chan I],
 	opts ...model.PipelineOption,
 ) error {
 	errGrp, dCtx := errgroup.WithContext(ctx)
@@ -208,8 +208,8 @@ func concurrentBatchChanFn[I any](
 
 func runBatchChan[I any](
 	ctx context.Context,
-	input *model.Step[I],
-	output *model.Step[<-chan I],
+	input *Step[I],
+	output *Step[<-chan I],
 	opts ...model.PipelineOption,
 ) error {
 	err := validateBatchPolicy(output.BatchPolicy)
@@ -233,10 +233,10 @@ func runBatchChan[I any](
 func BatchChan[I any](
 	pipe *Pipeline,
 	name string,
-	input *model.Step[I],
+	input *Step[I],
 	policy BatchPolicy,
 	opts ...StepOption[<-chan I],
-) *model.Step[<-chan I] {
+) *Step[<-chan I] {
 	if pipe == nil {
 		return nil
 	}
@@ -253,7 +253,7 @@ func BatchChan[I any](
 
 	errC := make(chan error, 1)
 	decoratedError := newErrorChan(name, errC)
-	step := &model.Step[<-chan I]{
+	step := &Step[<-chan I]{
 		Details: &model.StepInfo{
 			Type:       model.NormalStepType,
 			Name:       name,

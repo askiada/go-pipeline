@@ -29,9 +29,9 @@ func TestOneToOne(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
-			input := &model.Step[int]{Output: createInputChan(t, 10)}
+			input := &Step[int]{Output: createInputChan(t, 10)}
 			got := make(chan []int, 1)
-			output := &model.Step[int]{Output: make(chan int), Details: &model.StepInfo{Concurrent: tc.concurrent}}
+			output := &Step[int]{Output: make(chan int), Details: &model.StepInfo{Concurrent: tc.concurrent}}
 
 			go func() {
 				got <- processOutputChan(t, output.Output)
@@ -70,9 +70,9 @@ func TestOneToOneCancelInput(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
-			input := &model.Step[int]{Output: createInputChanWithCancel(t, 10, 5, cancel)}
+			input := &Step[int]{Output: createInputChanWithCancel(t, 10, 5, cancel)}
 			got := make(chan []int, 1)
-			output := &model.Step[int]{Output: make(chan int), Details: &model.StepInfo{Concurrent: tc.concurrent}}
+			output := &Step[int]{Output: make(chan int), Details: &model.StepInfo{Concurrent: tc.concurrent}}
 
 			go func() {
 				got <- processOutputChan(t, output.Output)
@@ -111,9 +111,9 @@ func TestOneToOneCancelOutput(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
-			input := &model.Step[int]{Output: createInputChan(t, 10)}
+			input := &Step[int]{Output: createInputChan(t, 10)}
 			got := make(chan []int, 1)
-			output := &model.Step[int]{Output: make(chan int), Details: &model.StepInfo{Concurrent: tc.concurrent}}
+			output := &Step[int]{Output: make(chan int), Details: &model.StepInfo{Concurrent: tc.concurrent}}
 
 			go func() {
 				got <- processOutputChan(t, output.Output)
@@ -158,9 +158,9 @@ func TestOneToOneError(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
-			input := &model.Step[int]{Output: createInputChan(t, 10)}
+			input := &Step[int]{Output: createInputChan(t, 10)}
 			got := make(chan []int, 1)
-			output := &model.Step[int]{Output: make(chan int), Details: &model.StepInfo{Concurrent: tc.concurrent}}
+			output := &Step[int]{Output: make(chan int), Details: &model.StepInfo{Concurrent: tc.concurrent}}
 
 			go func() {
 				got <- processOutputChan(t, output.Output)
@@ -203,9 +203,9 @@ func TestOneToOneOrZero(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
-			input := &model.Step[int]{Output: createInputChan(t, 10)}
+			input := &Step[int]{Output: createInputChan(t, 10)}
 			got := make(chan []int, 1)
-			output := &model.Step[int]{Output: make(chan int), Details: &model.StepInfo{Concurrent: tc.concurrent}}
+			output := &Step[int]{Output: make(chan int), Details: &model.StepInfo{Concurrent: tc.concurrent}}
 
 			go func() {
 				got <- processOutputChan(t, output.Output)
@@ -244,9 +244,9 @@ func TestOneToOneOrZeroCancelInput(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
-			input := &model.Step[int]{Output: createInputChanWithCancel(t, 10, 5, cancel)}
+			input := &Step[int]{Output: createInputChanWithCancel(t, 10, 5, cancel)}
 			got := make(chan []int, 1)
-			output := &model.Step[int]{Output: make(chan int), Details: &model.StepInfo{Concurrent: tc.concurrent}}
+			output := &Step[int]{Output: make(chan int), Details: &model.StepInfo{Concurrent: tc.concurrent}}
 
 			go func() {
 				got <- processOutputChan(t, output.Output)
@@ -285,9 +285,9 @@ func TestOneToOneOrZeroCancelOutput(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
-			input := &model.Step[int]{Output: createInputChan(t, 10)}
+			input := &Step[int]{Output: createInputChan(t, 10)}
 			got := make(chan []int, 1)
-			output := &model.Step[int]{Output: make(chan int), Details: &model.StepInfo{Concurrent: tc.concurrent}}
+			output := &Step[int]{Output: make(chan int), Details: &model.StepInfo{Concurrent: tc.concurrent}}
 
 			go func() {
 				got <- processOutputChan(t, output.Output)
@@ -332,9 +332,9 @@ func TestOneToOneOrZeroError(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
-			input := &model.Step[int]{Output: createInputChan(t, 10)}
+			input := &Step[int]{Output: createInputChan(t, 10)}
 			got := make(chan []int, 1)
-			output := &model.Step[int]{Output: make(chan int), Details: &model.StepInfo{Concurrent: tc.concurrent}}
+			output := &Step[int]{Output: make(chan int), Details: &model.StepInfo{Concurrent: tc.concurrent}}
 
 			go func() {
 				got <- processOutputChan(t, output.Output)
@@ -376,9 +376,9 @@ func TestOneToMany(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
-			input := &model.Step[int]{Output: createInputChan(t, 10)}
+			input := &Step[int]{Output: createInputChan(t, 10)}
 			got := make(chan []int, 1)
-			output := &model.Step[int]{Output: make(chan int), Details: &model.StepInfo{Concurrent: tc.concurrent}}
+			output := &Step[int]{Output: make(chan int), Details: &model.StepInfo{Concurrent: tc.concurrent}}
 
 			go func() {
 				got <- processOutputChan(t, output.Output)
@@ -416,9 +416,9 @@ func TestOneToManyCancelInput(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
-			input := &model.Step[int]{Output: createInputChanWithCancel(t, 10, 5, cancel)}
+			input := &Step[int]{Output: createInputChanWithCancel(t, 10, 5, cancel)}
 			got := make(chan []int, 1)
-			output := &model.Step[int]{Output: make(chan int), Details: &model.StepInfo{Concurrent: tc.concurrent}}
+			output := &Step[int]{Output: make(chan int), Details: &model.StepInfo{Concurrent: tc.concurrent}}
 
 			go func() {
 				got <- processOutputChan(t, output.Output)
@@ -456,9 +456,9 @@ func TestOneToManyCancelOutput(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
-			input := &model.Step[int]{Output: createInputChan(t, 10)}
+			input := &Step[int]{Output: createInputChan(t, 10)}
 			got := make(chan []int, 1)
-			output := &model.Step[int]{Output: make(chan int), Details: &model.StepInfo{Concurrent: tc.concurrent}}
+			output := &Step[int]{Output: make(chan int), Details: &model.StepInfo{Concurrent: tc.concurrent}}
 
 			go func() {
 				got <- processOutputChan(t, output.Output)
@@ -502,9 +502,9 @@ func TestOneToManyError(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
-			input := &model.Step[int]{Output: createInputChan(t, 10)}
+			input := &Step[int]{Output: createInputChan(t, 10)}
 			got := make(chan []int, 1)
-			output := &model.Step[int]{Output: make(chan int), Details: &model.StepInfo{Concurrent: tc.concurrent}}
+			output := &Step[int]{Output: make(chan int), Details: &model.StepInfo{Concurrent: tc.concurrent}}
 
 			go func() {
 				got <- processOutputChan(t, output.Output)
