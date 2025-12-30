@@ -12,7 +12,6 @@ import (
 
 const (
 	benchBatchSize     = 32
-	benchCompositeFan  = 2
 	benchWorkIters     = 64
 	benchOverheadItems = 4096
 	benchStepWorkers   = 1
@@ -2172,20 +2171,8 @@ func runPipelineCompositeOneToMany(inputs []int, stages int, workers int, fn fun
 		if many == nil {
 			return 0, pipe.Err()
 		}
-
-		batched := pipeline.Batch(
-			pipe,
-			stageName+"-batch",
-			many,
-			pipeline.BatchPolicy{MaxSize: benchCompositeFan},
-			stepOptions[[]int](workers)...,
-		)
-		if batched == nil {
-			return 0, pipe.Err()
-		}
-
-		reduce := pipeline.OneToOne(pipe, stageName+"-reduce", batched, func(ctx context.Context, payload []int) (int, error) {
-			return reduceOutputs(payload), nil
+		reduce := pipeline.OneToOne(pipe, stageName+"-reduce", many, func(ctx context.Context, payload int) (int, error) {
+			return payload, nil
 		}, stepOptions[int](workers)...)
 		if reduce == nil {
 			return 0, pipe.Err()
