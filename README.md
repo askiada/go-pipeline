@@ -314,6 +314,7 @@ make lint
 ## Documentation
 - `docs/README.md` explains the docs layout.
 - `step-options.md` is a detailed guide to step options, interactions, and use cases.
+- `benchmarks.md` documents benchmark scenarios, overhead guidance, how to run them, and results tracking.
 - `examples/timing-diagrams.md` provides timing/behavior diagrams for every example.
 - `docs/diagnoses.md` tracks repo health checks over time.
 - `docs/qa/test-plan.md` lists QA scenarios and implemented tests.
