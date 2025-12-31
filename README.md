@@ -16,6 +16,7 @@ go-pipeline is a Go library for building data-processing pipelines with composab
 - Step types and when to use them
 - Examples
 - Pipeline options (metrics + drawer)
+- Dry-run validation
 - Testing
 - Linting
 - Documentation
@@ -262,6 +263,7 @@ Each example directory includes a README with expected output. Use `make example
 - Batching/windowing: `go run ./examples/batching`
 - Batching/windowing (chan): `go run ./examples/batching-chan`
 - Pipeline defaults: `go run ./examples/pipeline-defaults`
+- Dry-run: `go run ./examples/dry-run`
 - Step options: `go run ./examples/step-options`
 - Step limits: `go run ./examples/step-limits`
 - Rate limit: `go run ./examples/rate-limit`
@@ -299,6 +301,14 @@ func buildPipeline() (*pipeline.Pipeline, error) {
 }
 ```
 Run `dot -Tpng pipeline.dot -O` if you want to render the output file as an image.
+
+## Dry-run validation
+Use `RunDry()` to validate wiring and emit drawer output without executing any runners. Dry-run does not mark the pipeline as “ran”, so you can run it afterward.
+```go
+if err := pipe.Run(ctx, pipeline.RunDry()); err != nil {
+    log.Fatal(err)
+}
+```
 
 ## Testing
 ```bash

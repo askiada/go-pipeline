@@ -1,0 +1,23 @@
+strict digraph {
+	
+	
+		"start" [   weight=0 ];
+	
+		"start" -> "root" [  weight=0 ];
+	
+		"end" [   weight=0 ];
+	
+		"root" [   weight=0 ];
+	
+		"root" -> "double" [  weight=0 ];
+	
+		"double" [   weight=0 ];
+	
+		"double" -> "sink" [  weight=0 ];
+	
+		"sink" [   weight=0 ];
+	
+		"sink" -> "end" [  weight=0 ];
+	
+	}
+	

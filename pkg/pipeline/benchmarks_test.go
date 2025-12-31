@@ -2171,6 +2171,7 @@ func runPipelineCompositeOneToMany(inputs []int, stages int, workers int, fn fun
 		if many == nil {
 			return 0, pipe.Err()
 		}
+
 		reduce := pipeline.OneToOne(pipe, stageName+"-reduce", many, func(ctx context.Context, payload int) (int, error) {
 			return payload, nil
 		}, stepOptions[int](workers)...)

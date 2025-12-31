@@ -13,6 +13,7 @@ type pipelineDrawer struct {
 	Drawer
 
 	m         measure.Measure
+	runOpts   model.RunOptions
 	startTime time.Time
 }
 
@@ -100,7 +101,7 @@ func (pd *pipelineDrawer) PrepareSink(parentStep, step *model.StepInfo) error {
 
 // Finish is called after the pipeline is finished.
 func (pd *pipelineDrawer) Finish() error {
-	if pd.m != nil {
+	if pd.m != nil && !pd.runOpts.DryRun {
 		err := pd.SetTotalTime(model.EndStep.Details.Name, pd.startTime)
 		if err != nil {
 			return errors.Wrap(err, "unable to set total time")
@@ -145,7 +146,16 @@ func (pd *pipelineDrawer) AfterSink(_ *model.StepInfo, _ time.Duration) error {
 	return nil
 }
 
+// SetRunOptions records the run settings so Finish can honour dry-run behaviour.
+func (pd *pipelineDrawer) SetRunOptions(opts model.RunOptions) {
+	pd.runOpts = opts
+}
+
 // PipelineDrawer creates a pipeline drawer option.
 func PipelineDrawer(drw Drawer, msr measure.Measure) model.PipelineOption { //nolint:ireturn // it must implement the interface
-	return &pipelineDrawer{drw, msr, time.Now()}
+	return &pipelineDrawer{
+		Drawer:    drw,
+		m:         msr,
+		startTime: time.Now(),
+	}
 }

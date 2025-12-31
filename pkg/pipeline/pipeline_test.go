@@ -64,6 +64,40 @@ func TestRunTwiceReturnsError(t *testing.T) {
 	require.ErrorIs(t, pipe.Run(ctx), pipeline.ErrPipelineAlreadyRan)
 }
 
+func TestRunDrySkipsRunners(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
+	require.NoError(t, err)
+
+	var rootRuns atomic.Int32
+	var sinkItems atomic.Int32
+
+	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+		rootRuns.Add(1)
+
+		out <- 1
+
+		return nil
+	})
+	require.NotNil(t, root)
+
+	pipeline.Sink(pipe, "sink", root, func(ctx context.Context, in int) error {
+		sinkItems.Add(1)
+
+		return nil
+	})
+
+	require.NoError(t, pipe.Run(ctx, pipeline.RunDry()))
+	require.Zero(t, rootRuns.Load())
+	require.Zero(t, sinkItems.Load())
+
+	require.NoError(t, pipe.Run(ctx))
+	require.Equal(t, int32(1), rootRuns.Load())
+	require.Equal(t, int32(1), sinkItems.Load())
+}
+
 func TestOneToOne(t *testing.T) {
 	t.Parallel()
 

@@ -114,6 +114,24 @@ func TestPipelineDrawerFinishWithMeasure(t *testing.T) {
 	}, stub.calls)
 }
 
+func TestPipelineDrawerFinishDryRunOmitsMeasure(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubDrawer{}
+	msr := measure.NewDefaultMeasure()
+	opt := drawer.PipelineDrawer(stub, msr)
+
+	runAware, ok := opt.(model.RunOptionAware)
+	require.True(t, ok)
+
+	runAware.SetRunOptions(model.RunOptions{DryRun: true})
+
+	require.NoError(t, opt.Finish())
+	require.Equal(t, []string{
+		"Draw",
+	}, stub.calls)
+}
+
 func TestPipelineDrawerOutputHooksNoop(t *testing.T) {
 	t.Parallel()
 

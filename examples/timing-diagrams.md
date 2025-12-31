@@ -123,6 +123,15 @@ merge:  interleaves
 ```
 Behavior: defaults apply to all steps unless a step overrides them.
 
+## dry-run
+```
+time ->
+build:  validate steps + links
+runs:   (skipped)
+drawer: graph emitted (no metrics)
+```
+Behavior: validates wiring and emits a diagram without executing step functions.
+
 ## step-options
 ```
 time ->

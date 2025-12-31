@@ -81,7 +81,8 @@ func waitForPipeline(errs ...*errorChan) error {
 }
 
 // Run starts the pipeline and waits for it to finish.
-func (p *Pipeline) Run(ctx context.Context) error {
+// Run options can change execution behaviour, e.g. RunDry skips runner execution.
+func (p *Pipeline) Run(ctx context.Context, opts ...RunOption) error {
 	if p == nil {
 		return ErrPipelineMustBeSet
 	}
@@ -96,6 +97,11 @@ func (p *Pipeline) Run(ctx context.Context) error {
 
 	if !p.startTime.IsZero() {
 		return ErrPipelineAlreadyRan
+	}
+
+	runOpts := applyRunOptions(opts)
+	if runOpts.DryRun {
+		return p.finishRun(runOpts)
 	}
 
 	runCtx, cancel := context.WithCancel(ctx)
@@ -116,7 +122,7 @@ func (p *Pipeline) Run(ctx context.Context) error {
 		return err
 	}
 
-	return p.finishRun()
+	return p.finishRun(runOpts)
 }
 
 // Err returns the first construction error, if any.
@@ -161,8 +167,12 @@ func (p *Pipeline) runnersSnapshot() []func(ctx context.Context) {
 	return runners
 }
 
-func (p *Pipeline) finishRun() error {
+func (p *Pipeline) finishRun(runOpts model.RunOptions) error {
 	for _, opt := range p.opts {
+		if awareOpt, ok := opt.(model.RunOptionAware); ok {
+			awareOpt.SetRunOptions(runOpts)
+		}
+
 		err := opt.Finish()
 		if err != nil {
 			return errors.Wrap(err, "unable to finish pipeline option")

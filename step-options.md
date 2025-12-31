@@ -39,6 +39,9 @@ Not supported:
 - The timeout does not reset between attempts; once the deadline is reached, retries stop.
 - Rate limiting happens before the timeout window starts.
 
+## Run options
+Use `RunDry()` with `Pipeline.Run` to validate wiring and emit drawer output without executing any runners. Dry-run does not mark the pipeline as “ran”, so you can still call `Run` afterward. Drawer output in dry-run omits metrics.
+
 ### Why set `StepConcurrency` higher than `StepMaxInFlight`?
 Most of the time you can set them equal. Use a higher concurrency when output handoff can block and you still want to keep the compute portion saturated:
 - Workers release the in-flight slot after the step function returns, before sending outputs downstream.
