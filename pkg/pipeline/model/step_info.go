@@ -58,6 +58,14 @@ var (
 type Step[O any] struct {
 	Output   chan O
 	KeepOpen bool
+	// ErrorOutput routes per-item errors when enabled.
+	ErrorOutput chan StepError
+	// ErrorStep exposes error routing as a normal step in the pipeline.
+	ErrorStep *Step[StepError]
+	// ErrorOutputEnabled controls whether the error channel is created.
+	ErrorOutputEnabled bool
+	// ErrorOutputBufferSize configures the error channel buffer size.
+	ErrorOutputBufferSize int
 	// RetryPolicy configures per-item retries for step functions.
 	RetryPolicy *RetryPolicy
 	// RateLimitPolicy configures per-item rate limiting for step functions.
@@ -66,7 +74,22 @@ type Step[O any] struct {
 	Timeout time.Duration
 	// MaxInFlight caps the number of in-flight items per step.
 	MaxInFlight int
+	// DropOnOutputFull drops items when output buffers are full.
+	DropOnOutputFull bool
+	// DropOnOutputTimeout drops items if output sends block longer than this duration.
+	DropOnOutputTimeout time.Duration
+	// DropOnError drops items after retries are exhausted instead of propagating the error.
+	DropOnError bool
 	// BatchPolicy configures batching/windowing for batch steps.
 	BatchPolicy *BatchPolicy
 	Details     *StepInfo
+}
+
+// ErrorChan returns the error routing channel for the step, if enabled.
+func (s *Step[O]) ErrorChan() <-chan StepError {
+	if s == nil {
+		return nil
+	}
+
+	return s.ErrorOutput
 }

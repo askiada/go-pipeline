@@ -47,3 +47,33 @@ func TestPipelineMeasureHooks(t *testing.T) {
 	require.NotNil(t, sinkMetric)
 	require.Equal(t, total, sinkMetric.GetTotalDuration())
 }
+
+func TestPipelineMeasureDropHooks(t *testing.T) {
+	t.Parallel()
+
+	msr := measure.NewDefaultMeasure()
+	opt := measure.PipelineMeasure(msr)
+
+	parent := &model.StepInfo{Name: "parent", Concurrent: 1}
+	step := &model.StepInfo{Name: "step", Concurrent: 1}
+
+	require.NoError(t, opt.New())
+	require.NoError(t, opt.PrepareStep(parent, step))
+
+	dropObserver, ok := opt.(model.StepDropObserver)
+	require.True(t, ok)
+	require.NoError(t, dropObserver.OnStepDrop(step, model.StepDropBufferFull))
+	require.NoError(t, dropObserver.OnStepDrop(step, model.StepDropError))
+
+	routeObserver, ok := opt.(model.StepErrorRouteObserver)
+	require.True(t, ok)
+	require.NoError(t, routeObserver.OnStepErrorRoute(step))
+
+	metric := msr.GetMetric(step.Name)
+	dropMetric, ok := metric.(measure.DropMetric)
+	require.True(t, ok)
+	require.Equal(t, int64(1), dropMetric.DropCount(model.StepDropBufferFull))
+	require.Equal(t, int64(1), dropMetric.DropCount(model.StepDropError))
+	require.Equal(t, int64(2), dropMetric.TotalDropCount())
+	require.Equal(t, int64(1), dropMetric.RoutedErrorCount())
+}

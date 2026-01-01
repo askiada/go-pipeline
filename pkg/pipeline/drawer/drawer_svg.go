@@ -14,6 +14,7 @@ import (
 	"gopkg.in/go-playground/colors.v1" //nolint
 
 	"github.com/askiada/go-pipeline/pkg/pipeline/measure"
+	"github.com/askiada/go-pipeline/pkg/pipeline/model"
 )
 
 // SVGDrawer is a drawer that creates a SVG file with the pipeline graph.
@@ -179,6 +180,26 @@ func (d *SVGDrawer) updateMetrics(msr measure.Measure, allChanElapsed map[time.D
 				"retry avg: "+retryMetric.AVGRetryDuration().String(),
 				fmt.Sprintf("retries: %d", retryMetric.RetryCount()),
 			)
+		}
+
+		if dropMetric, ok := step.(measure.DropMetric); ok {
+			totalDrops := dropMetric.TotalDropCount()
+			if totalDrops > 0 {
+				labelParts = append(
+					labelParts,
+					fmt.Sprintf(
+						"drops: %d (full:%d, timeout:%d, error:%d)",
+						totalDrops,
+						dropMetric.DropCount(model.StepDropBufferFull),
+						dropMetric.DropCount(model.StepDropSendTimeout),
+						dropMetric.DropCount(model.StepDropError),
+					),
+				)
+			}
+
+			if routed := dropMetric.RoutedErrorCount(); routed > 0 {
+				labelParts = append(labelParts, fmt.Sprintf("error routed: %d", routed))
+			}
 		}
 
 		if step.GetTotalDuration() > 0 {

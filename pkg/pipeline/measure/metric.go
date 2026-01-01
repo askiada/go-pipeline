@@ -3,6 +3,8 @@ package measure
 import (
 	"sync"
 	"time"
+
+	"github.com/askiada/go-pipeline/pkg/pipeline/model"
 )
 
 // TransportInfo is a struct that contains the transport info.
@@ -20,6 +22,10 @@ type DefaultMetric struct {
 	retryElapsed  time.Duration
 	total         int64
 	retryTotal    int64
+	dropBuffer    int64
+	dropTimeout   int64
+	dropError     int64
+	routedErrors  int64
 	concurrent    int
 }
 
@@ -113,6 +119,62 @@ func (mt *DefaultMetric) RetryCount() int64 {
 	defer mt.mu.Unlock()
 
 	return mt.retryTotal
+}
+
+// AddDrop increments the drop counter for the given kind.
+func (mt *DefaultMetric) AddDrop(kind model.StepDropKind) {
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+
+	switch kind {
+	case model.StepDropBufferFull:
+		mt.dropBuffer++
+	case model.StepDropSendTimeout:
+		mt.dropTimeout++
+	case model.StepDropError:
+		mt.dropError++
+	}
+}
+
+// DropCount returns the number of drops for the given kind.
+func (mt *DefaultMetric) DropCount(kind model.StepDropKind) int64 {
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+
+	switch kind {
+	case model.StepDropBufferFull:
+		return mt.dropBuffer
+	case model.StepDropSendTimeout:
+		return mt.dropTimeout
+	case model.StepDropError:
+		return mt.dropError
+	default:
+		return 0
+	}
+}
+
+// TotalDropCount returns the total number of drops.
+func (mt *DefaultMetric) TotalDropCount() int64 {
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+
+	return mt.dropBuffer + mt.dropTimeout + mt.dropError
+}
+
+// AddRoutedError increments the routed error count.
+func (mt *DefaultMetric) AddRoutedError() {
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+
+	mt.routedErrors++
+}
+
+// RoutedErrorCount returns the number of routed errors.
+func (mt *DefaultMetric) RoutedErrorCount() int64 {
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+
+	return mt.routedErrors
 }
 
 // AVGTransportDuration returns the average transport duration.

@@ -72,6 +72,28 @@ func (pm *pipelineMeasure) OnStepRetry(_, step *model.StepInfo, _ int, computati
 	return nil
 }
 
+// OnStepDrop is called after an item is dropped.
+//
+//nolint:unparam // Required by the pipeline option interface.
+func (pm *pipelineMeasure) OnStepDrop(step *model.StepInfo, kind model.StepDropKind) error {
+	if metric, ok := pm.GetMetric(step.Name).(DropMetric); ok {
+		metric.AddDrop(kind)
+	}
+
+	return nil
+}
+
+// OnStepErrorRoute is called after an item is routed to the error channel.
+//
+//nolint:unparam // Required by the pipeline option interface.
+func (pm *pipelineMeasure) OnStepErrorRoute(step *model.StepInfo) error {
+	if metric, ok := pm.GetMetric(step.Name).(DropMetric); ok {
+		metric.AddRoutedError()
+	}
+
+	return nil
+}
+
 // OnSplitterOutput is called after each splitter step output is processed.
 func (pm *pipelineMeasure) OnSplitterOutput(
 	parentStep, splitterStep *model.StepInfo,

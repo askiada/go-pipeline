@@ -22,6 +22,7 @@ type batchChanState[I any] struct {
 	timer      *time.Timer
 	timerC     <-chan time.Time
 	batchCh    chan I
+	sendTimer  *time.Timer
 }
 
 func newBatchChanState[I any](
@@ -31,7 +32,7 @@ func newBatchChanState[I any](
 	policy *model.BatchPolicy,
 	opts []model.PipelineOption,
 ) *batchChanState[I] {
-	return &batchChanState[I]{
+	state := &batchChanState[I]{
 		goIdx:   goIdx,
 		input:   input,
 		output:  output,
@@ -39,6 +40,13 @@ func newBatchChanState[I any](
 		maxSize: policy.MaxSize,
 		maxWait: policy.MaxWait,
 	}
+
+	if output.DropOnOutputTimeout > 0 {
+		state.sendTimer = time.NewTimer(output.DropOnOutputTimeout)
+		stopBatchTimer(state.sendTimer)
+	}
+
+	return state
 }
 
 func (bs *batchChanState[I]) resetTimer() {
@@ -64,27 +72,35 @@ func (bs *batchChanState[I]) clearTimer() {
 	bs.timerC = nil
 }
 
-func (bs *batchChanState[I]) startBatch(ctx context.Context) error {
+func (bs *batchChanState[I]) startBatch(ctx context.Context) (bool, error) {
 	if bs.batchCh != nil {
-		return nil
+		return false, nil
 	}
 
 	bs.batchCh = make(chan I)
 	bs.batchStart = time.Now()
 	bs.resetTimer()
 
-	select {
-	case <-ctx.Done():
+	dropped, err := sendOutputWithPolicy(ctx, bs.goIdx, bs.output, bs.batchCh, bs.sendTimer, bs.opts...)
+	if err != nil {
 		close(bs.batchCh)
 		bs.batchCh = nil
 		bs.batchStart = time.Time{}
 		bs.clearTimer()
 
-		return errors.Wrapf(ctx.Err(), "go routine %d", bs.goIdx)
-	case bs.output.Output <- bs.batchCh:
+		return dropped, err
 	}
 
-	return nil
+	if dropped {
+		close(bs.batchCh)
+		bs.batchCh = nil
+		bs.batchStart = time.Time{}
+		bs.clearTimer()
+
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func (bs *batchChanState[I]) closeBatch() error {
@@ -122,9 +138,13 @@ func (bs *batchChanState[I]) handleEntry(ctx context.Context, entry I) error {
 		}
 	}
 
-	err := bs.startBatch(ctx)
+	dropped, err := bs.startBatch(ctx)
 	if err != nil {
 		return err
+	}
+
+	if dropped {
+		return nil
 	}
 
 	select {
@@ -274,31 +294,14 @@ func BatchChan[I any](
 		opt(step)
 	}
 
-	if step.RetryPolicy != nil {
-		pipe.recordErr(ErrRetryUnsupported)
+	err := validateBatchOptions(step)
+	if err != nil {
+		pipe.recordErr(err)
 
 		return nil
 	}
 
-	if step.Timeout > 0 {
-		pipe.recordErr(ErrTimeoutUnsupported)
-
-		return nil
-	}
-
-	if step.RateLimitPolicy != nil {
-		pipe.recordErr(ErrRateLimitUnsupported)
-
-		return nil
-	}
-
-	if step.MaxInFlight > 0 {
-		pipe.recordErr(ErrMaxInFlightUnsupported)
-
-		return nil
-	}
-
-	err := validateBatchPolicy(step.BatchPolicy)
+	err = validateBatchPolicy(step.BatchPolicy)
 	if err != nil {
 		pipe.recordErr(err)
 
@@ -319,6 +322,10 @@ func BatchChan[I any](
 
 				if !step.KeepOpen {
 					close(step.Output)
+				}
+
+				if step.ErrorOutput != nil {
+					close(step.ErrorOutput)
 				}
 			}()
 

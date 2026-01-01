@@ -77,6 +77,24 @@ func Root[O any](
 		return nil
 	}
 
+	if step.DropOnOutputFull || step.DropOnOutputTimeout > 0 {
+		pipe.recordErr(ErrDropOutputUnsupported)
+
+		return nil
+	}
+
+	if step.DropOnError {
+		pipe.recordErr(ErrDropOnErrorUnsupported)
+
+		return nil
+	}
+
+	if step.ErrorOutputEnabled {
+		pipe.recordErr(ErrErrorRouteUnsupported)
+
+		return nil
+	}
+
 	err := prepareRootStep(pipe, step)
 	if err != nil {
 		pipe.recordErr(err)

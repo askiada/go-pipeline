@@ -1,0 +1,33 @@
+strict digraph {
+	
+	
+		"source" [   weight=0 ];
+	
+		"source" -> "work" [ color="#0000f0", fontcolor="blue", label="3ms",  weight=0 ];
+	
+		"work" [ label=<work <BR /> <FONT POINT-SIZE="12">583ns, drops: 9 (full:0, timeout:6, error:3), error routed: 3</FONT>>,   weight=0 ];
+	
+		"work" -> "work error" [  weight=0 ];
+	
+		"work" -> "sink" [ color="#0000f0", fontcolor="blue", label="1ms",  weight=0 ];
+	
+		"work error" [   weight=0 ];
+	
+		"work error" -> "errors" [ color="#f00000", fontcolor="blue", label="18ms",  weight=0 ];
+	
+		"sink" [ label=<sink <BR /> <FONT POINT-SIZE="12">21ms, end: 66.151875ms</FONT>>,   weight=0 ];
+	
+		"sink" -> "end" [  weight=0 ];
+	
+		"errors" [ label=<errors <BR /> <FONT POINT-SIZE="12">24µs, end: 63.115ms</FONT>>,   weight=0 ];
+	
+		"errors" -> "end" [  weight=0 ];
+	
+		"start" [   weight=0 ];
+	
+		"start" -> "source" [  weight=0 ];
+	
+		"end" [ label=<end <BR /> <FONT POINT-SIZE="12">66.401083ms</FONT>>,   weight=0 ];
+	
+	}
+	

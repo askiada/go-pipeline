@@ -112,25 +112,30 @@ func sendStepOutput[I, O any](
 	start time.Time,
 	fnDuration time.Duration,
 	release func(),
+	timer *time.Timer,
 	opts ...model.PipelineOption,
-) error {
+) (bool, error) {
 	if release != nil {
 		release()
 	}
 
-	select {
-	case <-ctx.Done():
-		return errors.Wrapf(ctx.Err(), "go routine: %d", goIdx)
-	case output.Output <- value:
-		for _, opt := range opts {
-			err := opt.OnStepOutput(input.Details, output.Details, time.Since(start)-fnDuration, fnDuration)
-			if err != nil {
-				return errors.Wrap(err, "unable to run before step function")
-			}
+	dropped, err := sendOutputWithPolicy(ctx, goIdx, output, value, timer, opts...)
+	if err != nil {
+		return dropped, err
+	}
+
+	if dropped {
+		return true, nil
+	}
+
+	for _, opt := range opts {
+		err := opt.OnStepOutput(input.Details, output.Details, time.Since(start)-fnDuration, fnDuration)
+		if err != nil {
+			return false, errors.Wrap(err, "unable to run before step function")
 		}
 	}
 
-	return nil
+	return false, nil
 }
 
 func sendOneToManyOutputs[I, O any](
@@ -142,29 +147,44 @@ func sendOneToManyOutputs[I, O any](
 	start time.Time,
 	fnDuration time.Duration,
 	release func(),
+	timer *time.Timer,
 	opts ...model.PipelineOption,
-) error {
+) (bool, error) {
 	if release != nil {
 		release()
 	}
 
+	dropped := false
+	sent := false
+
 	for _, value := range values {
-		select {
-		case <-ctx.Done():
-			return errors.Wrapf(ctx.Err(), "go routine %d", goIdx)
-		case output.Output <- value:
+		itemDropped, err := sendOutputWithPolicy(ctx, goIdx, output, value, timer, opts...)
+		if err != nil {
+			return dropped, err
 		}
+
+		if itemDropped {
+			dropped = true
+
+			continue
+		}
+
+		sent = true
+	}
+
+	if !sent {
+		return dropped, nil
 	}
 
 	end := time.Since(start)
 	for _, opt := range opts {
 		err := opt.OnStepOutput(input.Details, output.Details, end-fnDuration, fnDuration)
 		if err != nil {
-			return errors.Wrap(err, "unable to run before step function")
+			return false, errors.Wrap(err, "unable to run before step function")
 		}
 	}
 
-	return nil
+	return false, nil
 }
 
 func sequentialOneToOneFn[I any, O any](
@@ -179,6 +199,13 @@ func sequentialOneToOneFn[I any, O any](
 	inFlight *inFlightLimiter,
 	opts ...model.PipelineOption,
 ) error {
+	var sendTimer *time.Timer
+	if output.DropOnOutputTimeout > 0 {
+		sendTimer = time.NewTimer(output.DropOnOutputTimeout)
+		stopBatchTimer(sendTimer)
+	}
+	defer stopBatchTimer(sendTimer)
+
 	for {
 		start := time.Now()
 
@@ -210,6 +237,20 @@ func sequentialOneToOneFn[I any, O any](
 		if err != nil {
 			release()
 
+			routeErr := routeStepError(ctx, output, entry, err, opts...)
+			if routeErr != nil {
+				return routeErr
+			}
+
+			if output.DropOnError {
+				err = reportStepDrop(opts, output.Details, model.StepDropError)
+				if err != nil {
+					return err
+				}
+
+				continue
+			}
+
 			return errors.Wrapf(err, "go routine %d", goIdx)
 		}
 
@@ -220,7 +261,7 @@ func sequentialOneToOneFn[I any, O any](
 			continue
 		}
 
-		err = sendStepOutput(ctx, goIdx, input, output, out, start, endFn, release, opts...)
+		_, err = sendStepOutput(ctx, goIdx, input, output, out, start, endFn, release, sendTimer, opts...)
 		if err != nil {
 			return err
 		}
@@ -292,6 +333,13 @@ func sequentialOneToManyFn[I any, O any](
 	inFlight *inFlightLimiter,
 	opts ...model.PipelineOption,
 ) error {
+	var sendTimer *time.Timer
+	if output.DropOnOutputTimeout > 0 {
+		sendTimer = time.NewTimer(output.DropOnOutputTimeout)
+		stopBatchTimer(sendTimer)
+	}
+	defer stopBatchTimer(sendTimer)
+
 	for {
 		start := time.Now()
 
@@ -323,10 +371,24 @@ func sequentialOneToManyFn[I any, O any](
 		if err != nil {
 			release()
 
+			routeErr := routeStepError(ctx, output, entry, err, opts...)
+			if routeErr != nil {
+				return routeErr
+			}
+
+			if output.DropOnError {
+				err = reportStepDrop(opts, output.Details, model.StepDropError)
+				if err != nil {
+					return err
+				}
+
+				continue
+			}
+
 			return errors.Wrapf(err, "go routine %d", goIdx)
 		}
 
-		err = sendOneToManyOutputs(ctx, goIdx, input, output, outcome.value, start, endFn, release, opts...)
+		_, err = sendOneToManyOutputs(ctx, goIdx, input, output, outcome.value, start, endFn, release, sendTimer, opts...)
 		if err != nil {
 			return err
 		}
@@ -394,8 +456,9 @@ func prepareStep[I, O any](pipe *Pipeline, input *Step[I], step *Step[O]) error 
 	}
 
 	step.Output = make(chan O, step.Details.BufferSize)
+	prepareStepErrorOutput(step)
 
-	return nil
+	return prepareErrorStep(pipe, step)
 }
 
 func addStep[I any, O any](
@@ -450,6 +513,10 @@ func addStep[I any, O any](
 				if !step.KeepOpen {
 					close(step.Output)
 				}
+
+				if step.ErrorOutput != nil {
+					close(step.ErrorOutput)
+				}
 			}()
 
 			err := stepToStep(ctx, input, step)
@@ -471,20 +538,9 @@ func runStepFromChan[I, O any](
 	stepFn StepFromChanFn[I, O],
 	opts ...model.PipelineOption,
 ) error {
-	if output.RetryPolicy != nil {
-		return ErrRetryUnsupported
-	}
-
-	if output.Timeout > 0 {
-		return ErrTimeoutUnsupported
-	}
-
-	if output.RateLimitPolicy != nil {
-		return ErrRateLimitUnsupported
-	}
-
-	if output.MaxInFlight > 0 {
-		return ErrMaxInFlightUnsupported
+	err := validateFromChanOptions(output)
+	if err != nil {
+		return err
 	}
 
 	if output.Details.Concurrent == 0 {
@@ -496,6 +552,42 @@ func runStepFromChan[I, O any](
 	}
 
 	return concurrentStepFromChanFn(ctx, input, output, stepFn, opts...)
+}
+
+func validateFromChanOptions[O any](step *Step[O]) error {
+	if step == nil {
+		return nil
+	}
+
+	if step.RetryPolicy != nil {
+		return ErrRetryUnsupported
+	}
+
+	if step.Timeout > 0 {
+		return ErrTimeoutUnsupported
+	}
+
+	if step.RateLimitPolicy != nil {
+		return ErrRateLimitUnsupported
+	}
+
+	if step.MaxInFlight > 0 {
+		return ErrMaxInFlightUnsupported
+	}
+
+	if step.DropOnOutputFull || step.DropOnOutputTimeout > 0 {
+		return ErrDropOutputUnsupported
+	}
+
+	if step.DropOnError {
+		return ErrDropOnErrorUnsupported
+	}
+
+	if step.ErrorOutputEnabled {
+		return ErrErrorRouteUnsupported
+	}
+
+	return nil
 }
 
 func sequentialStepFromChanFn[I any, O any](
@@ -654,30 +746,15 @@ func FromChan[I any, O any](
 		return runStepFromChan(ctx, in, out, stepFromChan, pipe.opts...)
 	}, opts...)
 
-	if step != nil {
-		if step.RetryPolicy != nil {
-			pipe.recordErr(ErrRetryUnsupported)
+	if step == nil {
+		return nil
+	}
 
-			return nil
-		}
+	err := validateFromChanOptions(step)
+	if err != nil {
+		pipe.recordErr(err)
 
-		if step.Timeout > 0 {
-			pipe.recordErr(ErrTimeoutUnsupported)
-
-			return nil
-		}
-
-		if step.RateLimitPolicy != nil {
-			pipe.recordErr(ErrRateLimitUnsupported)
-
-			return nil
-		}
-
-		if step.MaxInFlight > 0 {
-			pipe.recordErr(ErrMaxInFlightUnsupported)
-
-			return nil
-		}
+		return nil
 	}
 
 	return step

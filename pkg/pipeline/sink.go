@@ -40,7 +40,50 @@ func prepareSink[I any](pipe *Pipeline, name string, input *Step[I], opts ...Ste
 		}
 	}
 
+	prepareStepErrorOutput(step)
+
+	err := prepareErrorStep(pipe, step)
+	if err != nil {
+		return nil, err
+	}
+
 	return step, nil
+}
+
+func validateSinkFromChanOptions[I any](step *Step[I]) error {
+	if step == nil {
+		return nil
+	}
+
+	if step.RetryPolicy != nil {
+		return ErrRetryUnsupported
+	}
+
+	if step.Timeout > 0 {
+		return ErrTimeoutUnsupported
+	}
+
+	if step.RateLimitPolicy != nil {
+		return ErrRateLimitUnsupported
+	}
+
+	if step.MaxInFlight > 0 {
+		return ErrMaxInFlightUnsupported
+	}
+
+	if step.DropOnOutputFull || step.DropOnOutputTimeout > 0 {
+		return ErrDropOutputUnsupported
+	}
+
+	if step.DropOnError {
+		return ErrDropOnErrorUnsupported
+	}
+
+	if step.ErrorOutputEnabled {
+		return ErrErrorRouteUnsupported
+	}
+
+	return nil
 }
 
 func sequentialSinkFn[I any](
@@ -84,6 +127,20 @@ func sequentialSinkFn[I any](
 
 		if err != nil {
 			release()
+
+			routeErr := routeStepError(ctx, step, entry, err, opts...)
+			if routeErr != nil {
+				return routeErr
+			}
+
+			if step.DropOnError {
+				err = reportStepDrop(opts, step.Details, model.StepDropError)
+				if err != nil {
+					return err
+				}
+
+				continue
+			}
 
 			return errors.Wrapf(err, "go routine %d", goIdx)
 		}
@@ -135,6 +192,10 @@ func runSink[I any](
 	sinkFn func(ctx context.Context, input I) error,
 	opts ...model.PipelineOption,
 ) error {
+	if step.DropOnOutputFull || step.DropOnOutputTimeout > 0 {
+		return ErrDropOutputUnsupported
+	}
+
 	if step.Details.Concurrent == 0 {
 		step.Details.Concurrent = 1
 	}
@@ -178,7 +239,13 @@ func Sink[I any](
 
 	pipe.addRunner(func(ctx context.Context) {
 		go func() {
-			defer close(errC)
+			defer func() {
+				close(errC)
+
+				if step.ErrorOutput != nil {
+					close(step.ErrorOutput)
+				}
+			}()
 
 			err := runSink(ctx, input, step, sinkFn, pipe.opts...)
 			if err != nil {
@@ -224,26 +291,9 @@ func SinkFromChan[I any](
 		return nil
 	}
 
-	if step.RetryPolicy != nil {
-		pipe.recordErr(ErrRetryUnsupported)
-
-		return nil
-	}
-
-	if step.Timeout > 0 {
-		pipe.recordErr(ErrTimeoutUnsupported)
-
-		return nil
-	}
-
-	if step.RateLimitPolicy != nil {
-		pipe.recordErr(ErrRateLimitUnsupported)
-
-		return nil
-	}
-
-	if step.MaxInFlight > 0 {
-		pipe.recordErr(ErrMaxInFlightUnsupported)
+	err = validateSinkFromChanOptions(step)
+	if err != nil {
+		pipe.recordErr(err)
 
 		return nil
 	}
@@ -253,7 +303,13 @@ func SinkFromChan[I any](
 
 	pipe.addRunner(func(ctx context.Context) {
 		go func() {
-			defer close(errC)
+			defer func() {
+				close(errC)
+
+				if step.ErrorOutput != nil {
+					close(step.ErrorOutput)
+				}
+			}()
 
 			err := runSinkFromChan(ctx, input, step, stepFn, pipe.opts...)
 			if err != nil {
@@ -386,20 +442,9 @@ func runSinkFromChan[I any](
 	stepFn func(ctx context.Context, input <-chan I) error,
 	opts ...model.PipelineOption,
 ) error {
-	if step.RetryPolicy != nil {
-		return ErrRetryUnsupported
-	}
-
-	if step.Timeout > 0 {
-		return ErrTimeoutUnsupported
-	}
-
-	if step.RateLimitPolicy != nil {
-		return ErrRateLimitUnsupported
-	}
-
-	if step.MaxInFlight > 0 {
-		return ErrMaxInFlightUnsupported
+	err := validateSinkFromChanOptions(step)
+	if err != nil {
+		return err
 	}
 
 	if step.Details.Concurrent == 0 {

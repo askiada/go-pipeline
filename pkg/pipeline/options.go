@@ -112,6 +112,63 @@ func StepMaxInFlight[O any](maxInFlight int) StepOption[O] {
 	}
 }
 
+// StepDropOnFull drops items when the output buffer is full.
+func StepDropOnFull[O any]() StepOption[O] {
+	return func(step *Step[O]) {
+		step.DropOnOutputFull = true
+	}
+}
+
+// StepDropOnBlocked drops items if output sends block longer than the timeout.
+func StepDropOnBlocked[O any](timeout time.Duration) StepOption[O] {
+	return func(step *Step[O]) {
+		if timeout <= 0 {
+			return
+		}
+
+		step.DropOnOutputTimeout = timeout
+	}
+}
+
+// StepDropOnError drops items after retries are exhausted instead of propagating the error.
+func StepDropOnError[O any]() StepOption[O] {
+	return func(step *Step[O]) {
+		step.DropOnError = true
+	}
+}
+
+// StepErrorOutput returns an error step and an option to attach error routing to a step.
+// The error step name is derived from the attached step name with an " error" suffix.
+func StepErrorOutput[O any](bufferSize int) (*Step[model.StepError], StepOption[O]) {
+	if bufferSize < 0 {
+		bufferSize = 0
+	}
+
+	errorStep := &Step[model.StepError]{
+		Details: &model.StepInfo{
+			Type:       model.NormalStepType,
+			Concurrent: 1,
+			BufferSize: bufferSize,
+		},
+		Output: make(chan model.StepError, bufferSize),
+	}
+
+	return errorStep, func(step *Step[O]) {
+		if step == nil {
+			return
+		}
+
+		if step.Details != nil && errorStep.Details != nil {
+			errorStep.Details.Name = step.Details.Name + " error"
+		}
+
+		step.ErrorOutputEnabled = true
+		step.ErrorOutputBufferSize = bufferSize
+		step.ErrorOutput = errorStep.Output
+		step.ErrorStep = errorStep
+	}
+}
+
 // SplitterOption is a function that modifies a Splitter.
 type SplitterOption[I any] func(s *Splitter[I])
 

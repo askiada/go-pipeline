@@ -6,11 +6,13 @@ This guide explains the step options available in go-pipeline, how they interact
 Applies to:
 - `OneToOne`, `OneToMany`, `Sink`: all step options listed below.
 - `FromChan`, `SinkFromChan`: `StepConcurrency`, `StepBufferSize`, `StepKeepOpen`.
-- `Batch`, `BatchChan`: `BatchPolicy` (required), `StepConcurrency`, `StepBufferSize`, `StepKeepOpen`.
+- `Batch`, `BatchChan`: `BatchPolicy` (required), `StepConcurrency`, `StepBufferSize`, `StepKeepOpen`, `StepDropOnFull`, `StepDropOnBlocked`.
 - `Root`: `StepBufferSize`, `StepKeepOpen`.
 
 Not supported:
 - `StepRetry`, `StepTimeout`, `StepRateLimit`, `StepMaxInFlight` do not apply to `Root`, `FromChan`, `SinkFromChan`, `Batch`, or `BatchChan`.
+- `StepDropOnFull` and `StepDropOnBlocked` do not apply to `Root`, `FromChan`, `SinkFromChan`, or `Sink`.
+- `StepDropOnError` and `StepErrorOutput` do not apply to `Root`, `FromChan`, `SinkFromChan`, `Batch`, or `BatchChan`.
 
 ## Option reference
 
@@ -23,6 +25,10 @@ Not supported:
 | `StepTimeout` | Per-item deadline for a step invocation. | Fail fast on slow or stuck work. |
 | `StepRateLimit` | Throttle per-item execution (shared across workers). | Respect QPS limits or smooth traffic. |
 | `StepMaxInFlight` | Limit active work per step. | Cap memory and CPU pressure. |
+| `StepDropOnFull` | Drop items if output buffer is full. | Best-effort workloads under overload. |
+| `StepDropOnBlocked` | Drop items if output send blocks longer than a timeout. | Allow brief backpressure, drop on sustained stalls. |
+| `StepDropOnError` | Drop errored items after retries are exhausted. | Keep pipelines moving when errors are tolerable. |
+| `StepErrorOutput` | Create an error step + option to route errored items. | Inspect failed items without halting the pipeline. |
 
 ## Interaction rules
 - `StepConcurrency` defines how many workers run in parallel.
@@ -33,11 +39,38 @@ Not supported:
 - `StepRetry` runs under the same per-item context, so timeouts are not reset between retries.
 - `StepRateLimit` is applied once per item, not per retry attempt.
 - `BatchPolicy` changes the unit of work: buffer size applies to batches, not individual items.
+- `StepDropOnFull` is non-blocking and takes precedence over `StepDropOnBlocked` if both are set.
+- `StepDropOnBlocked` uses a per-item timer; each blocked send is dropped after the configured duration.
+- Dropped outputs do not record `OnStepOutput` metrics; drop counts are tracked separately.
+- `StepDropOnError` fires after retries are exhausted; errors are still routed to `StepErrorOutput`.
+- `StepErrorOutput` is non-blocking; if the channel is full, errors are dropped.
 
 ### Timeout + retry details
 - `StepTimeout` applies to the entire item lifecycle for that step, including all retries.
 - The timeout does not reset between attempts; once the deadline is reached, retries stop.
 - Rate limiting happens before the timeout window starts.
+
+### Drop policies and error routing
+- `StepDropOnFull` drops immediately when output buffers are full or receivers are not ready.
+- `StepDropOnBlocked` drops after waiting `timeout` to send an item downstream.
+- `StepDropOnError` drops items after retries fail; the pipeline continues.
+- `StepErrorOutput` exposes a per-step error channel (best-effort, non-blocking).
+The error channel is pipeline-owned and closed when the step finishes; `StepErrorOutput` returns the error step and buffer size controls its channel.
+The error step is named after the source step with an " error" suffix.
+
+```go
+errStep, errOpt := pipeline.StepErrorOutput[int](16)
+work := pipeline.OneToOne(pipe, "work", root, workFn,
+    pipeline.StepDropOnBlocked[int](20*time.Millisecond),
+    pipeline.StepDropOnError[int](),
+    errOpt,
+)
+
+pipeline.Sink(pipe, "work errors", errStep, func(ctx context.Context, errItem model.StepError) error {
+    log.Printf("failed item: %v (err=%v)", errItem.Item, errItem.Err)
+    return nil
+})
+```
 
 ## Run options
 Use `RunDry()` with `Pipeline.Run` to validate wiring and emit drawer output without executing any runners. Dry-run does not mark the pipeline as “ran”, so you can still call `Run` afterward. Drawer output in dry-run omits metrics.
@@ -82,3 +115,18 @@ Examples: `examples/batching`, `examples/batching-chan`
 Combine rate limiting, max in-flight, and timeouts for complex workloads that need both throughput control and strict resource caps.
 
 Example: `examples/step-limits`
+
+### Overload shedding for slow downstreams
+Use `StepDropOnFull` or `StepDropOnBlocked` when you prefer dropping items instead of stalling upstream. This is common for best-effort analytics or telemetry pipelines.
+
+Examples: `examples/drop-on-full`, `examples/drop-on-blocked`
+
+### Error-tolerant flows
+Use `StepDropOnError` with `StepErrorOutput` when you want to keep processing while routing failed items elsewhere.
+
+Example: `examples/drop-on-error`
+
+### Combined overload scenarios
+Combine drop-on-blocked and drop-on-error when both slow downstreams and occasional failures are expected.
+
+Example: `examples/drop-overload`

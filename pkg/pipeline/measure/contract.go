@@ -1,6 +1,10 @@
 package measure
 
-import "time"
+import (
+	"time"
+
+	"github.com/askiada/go-pipeline/pkg/pipeline/model"
+)
 
 // Measure is an interface that defines the methods for measuring the performance of a pipeline.
 type Measure interface {
@@ -36,4 +40,18 @@ type RetryMetric interface {
 	AVGRetryDuration() time.Duration
 	// RetryCount returns the number of retry attempts recorded.
 	RetryCount() int64
+}
+
+// DropMetric exposes drop counters when supported by a Metric.
+type DropMetric interface {
+	// AddDrop increments the drop counter for the given kind.
+	AddDrop(kind model.StepDropKind)
+	// DropCount returns the number of drops for the given kind.
+	DropCount(kind model.StepDropKind) int64
+	// TotalDropCount returns the total number of drops.
+	TotalDropCount() int64
+	// AddRoutedError increments the routed error count.
+	AddRoutedError()
+	// RoutedErrorCount returns the number of routed errors.
+	RoutedErrorCount() int64
 }

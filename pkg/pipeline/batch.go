@@ -18,6 +18,38 @@ func validateBatchPolicy(policy *model.BatchPolicy) error {
 	return nil
 }
 
+func validateBatchOptions[O any](step *Step[O]) error {
+	if step == nil {
+		return nil
+	}
+
+	if step.RetryPolicy != nil {
+		return ErrRetryUnsupported
+	}
+
+	if step.Timeout > 0 {
+		return ErrTimeoutUnsupported
+	}
+
+	if step.RateLimitPolicy != nil {
+		return ErrRateLimitUnsupported
+	}
+
+	if step.MaxInFlight > 0 {
+		return ErrMaxInFlightUnsupported
+	}
+
+	if step.DropOnError {
+		return ErrDropOnErrorUnsupported
+	}
+
+	if step.ErrorOutputEnabled {
+		return ErrErrorRouteUnsupported
+	}
+
+	return nil
+}
+
 func stopBatchTimer(timer *time.Timer) {
 	if timer == nil {
 		return
@@ -42,6 +74,7 @@ type batchState[I any] struct {
 	batchStart time.Time
 	timer      *time.Timer
 	timerC     <-chan time.Time
+	sendTimer  *time.Timer
 }
 
 func newBatchState[I any](
@@ -51,7 +84,7 @@ func newBatchState[I any](
 	policy *model.BatchPolicy,
 	opts []model.PipelineOption,
 ) *batchState[I] {
-	return &batchState[I]{
+	state := &batchState[I]{
 		goIdx:   goIdx,
 		input:   input,
 		output:  output,
@@ -59,6 +92,13 @@ func newBatchState[I any](
 		maxSize: policy.MaxSize,
 		maxWait: policy.MaxWait,
 	}
+
+	if output.DropOnOutputTimeout > 0 {
+		state.sendTimer = time.NewTimer(output.DropOnOutputTimeout)
+		stopBatchTimer(state.sendTimer)
+	}
+
+	return state
 }
 
 func (bs *batchState[I]) resetTimer() {
@@ -102,15 +142,19 @@ func (bs *batchState[I]) flush(ctx context.Context) error {
 	bs.batchStart = time.Time{}
 	bs.clearTimer()
 
-	select {
-	case <-ctx.Done():
-		return errors.Wrapf(ctx.Err(), "go routine %d", bs.goIdx)
-	case bs.output.Output <- batchToSend:
-		for _, opt := range bs.opts {
-			err := opt.OnStepOutput(bs.input.Details, bs.output.Details, elapsed, elapsed)
-			if err != nil {
-				return errors.Wrap(err, "unable to run before step function")
-			}
+	dropped, err := sendOutputWithPolicy(ctx, bs.goIdx, bs.output, batchToSend, bs.sendTimer, bs.opts...)
+	if err != nil {
+		return err
+	}
+
+	if dropped {
+		return nil
+	}
+
+	for _, opt := range bs.opts {
+		err := opt.OnStepOutput(bs.input.Details, bs.output.Details, elapsed, elapsed)
+		if err != nil {
+			return errors.Wrap(err, "unable to run before step function")
 		}
 	}
 
@@ -271,31 +315,14 @@ func Batch[I any](
 		opt(step)
 	}
 
-	if step.RetryPolicy != nil {
-		pipe.recordErr(ErrRetryUnsupported)
+	err := validateBatchOptions(step)
+	if err != nil {
+		pipe.recordErr(err)
 
 		return nil
 	}
 
-	if step.Timeout > 0 {
-		pipe.recordErr(ErrTimeoutUnsupported)
-
-		return nil
-	}
-
-	if step.RateLimitPolicy != nil {
-		pipe.recordErr(ErrRateLimitUnsupported)
-
-		return nil
-	}
-
-	if step.MaxInFlight > 0 {
-		pipe.recordErr(ErrMaxInFlightUnsupported)
-
-		return nil
-	}
-
-	err := validateBatchPolicy(step.BatchPolicy)
+	err = validateBatchPolicy(step.BatchPolicy)
 	if err != nil {
 		pipe.recordErr(err)
 
@@ -316,6 +343,10 @@ func Batch[I any](
 
 				if !step.KeepOpen {
 					close(step.Output)
+				}
+
+				if step.ErrorOutput != nil {
+					close(step.ErrorOutput)
 				}
 			}()
 

@@ -27,6 +27,12 @@ var (
 	ErrRateLimitUnsupported = errors.New("rate limit is not supported for this step type")
 	// ErrMaxInFlightUnsupported is returned when max in-flight is configured on an unsupported step.
 	ErrMaxInFlightUnsupported = errors.New("max in-flight is not supported for this step type")
+	// ErrDropOutputUnsupported is returned when output drop policies are configured on an unsupported step.
+	ErrDropOutputUnsupported = errors.New("output drop policy is not supported for this step type")
+	// ErrDropOnErrorUnsupported is returned when drop-on-error is configured on an unsupported step.
+	ErrDropOnErrorUnsupported = errors.New("drop on error is not supported for this step type")
+	// ErrErrorRouteUnsupported is returned when error routing is configured on an unsupported step.
+	ErrErrorRouteUnsupported = errors.New("error routing is not supported for this step type")
 )
 
 type errorChans struct {

@@ -32,7 +32,8 @@ The pipeline package provides a channel-based, concurrent processing model with 
 - Generic steps: one-to-one, one-to-many, and channel-based step functions.
 - Fan-out and fan-in via splitters and mergers.
 - Concurrency and buffering controls via step options.
-- Error propagation that stops the pipeline on the first error.
+- Default error propagation that stops the pipeline on the first error.
+- Opt-in drop policies and per-step error routing for overload handling.
 - Optional metrics collection and Graphviz-ready drawer output.
 
 ## Requirements
@@ -211,6 +212,33 @@ Interaction notes:
 - `StepMaxInFlight` limits only the step function execution; output sends happen after the slot is released. If downstream backpressure matters, tune `StepBufferSize` and/or reduce `StepConcurrency`.
 - `StepTimeout` starts after the rate-limit wait and applies across retries; the total wall-clock time per item is rate-limit wait + timeout + any retry backoff.
 
+### Drop policies and error routing
+Drop policies are opt-in. By default, output sends block and errors stop the pipeline. Use these options to keep pipelines moving under overload:
+- `StepDropOnFull`: non-blocking output sends; drops immediately when the output is full.
+- `StepDropOnBlocked`: drops after waiting `timeout` to send downstream.
+- `StepDropOnError`: drops items after retries are exhausted instead of propagating the error.
+- `StepErrorOutput`: returns an error step + option to route failed items (best-effort, non-blocking).
+
+Dropped items are omitted from step averages; drop counters and routed error counts show up in metrics/drawer output.
+Error routing does not change default error propagation unless `StepDropOnError` is set.
+For one-to-many steps, output observers still run if at least one output is delivered, even when some outputs drop.
+Error channels are pipeline-owned and closed when the step finishes; `StepErrorOutput` sets the buffer size on the error step.
+The error step is named after the source step with an " error" suffix.
+
+```go
+errStep, errOpt := pipeline.StepErrorOutput[int](16)
+work := pipeline.OneToOne(pipe, "work", root, workFn,
+    pipeline.StepDropOnBlocked[int](20*time.Millisecond),
+    pipeline.StepDropOnError[int](),
+    errOpt,
+)
+
+pipeline.Sink(pipe, "work errors", errStep, func(ctx context.Context, errItem model.StepError) error {
+    log.Printf("failed item: %v (err=%v)", errItem.Item, errItem.Err)
+    return nil
+})
+```
+
 ### Batching/windowing
 Use `pipeline.Batch` to group items into slices before processing, or `pipeline.BatchChan` to stream each batch over a channel for lower memory usage. `MaxSize` is required; `MaxWait` flushes partial batches on a timer. `StepBufferSize` applies to the number of batches buffered, not individual items.
 ```go
@@ -268,6 +296,10 @@ Each example directory includes a README with expected output. Use `make example
 - Step limits: `go run ./examples/step-limits`
 - Rate limit: `go run ./examples/rate-limit`
 - Max in-flight: `go run ./examples/max-inflight`
+- Drop on full: `go run ./examples/drop-on-full`
+- Drop on blocked: `go run ./examples/drop-on-blocked`
+- Drop on error: `go run ./examples/drop-on-error`
+- Drop overload: `go run ./examples/drop-overload`
 - Metrics + drawer: `go run ./examples/metrics-drawer`
 
 ### Advanced examples

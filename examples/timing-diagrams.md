@@ -201,3 +201,44 @@ rate:   [0]--20ms--[1]--20ms--[2]--20ms--[3]--20ms--[4]
 inflight: only one active compute at a time (max 1)
 ```
 Behavior: rate limit spaces inputs and max in-flight caps active work; concurrency allows output handoff overlap.
+
+## drop-on-full
+```
+time ->
+source: [0][1][2][3][4][5]
+work:   send (non-blocking)
+sink:   [0]........[1]
+drop:      [2][3][4][5] (buffer full)
+```
+Behavior: output sends drop immediately when the sink is not ready.
+
+## drop-on-blocked
+```
+time ->
+source: [0][1][2][3][4][5]
+work:   send (wait 10ms) -> drop
+sink:   [0]........[1]
+drop:      [2][3][4][5] (send timeout)
+```
+Behavior: output sends wait up to the timeout before dropping.
+
+## drop-on-error
+```
+time ->
+source: [0][1][2][3][4][5]
+work:   errors on 0,3; outputs on others
+sink:   [2][4][8][10]
+error:  [0][3]
+```
+Behavior: errored items are dropped and routed to the error channel.
+
+## drop-overload
+```
+time ->
+source: [0][1][2][3][4][5][6][7][8][9][10][11]
+work:   errors on 0,5,10; drops when output blocks
+sink:   [10]........[20]
+drop:      [30][40][60] (timeout)
+error:  [0][5][10]
+```
+Behavior: combines drop-on-blocked with drop-on-error and error routing.

@@ -10,6 +10,7 @@ import (
 
 	"github.com/askiada/go-pipeline/pkg/pipeline/drawer"
 	"github.com/askiada/go-pipeline/pkg/pipeline/measure"
+	"github.com/askiada/go-pipeline/pkg/pipeline/model"
 )
 
 func TestSVGDrawerDrawWritesDotFile(t *testing.T) {
@@ -94,4 +95,34 @@ func TestSVGDrawerIncludesRetryMetrics(t *testing.T) {
 	content := string(data)
 	require.Contains(t, content, "retry avg: 3ms")
 	require.Contains(t, content, "retries: 2")
+}
+
+func TestSVGDrawerIncludesDropMetrics(t *testing.T) {
+	t.Parallel()
+
+	outPath := filepath.Join(t.TempDir(), "graph.dot")
+	drw := drawer.NewSVGDrawer(outPath)
+
+	require.NoError(t, drw.AddStep("step"))
+
+	msr := measure.NewDefaultMeasure()
+	metric := msr.AddMetric("step", 1)
+
+	dropMetric, ok := metric.(measure.DropMetric)
+	require.True(t, ok)
+	dropMetric.AddDrop(model.StepDropBufferFull)
+	dropMetric.AddDrop(model.StepDropSendTimeout)
+	dropMetric.AddDrop(model.StepDropError)
+	dropMetric.AddRoutedError()
+	dropMetric.AddRoutedError()
+
+	require.NoError(t, drw.AddMeasure(msr))
+	require.NoError(t, drw.Draw())
+
+	data, err := os.ReadFile(outPath)
+	require.NoError(t, err)
+
+	content := string(data)
+	require.Contains(t, content, "drops: 3 (full:1, timeout:1, error:1)")
+	require.Contains(t, content, "error routed: 2")
 }
