@@ -176,6 +176,17 @@ limit:  [0]--30ms--[1]--30ms--[2]--30ms--[3]--30ms--[4]
 ```
 Behavior: shared rate limit caps throughput even with higher concurrency.
 
+## live-monitoring
+```
+time ->
+source: [0][1][2][3]
+work:   [15ms each]
+sink:   [5ms each]
+ui:     refreshes while run is active
+metrics: emitted per step + run
+```
+Behavior: pipeline reports step metrics during the run; UI updates while the run is active.
+
 ## max-inflight
 ```
 time ->

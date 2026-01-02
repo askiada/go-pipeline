@@ -7,37 +7,30 @@
 go-pipeline is a Go library for building data-processing pipelines with composable steps, splitters, mergers, and sinks.
 
 ## Table of contents
-- Overview
 - Features
 - Requirements
 - Installation
 - Quick start
-- Splitter and merger example
-- Step types and when to use them
+- Concepts
+- Advanced usage
 - Examples
-- Pipeline options (metrics + drawer)
-- Dry-run validation
+- Documentation
 - Testing
 - Linting
-- Documentation
 - Contributing
 - Support
 - Release & versioning
 - License
 
-## Overview
-The pipeline package provides a channel-based, concurrent processing model with structured error handling. Each step processes inputs and forwards outputs to the next step, allowing fan-out (splitter), fan-in (merger), and final sinks.
-
 ## Features
 - Generic steps: one-to-one, one-to-many, and channel-based step functions.
 - Fan-out and fan-in via splitters and mergers.
-- Concurrency and buffering controls via step options.
-- Default error propagation that stops the pipeline on the first error.
-- Opt-in drop policies and per-step error routing for overload handling.
-- Optional metrics collection and Graphviz-ready drawer output.
+- Concurrency, buffering, and backpressure controls.
+- Retry, timeout, and drop policies for overload handling.
+- Optional metrics collection, Graphviz drawer output, and live monitoring.
 
 ## Requirements
-- Go 1.24 (per `go.mod`).
+- Go 1.25 (per `go.mod`).
 - Graphviz `dot` (local-only) to render `.dot` files and to run `make unit_test`; CI uses `go test -v ./...` without Graphviz.
 
 ## Installation
@@ -85,291 +78,44 @@ func main() {
 	}
 }
 ```
-Construction errors are deferred until `pipe.Run(ctx)` so you can wire the pipeline without per-step error checks. `pipe.Err()` is available if you want a preflight check before running.
+Construction errors are deferred until `pipe.Run(ctx)` so you can wire the
+pipeline without per-step error checks. `pipe.Err()` is available if you want a
+preflight check before running.
 
-## Pipeline defaults
-Pass `PipelineDefaults` as a pipeline option to set step concurrency, buffers, and splitter buffering:
-```go
-defaults := pipeline.PipelineDefaults{
-	StepConcurrency:    4,
-	StepBufferSize:     16,
-	StepKeepOpen:       false,
-	SplitterBufferSize: 4,
-}
+## Concepts
+- Pipelines are ordered graphs of concurrent steps connected by channels.
+- Steps transform or route data; splitters and mergers fan out and fan in.
+- Backpressure comes from channel operations and configured buffers.
 
-pipe, err := pipeline.New(defaults)
-if err != nil {
-	log.Fatal(err)
-}
-```
+See `docs/concepts.md` and `docs/step-types.md` for the full mental model.
 
-## Splitter and merger example
-```go
-package main
+## Advanced usage
+- Step defaults and option interactions: `docs/step-options.md`
+- Pipeline options (metrics, drawer, monitoring, dry-run): `docs/pipeline-options.md`
+- Error handling and recovery: `docs/errors.md`
+- Concurrency and backpressure guidance: `docs/concurrency.md`
+- Performance guidance and benchmarks: `docs/performance.md`, `docs/benchmarks.md`
 
-import (
-	"context"
-	"fmt"
-	"log"
-
-	"github.com/askiada/go-pipeline/v2/pkg/pipeline"
-)
-
-func main() {
-	ctx := context.Background()
-	pipe, err := pipeline.New(pipeline.PipelineDefaults{})
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
-		for i := range 5 {
-			out <- i
-		}
-		return nil
-	})
-
-	step1 := pipeline.OneToOne(pipe, "step-1", root, func(ctx context.Context, in int) (int, error) {
-		return in + 1, nil
-	})
-
-	splitter := pipeline.Split(pipe, "split", step1, 2)
-
-	left, _ := splitter.Get()
-	right, _ := splitter.Get()
-
-	leftOut := pipeline.OneToOne(pipe, "left", left, func(ctx context.Context, in int) (int, error) {
-		return in * 10, nil
-	})
-
-	rightOut := pipeline.OneToOne(pipe, "right", right, func(ctx context.Context, in int) (int, error) {
-		return in * 100, nil
-	})
-
-	merged := pipeline.Merge(pipe, "merge", leftOut, rightOut)
-
-	pipeline.Sink(pipe, "print", merged, func(ctx context.Context, in int) error {
-		fmt.Println(in)
-		return nil
-	})
-
-	if err := pipe.Run(ctx); err != nil {
-		log.Fatal(err)
-	}
-}
-```
-
-## Step types and when to use them
-Use `OneToOne` when each input item maps to a single output item. Use `OneToMany` when each input item should expand into multiple output items (fan-out).
-
-### OneToOne vs OneToMany
-- `OneToOne`: transform one input into one output (map/transform).
-- `OneToMany`: expand one input into many outputs (fan-out or split).
-
-### Per-step concurrency
-Use `pipeline.StepConcurrency[...]` on `OneToOne`, `OneToMany`, `FromChan`, and sink steps to control worker concurrency.
-
-### Per-step retry
-Use `pipeline.StepRetry[...]` on `OneToOne`, `OneToMany`, and `Sink` to retry failed items without blocking other workers. Retries do not apply to `FromChan`/`SinkFromChan`.
-Retry metrics are tracked separately (average retry duration and count) so step averages remain focused on successful attempts. Drawer output includes retry averages and counts in step labels.
-```go
-step := pipeline.OneToOne(pipe, "enrich", root, enrichFn,
-    pipeline.StepRetry[int](pipeline.RetryPolicy{
-        MaxAttempts: 3,
-        Backoff:     50 * time.Millisecond,
-    }),
-)
-```
-
-### Per-step timeout, rate limit, and max in-flight
-Use `pipeline.StepTimeout[...]`, `pipeline.StepRateLimit[...]`, and `pipeline.StepMaxInFlight[...]` on `OneToOne`, `OneToMany`, and `Sink` steps to bound per-item execution. These options do not apply to `Root`, `FromChan`, `SinkFromChan`, `Batch`, or `BatchChan`.
-
-- `StepTimeout`: per-item deadline for the step function; applies across retries. Rate limiting happens before the timeout window starts.
-- `StepRateLimit`: shared rate limit across all workers; each item waits for a token before executing the step function.
-- `StepMaxInFlight`: caps the number of items actively processed by the step function, even if `StepConcurrency` is higher; output handoff can still block independently. When unset, no in-flight semaphore is acquired.
-
-`StepBufferSize` still controls output channel buffering; rate limiting and max in-flight apply before items are enqueued downstream.
-For deeper interaction notes (including when to set `StepConcurrency` above `StepMaxInFlight`), see `step-options.md`.
-
-```go
-step := pipeline.OneToOne(pipe, "limit", root, workFn,
-    pipeline.StepTimeout[int](150*time.Millisecond),
-    pipeline.StepRateLimit[int](pipeline.RateLimitPolicy{Every: 20 * time.Millisecond, Burst: 1}),
-    pipeline.StepMaxInFlight[int](2),
-)
-```
-
-Real-world use cases for rate limiting and max in-flight:
-- Protecting external APIs: use `StepRateLimit` to stay under vendor QPS limits, and `StepTimeout` to avoid hanging calls when the service is unhealthy.
-- Smoothing bursty inputs: use `StepRateLimit` to spread traffic from an upstream queue or file ingest; pair it with `StepBufferSize` if you need to absorb short spikes.
-- Bounding memory-heavy work: use `StepMaxInFlight` to cap concurrent processing when each item allocates large buffers or holds large payloads in memory.
-- Avoiding per-item fanout overload: use `StepMaxInFlight` on a `OneToMany` step to avoid spawning too many concurrent expansions at once.
-- Limiting contention on shared resources: use `StepMaxInFlight` to keep the number of active DB or cache operations low, even if `StepConcurrency` is higher for scheduling flexibility.
-- Cooperative fairness across pipelines: use `StepRateLimit` to reserve a steady slice of throughput for each pipeline rather than letting the fastest one monopolize a downstream service.
-
-Interaction notes:
-- `StepRateLimit` is shared across workers, so the overall step throughput is bounded even with high `StepConcurrency`.
-- `StepMaxInFlight` limits only the step function execution; output sends happen after the slot is released. If downstream backpressure matters, tune `StepBufferSize` and/or reduce `StepConcurrency`.
-- `StepTimeout` starts after the rate-limit wait and applies across retries; the total wall-clock time per item is rate-limit wait + timeout + any retry backoff.
-
-### Drop policies and error routing
-Drop policies are opt-in. By default, output sends block and errors stop the pipeline. Use these options to keep pipelines moving under overload:
-- `StepDropOnFull`: non-blocking output sends; drops immediately when the output is full.
-- `StepDropOnBlocked`: drops after waiting `timeout` to send downstream.
-- `StepDropOnError`: drops items after retries are exhausted instead of propagating the error.
-- `StepErrorOutput`: returns an error step + option to route failed items (best-effort, non-blocking).
-
-Dropped items are omitted from step averages; drop counters and routed error counts show up in metrics/drawer output.
-Error routing does not change default error propagation unless `StepDropOnError` is set.
-For one-to-many steps, output observers still run if at least one output is delivered, even when some outputs drop.
-Error channels are pipeline-owned and closed when the step finishes; `StepErrorOutput` sets the buffer size on the error step.
-The error step is named after the source step with an " error" suffix.
-
-```go
-errStep, errOpt := pipeline.StepErrorOutput[int](16)
-work := pipeline.OneToOne(pipe, "work", root, workFn,
-    pipeline.StepDropOnBlocked[int](20*time.Millisecond),
-    pipeline.StepDropOnError[int](),
-    errOpt,
-)
-
-pipeline.Sink(pipe, "work errors", errStep, func(ctx context.Context, errItem model.StepError) error {
-    log.Printf("failed item: %v (err=%v)", errItem.Item, errItem.Err)
-    return nil
-})
-```
-
-### Batching/windowing
-Use `pipeline.Batch` to group items into slices before processing, or `pipeline.BatchChan` to stream each batch over a channel for lower memory usage. `MaxSize` is required; `MaxWait` flushes partial batches on a timer. `StepBufferSize` applies to the number of batches buffered, not individual items.
-```go
-batch := pipeline.Batch(pipe, "batch", root, pipeline.BatchPolicy{
-    MaxSize: 10,
-    MaxWait: 50 * time.Millisecond,
-})
-
-pipeline.Sink(pipe, "sink", batch, func(ctx context.Context, input []int) error {
-    fmt.Println(input)
-    return nil
-})
-```
-
-```go
-batch := pipeline.BatchChan(pipe, "batch", root, pipeline.BatchPolicy{
-    MaxSize: 10,
-    MaxWait: 50 * time.Millisecond,
-})
-
-pipeline.Sink(pipe, "sink", batch, func(ctx context.Context, input <-chan int) error {
-    for item := range input {
-        fmt.Println(item)
-    }
-    return nil
-})
-```
-
-### Channel closing behavior
-By default, the library closes step output channels when a step finishes, including when using `FromChan`. To keep a channel open, pass the keep-open option (for example, `pipeline.StepKeepOpen[...]()`).
-
-## Splitter buffer sizing and backpressure
-`SplitterBufferSize` controls the per-branch buffer used by splitters. Each input item is copied into every branch buffer, so memory use scales with `buffer size × branches`. Smaller buffers apply backpressure to the upstream step; larger buffers allow more in-flight items but can amplify memory use when downstream steps are slow. As a starting point, set the buffer size close to the upstream step concurrency and tune from there. The splitter logs a warning if the buffer size is much smaller or much larger than the input concurrency.
-
-## Thread safety
-Build the pipeline before calling `Run(ctx)`; avoid mutating steps while a run is in progress. Pipelines are single-run; create a new pipeline instance for each execution.
+## Performance snapshot
+- Pipeline overhead is typically within ~0.8-1.8x of a direct channels baseline in the current benchmarks; loop-only baselines are much faster because they avoid channels entirely.
+- Measured overhead per item is about 1-3 μs plus roughly 1.3 μs per step at conc=1 in the published run.
+- As work per item increases, the overhead ratio shrinks; see `docs/benchmarks.md` for the work/step sweeps and sizing guidance.
 
 ## Examples
-Each example directory includes a README with expected output. Use `make examples_<name>` to run with drawer output and generate a PNG, `make examples_run EXAMPLE=<name>` to run by folder name, or `make examples_all` to run everything.
+See `docs/examples.md` for a categorized index and `examples/README.md` for run
+commands. Timing diagrams live in `examples/timing-diagrams.md`.
 
-### Core examples
-- Quick start: `go run ./examples/quick-start`
-- One-to-many: `go run ./examples/one-to-many`
-- FromChan: `go run ./examples/from-chan`
-- Splitter + merger: `go run ./examples/splitter-merger`
-- Sink: `go run ./examples/sink`
-- SinkFromChan: `go run ./examples/sink-from-chan`
-- Retry (sink): `go run ./examples/retry`
-- Timeout + retry: `go run ./examples/timeout-retry`
-- Batching/windowing: `go run ./examples/batching`
-- Batching/windowing (chan): `go run ./examples/batching-chan`
-- Pipeline defaults: `go run ./examples/pipeline-defaults`
-- Dry-run: `go run ./examples/dry-run`
-- Step options: `go run ./examples/step-options`
-- Step limits: `go run ./examples/step-limits`
-- Rate limit: `go run ./examples/rate-limit`
-- Max in-flight: `go run ./examples/max-inflight`
-- Drop on full: `go run ./examples/drop-on-full`
-- Drop on blocked: `go run ./examples/drop-on-blocked`
-- Drop on error: `go run ./examples/drop-on-error`
-- Drop overload: `go run ./examples/drop-overload`
-- Metrics + drawer: `go run ./examples/metrics-drawer`
-- Live monitoring (Telegraf): `go run ./examples/live-monitoring`
-
-### Advanced examples
-- Split + merge + metrics: `go run ./examples/split-merge-metrics`
-- Concurrency + aggregation: `go run ./examples/concurrency-aggregate`
-- Backpressure + buffering: `go run ./examples/backpressure-buffering`
-- SplitBy routing: `go run ./examples/splitby-routing`
-
-![Pipeline diagram](examples/metrics-drawer/pipeline.png)
-
-## Pipeline options (metrics + drawer)
-You can attach pipeline options to collect metrics and emit Graphviz-ready output:
-
-```go
-package main
-
-import (
-	"github.com/askiada/go-pipeline/v2/pkg/pipeline"
-	"github.com/askiada/go-pipeline/v2/pkg/pipeline/drawer"
-	"github.com/askiada/go-pipeline/v2/pkg/pipeline/measure"
-)
-
-func buildPipeline() (*pipeline.Pipeline, error) {
-	msr := measure.NewDefaultMeasure()
-	drw := drawer.NewSVGDrawer("pipeline.dot")
-
-	return pipeline.New(
-		measure.PipelineMeasure(msr),
-		drawer.PipelineDrawer(drw, msr),
-	)
-}
-```
-
-For live monitoring with Telegraf (Influx line protocol), use the monitoring option:
-
-```go
-import "github.com/askiada/go-pipeline/v2/pkg/pipeline/monitor"
-
-func buildPipeline() (*pipeline.Pipeline, error) {
-	cfg := monitor.Config{
-		RunName:      "example",
-		Origin:       "local",
-		PipelineName: "demo",
-		TelegrafAddr: "127.0.0.1:8094",
-		TelegrafNet:  "udp",
-		EnableUI:     true,
-		BindAddr:     "127.0.0.1:8096",
-	}
-
-	return pipeline.New(monitor.PipelineMonitor(&cfg))
-}
-```
-When `EnableUI` is true, the local dashboard is served at the `BindAddr` while
-the pipeline is running.
-Use `PipelineMonitor.UIAddr()` after the run starts to discover the actual
-host:port when binding to `:0`.
-Run `dot -Tpng pipeline.dot -O` if you want to render the output file as an image.
-
-Pipeline options now use timing-free hooks (`OnStepOutput`, `OnSplitterOutput`, etc.).
-If you need durations, implement `model.PipelineMetricsOption` and the corresponding
-`On*Metrics` methods so timing is only collected when needed.
-
-## Dry-run validation
-Use `RunDry()` to validate wiring and emit drawer output without executing any runners. Dry-run does not mark the pipeline as “ran”, so you can run it afterward.
-```go
-if err := pipe.Run(ctx, pipeline.RunDry()); err != nil {
-    log.Fatal(err)
-}
-```
+## Documentation
+- `docs/README.md` is the docs index.
+- `docs/concepts.md` explains the pipeline mental model.
+- `docs/step-types.md` covers step types and usage guidance.
+- `docs/step-options.md` details step options and defaults.
+- `docs/pipeline-options.md` covers metrics, drawer, monitoring, and dry-run.
+- `docs/concurrency.md` explains backpressure and buffering.
+- `docs/errors.md` documents error propagation and recovery.
+- `docs/faq.md` answers common usage questions.
+- `docs/performance.md` and `docs/benchmarks.md` cover performance guidance.
+- `docs/examples.md` indexes runnable examples.
 
 ## Testing
 ```bash
@@ -381,14 +127,6 @@ make unit_test
 ```bash
 make lint
 ```
-
-## Documentation
-- `docs/README.md` explains the docs layout.
-- `step-options.md` is a detailed guide to step options, interactions, and use cases.
-- `docs/benchmarks.md` documents benchmark scenarios (including composite step sweeps), overhead guidance, how to run them, and results tracking.
-- `examples/timing-diagrams.md` provides timing/behavior diagrams for every example.
-- `docs/diagnoses.md` tracks repo health checks over time.
-- `docs/qa/test-plan.md` lists QA scenarios and implemented tests.
 
 ## Contributing
 See `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md`.
