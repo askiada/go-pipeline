@@ -357,7 +357,6 @@ func runOneToOne[I any, O any](
 	return concurrentOneToOneFn(ctx, input, output, oneToOne, ignoreZero, timeout, limiter, inFlight, cfg)
 }
 
-//nolint:gocognit // error handling and option checks are centralised here.
 func sequentialOneToManyFn[I any, O any](
 	ctx context.Context,
 	goIdx int,

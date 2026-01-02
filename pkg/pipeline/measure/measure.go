@@ -1,6 +1,7 @@
 package measure
 
 import (
+	"maps"
 	"sync"
 )
 
@@ -51,9 +52,7 @@ func (m *DefaultMeasure) AllMetrics() map[string]Metric {
 	defer m.mu.Unlock()
 
 	metrics := make(map[string]Metric, len(m.Steps))
-	for name, metric := range m.Steps {
-		metrics[name] = metric
-	}
+	maps.Copy(metrics, m.Steps)
 
 	return metrics
 }

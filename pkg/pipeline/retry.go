@@ -61,9 +61,7 @@ func retryDelay(policy *model.RetryPolicy, attempt int) time.Duration {
 	}
 
 	retryAttempt := attempt
-	if retryAttempt < 1 {
-		retryAttempt = 1
-	}
+	retryAttempt = max(retryAttempt, 1)
 
 	multiplier := 1 << (retryAttempt - 1)
 	delay := time.Duration(multiplier) * policy.Backoff
@@ -79,9 +77,7 @@ func retryDelay(policy *model.RetryPolicy, attempt int) time.Duration {
 
 			delay = time.Duration(float64(delay) * (1 + jitterFactor))
 
-			if delay < 0 {
-				delay = 0
-			}
+			delay = max(delay, 0)
 		}
 	}
 
@@ -126,6 +122,7 @@ func reportStepRetry(
 	return nil
 }
 
+//nolint:ireturn // Generic retry wrapper returns the caller's type.
 func executeWithRetry[T any](
 	ctx context.Context,
 	policy *model.RetryPolicy,

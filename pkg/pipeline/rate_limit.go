@@ -24,9 +24,7 @@ func newRateLimiter(policy *model.RateLimitPolicy) *rateLimiter {
 	}
 
 	burst := policy.Burst
-	if burst < 1 {
-		burst = 1
-	}
+	burst = max(burst, 1)
 
 	return &rateLimiter{
 		every:  policy.Every,
@@ -92,9 +90,7 @@ func (rl *rateLimiter) takeToken() time.Duration {
 	}
 
 	wait := rl.every - now.Sub(rl.last)
-	if wait < 0 {
-		wait = 0
-	}
+	wait = max(wait, 0)
 
 	return wait
 }

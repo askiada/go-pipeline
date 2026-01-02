@@ -242,8 +242,8 @@ type description struct {
 }
 
 type statement struct {
-	Source           interface{}
-	Target           interface{}
+	Source           any
+	Target           any
 	SourceAttributes map[string]string
 	HTMLAttributes   map[string]string
 	EdgeAttributes   map[string]string

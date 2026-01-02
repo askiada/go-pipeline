@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net"
 	"net/http"
 	"sync"
@@ -171,9 +172,7 @@ func copyFields(fields map[string]any) map[string]any {
 	}
 
 	out := make(map[string]any, len(fields))
-	for key, value := range fields {
-		out[key] = value
-	}
+	maps.Copy(out, fields)
 
 	return out
 }

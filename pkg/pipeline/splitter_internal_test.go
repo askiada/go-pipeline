@@ -60,6 +60,7 @@ func TestWarnSplitterBufferSmallLogs(t *testing.T) {
 	var buf bytes.Buffer
 	origOutput := log.Writer()
 	origFlags := log.Flags()
+
 	log.SetOutput(&buf)
 	log.SetFlags(0)
 
@@ -77,6 +78,7 @@ func TestWarnSplitterBufferLargeLogs(t *testing.T) {
 	var buf bytes.Buffer
 	origOutput := log.Writer()
 	origFlags := log.Flags()
+
 	log.SetOutput(&buf)
 	log.SetFlags(0)
 

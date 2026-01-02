@@ -4,8 +4,6 @@ run:
     - integration
   tests: true
   allow-parallel-runners: true
-  skip-dirs:
-    - ^examples/
 linters:
   default: all
   disable:
@@ -106,8 +104,6 @@ linters:
       - ^examples/
 issues:
   fix: false
-  exclude-dirs:
-    - ^examples/
 formatters:
   enable:
     - gci
