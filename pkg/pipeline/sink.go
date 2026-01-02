@@ -254,7 +254,7 @@ func Sink[I any](
 
 	step, err := prepareSink(pipe, name, input, opts...)
 	if err != nil {
-		pipe.recordErr(errors.Wrap(err, "unable to prepare sink"))
+		pipe.recordErr(name, err)
 
 		return nil
 	}
@@ -321,14 +321,14 @@ func SinkFromChan[I any](
 
 	step, err := prepareSink(pipe, name, input, opts...)
 	if err != nil {
-		pipe.recordErr(errors.Wrap(err, "unable to prepare sink"))
+		pipe.recordErr(name, err)
 
 		return nil
 	}
 
 	err = validateSinkFromChanOptions(step)
 	if err != nil {
-		pipe.recordErr(err)
+		pipe.recordErr(name, err)
 
 		return nil
 	}

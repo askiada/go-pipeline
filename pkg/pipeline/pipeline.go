@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -217,12 +218,12 @@ func (p *Pipeline) Err() error {
 	return p.buildErr
 }
 
-func (p *Pipeline) recordErr(err error) {
+func (p *Pipeline) recordErr(name string, err error) {
 	if p == nil || err == nil || p.buildErr != nil {
 		return
 	}
 
-	p.buildErr = err
+	p.buildErr = fmt.Errorf("pipeline build error in step '%s': %w", name, err)
 }
 
 func (p *Pipeline) addRunner(runner func(ctx context.Context)) {

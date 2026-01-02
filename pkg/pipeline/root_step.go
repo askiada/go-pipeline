@@ -54,50 +54,50 @@ func Root[O any](
 	}
 
 	if step.RetryPolicy != nil {
-		pipe.recordErr(ErrRetryUnsupported)
+		pipe.recordErr(name, ErrRetryUnsupported)
 
 		return nil
 	}
 
 	if step.Timeout > 0 {
-		pipe.recordErr(ErrTimeoutUnsupported)
+		pipe.recordErr(name, ErrTimeoutUnsupported)
 
 		return nil
 	}
 
 	if step.RateLimitPolicy != nil {
-		pipe.recordErr(ErrRateLimitUnsupported)
+		pipe.recordErr(name, ErrRateLimitUnsupported)
 
 		return nil
 	}
 
 	if step.MaxInFlight > 0 {
-		pipe.recordErr(ErrMaxInFlightUnsupported)
+		pipe.recordErr(name, ErrMaxInFlightUnsupported)
 
 		return nil
 	}
 
 	if step.DropOnOutputFull || step.DropOnOutputTimeout > 0 {
-		pipe.recordErr(ErrDropOutputUnsupported)
+		pipe.recordErr(name, ErrDropOutputUnsupported)
 
 		return nil
 	}
 
 	if step.DropOnError {
-		pipe.recordErr(ErrDropOnErrorUnsupported)
+		pipe.recordErr(name, ErrDropOnErrorUnsupported)
 
 		return nil
 	}
 
 	if step.ErrorOutputEnabled {
-		pipe.recordErr(ErrErrorRouteUnsupported)
+		pipe.recordErr(name, ErrErrorRouteUnsupported)
 
 		return nil
 	}
 
 	err := prepareRootStep(pipe, step)
 	if err != nil {
-		pipe.recordErr(err)
+		pipe.recordErr(name, err)
 
 		return nil
 	}

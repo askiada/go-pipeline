@@ -301,7 +301,7 @@ func Batch[I any](
 	}
 
 	if input == nil {
-		pipe.recordErr(ErrInputMustBeSet)
+		pipe.recordErr(name, ErrInputMustBeSet)
 
 		return nil
 	}
@@ -331,21 +331,21 @@ func Batch[I any](
 
 	err := validateBatchOptions(step)
 	if err != nil {
-		pipe.recordErr(err)
+		pipe.recordErr(name, err)
 
 		return nil
 	}
 
 	err = validateBatchPolicy(step.BatchPolicy)
 	if err != nil {
-		pipe.recordErr(err)
+		pipe.recordErr(name, err)
 
 		return nil
 	}
 
 	err = prepareStep(pipe, input, step)
 	if err != nil {
-		pipe.recordErr(err)
+		pipe.recordErr(name, err)
 
 		return nil
 	}

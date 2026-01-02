@@ -522,7 +522,7 @@ func addStep[I any, O any](
 	}
 
 	if input == nil {
-		pipe.recordErr(ErrInputMustBeSet)
+		pipe.recordErr(name, ErrInputMustBeSet)
 
 		return nil
 	}
@@ -545,7 +545,7 @@ func addStep[I any, O any](
 
 	err := prepareStep(pipe, input, step)
 	if err != nil {
-		pipe.recordErr(err)
+		pipe.recordErr(name, err)
 
 		return nil
 	}
@@ -817,7 +817,7 @@ func FromChan[I any, O any](
 
 	err := validateFromChanOptions(step)
 	if err != nil {
-		pipe.recordErr(err)
+		pipe.recordErr(name, err)
 
 		return nil
 	}

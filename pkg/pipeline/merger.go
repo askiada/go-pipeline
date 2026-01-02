@@ -91,14 +91,14 @@ func Merge[I any](pipe *Pipeline, name string, steps ...*Step[I]) *Step[I] {
 	}
 
 	if len(steps) == 0 {
-		pipe.recordErr(ErrInputMustBeSet)
+		pipe.recordErr(name, ErrInputMustBeSet)
 
 		return nil
 	}
 
 	for _, step := range steps {
 		if step == nil {
-			pipe.recordErr(ErrInputMustBeSet)
+			pipe.recordErr(name, ErrInputMustBeSet)
 
 			return nil
 		}
@@ -108,7 +108,7 @@ func Merge[I any](pipe *Pipeline, name string, steps ...*Step[I]) *Step[I] {
 
 	outputStep, err := prepareMerger(pipe, output, name, steps...)
 	if err != nil {
-		pipe.recordErr(errors.Wrap(err, "unable to prepare merger"))
+		pipe.recordErr(name, err)
 
 		return nil
 	}
