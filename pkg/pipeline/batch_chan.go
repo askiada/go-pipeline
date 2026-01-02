@@ -2,9 +2,9 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"time"
 
-	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
@@ -124,7 +124,7 @@ func (bs *batchChanState[I]) closeBatch() error {
 	for _, opt := range bs.cfg.opts {
 		err := opt.OnStepOutput(bs.input.Details, bs.output.Details)
 		if err != nil {
-			return errors.Wrap(err, "unable to run before step function")
+			return fmt.Errorf("unable to run before step function: %w", err)
 		}
 	}
 
@@ -132,7 +132,7 @@ func (bs *batchChanState[I]) closeBatch() error {
 		for _, opt := range bs.cfg.metricsOpts {
 			err := opt.OnStepOutputMetrics(bs.input.Details, bs.output.Details, elapsed, elapsed)
 			if err != nil {
-				return errors.Wrap(err, "unable to run before step function")
+				return fmt.Errorf("unable to run before step function: %w", err)
 			}
 		}
 	}
@@ -161,7 +161,7 @@ func (bs *batchChanState[I]) handleEntry(ctx context.Context, entry I) error {
 
 	select {
 	case <-ctx.Done():
-		return errors.Wrapf(ctx.Err(), "go routine %d", bs.goIdx)
+		return fmt.Errorf("go routine %d: %w", bs.goIdx, ctx.Err())
 	case bs.batchCh <- entry:
 	}
 
@@ -194,7 +194,7 @@ func sequentialBatchChanFn[I any](
 		case <-ctx.Done():
 			_ = state.closeBatch()
 
-			return errors.Wrapf(ctx.Err(), "go routine %d", goIdx)
+			return fmt.Errorf("go routine %d: %w", goIdx, ctx.Err())
 		case <-state.timerC:
 			err := state.closeBatch()
 			if err != nil {
@@ -232,7 +232,7 @@ func concurrentBatchChanFn[I any](
 
 	err := errGrp.Wait()
 	if err != nil {
-		return errors.Wrap(err, "unable to wait for all go routines")
+		return fmt.Errorf("unable to wait for all go routines: %w", err)
 	}
 
 	return nil

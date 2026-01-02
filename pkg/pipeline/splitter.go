@@ -2,11 +2,10 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"sync"
 	"time"
-
-	"github.com/pkg/errors"
 
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
@@ -95,7 +94,7 @@ func prepareSplitter[I any](pipe *Pipeline, name string, input *Step[I], total i
 	for _, opt := range pipe.opts {
 		err := opt.PrepareSplitter(input.Details, splitter.mainStep.Details)
 		if err != nil {
-			return nil, errors.Wrap(err, "unable to run before step function")
+			return nil, fmt.Errorf("unable to run before step function: %w", err)
 		}
 	}
 
@@ -193,7 +192,7 @@ func runSplitter[I any](
 			for _, opt := range cfg.opts {
 				err := opt.OnSplitterOutput(input.Details, splitter.mainStep.Details)
 				if err != nil {
-					errC <- errors.Wrap(err, "unable to run before merger function")
+					errC <- fmt.Errorf("unable to run before merger function: %w", err)
 				}
 			}
 
@@ -207,7 +206,7 @@ func runSplitter[I any](
 			for _, opt := range cfg.metricsOpts {
 				err := opt.OnSplitterOutputMetrics(input.Details, splitter.mainStep.Details, endIter, endFn)
 				if err != nil {
-					errC <- errors.Wrap(err, "unable to run before merger function")
+					errC <- fmt.Errorf("unable to run before merger function: %w", err)
 				}
 			}
 		}
@@ -346,7 +345,7 @@ func SplitBy[I any](
 		startSplitterWorkers(ctx, splitter, splitterBuffer, errC, wgrp, func(ctx context.Context, idx int, elem I) (bool, error) {
 			ok, err := fns[idx](ctx, elem)
 			if err != nil {
-				return ok, errors.Wrap(err, "unable to run splitter function")
+				return ok, fmt.Errorf("unable to run splitter function: %w", err)
 			}
 
 			return ok, nil

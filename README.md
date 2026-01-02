@@ -32,6 +32,7 @@ go-pipeline is a Go library for building data-processing pipelines with composab
 ## Requirements
 - Go 1.25 (per `go.mod`).
 - Graphviz `dot` (local-only) to render `.dot` files and to run `make unit_test`; CI uses `go test -v ./...` without Graphviz.
+- No external runtime dependencies; error wrapping uses the standard library.
 
 ## Installation
 ```bash

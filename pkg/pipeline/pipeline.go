@@ -6,8 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pkg/errors"
-
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
 
@@ -85,7 +83,7 @@ func collectPipelineOptions(
 
 		err := opt.New()
 		if err != nil {
-			return nil, nil, optionCapabilities{}, errors.Wrap(err, "unable to apply pipeline option")
+			return nil, nil, optionCapabilities{}, fmt.Errorf("unable to apply pipeline option: %w", err)
 		}
 
 		if metricsOpt, ok := opt.(model.PipelineMetricsOption); ok {
@@ -255,7 +253,7 @@ func (p *Pipeline) finishRun() error {
 	for _, opt := range p.opts {
 		err := opt.Finish()
 		if err != nil {
-			return errors.Wrap(err, "unable to finish pipeline option")
+			return fmt.Errorf("unable to finish pipeline option: %w", err)
 		}
 	}
 

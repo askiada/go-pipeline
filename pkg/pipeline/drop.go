@@ -2,9 +2,8 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"time"
-
-	"github.com/pkg/errors"
 
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
@@ -29,7 +28,7 @@ func prepareErrorStep[O any](pipe *Pipeline, step *Step[O]) error {
 	for _, opt := range pipe.opts {
 		err := opt.PrepareStep(step.Details, step.ErrorStep.Details)
 		if err != nil {
-			return errors.Wrap(err, "unable to prepare error step")
+			return fmt.Errorf("unable to prepare error step: %w", err)
 		}
 	}
 
@@ -49,7 +48,7 @@ func reportStepDrop(opts []model.PipelineOption, step *StepInfo, kind model.Step
 
 		err := observer.OnStepDrop(step, kind)
 		if err != nil {
-			return errors.Wrap(err, "unable to report step drop")
+			return fmt.Errorf("unable to report step drop: %w", err)
 		}
 	}
 
@@ -69,7 +68,7 @@ func reportStepErrorRoute(opts []model.PipelineOption, step *StepInfo) error {
 
 		err := observer.OnStepErrorRoute(step)
 		if err != nil {
-			return errors.Wrap(err, "unable to report step error route")
+			return fmt.Errorf("unable to report step error route: %w", err)
 		}
 	}
 
@@ -125,7 +124,7 @@ func routeStepError[O any](
 
 	sendErr = sendStepError(ctx, step.ErrorOutput, payload)
 	if sendErr != nil {
-		return errors.Wrap(sendErr, "unable to route step error route failure")
+		return fmt.Errorf("unable to route step error route failure: %w", sendErr)
 	}
 
 	return reportErr
@@ -134,7 +133,7 @@ func routeStepError[O any](
 func sendStepError(ctx context.Context, out chan<- model.StepError, payload model.StepError) error {
 	select {
 	case <-ctx.Done():
-		return errors.Wrap(ctx.Err(), "unable to route step error")
+		return fmt.Errorf("unable to route step error: %w", ctx.Err())
 	case out <- payload:
 		return nil
 	}
@@ -156,7 +155,7 @@ func sendOutputWithPolicy[O any](
 	if step.DropOnOutputFull {
 		select {
 		case <-ctx.Done():
-			return false, errors.Wrapf(ctx.Err(), "go routine %d", goIdx)
+			return false, fmt.Errorf("go routine %d: %w", goIdx, ctx.Err())
 		case step.Output <- value:
 			return false, nil
 		default:
@@ -180,7 +179,7 @@ func sendOutputWithPolicy[O any](
 		case <-ctx.Done():
 			stopBatchTimer(timer)
 
-			return false, errors.Wrapf(ctx.Err(), "go routine %d", goIdx)
+			return false, fmt.Errorf("go routine %d: %w", goIdx, ctx.Err())
 		case step.Output <- value:
 			stopBatchTimer(timer)
 
@@ -198,7 +197,7 @@ func sendOutputWithPolicy[O any](
 
 	select {
 	case <-ctx.Done():
-		return false, errors.Wrapf(ctx.Err(), "go routine %d", goIdx)
+		return false, fmt.Errorf("go routine %d: %w", goIdx, ctx.Err())
 	case step.Output <- value:
 		return false, nil
 	}

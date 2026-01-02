@@ -2,9 +2,9 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"time"
 
-	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
@@ -36,7 +36,7 @@ func prepareSink[I any](pipe *Pipeline, name string, input *Step[I], opts ...Ste
 	for _, opt := range pipe.opts {
 		err := opt.PrepareSink(input.Details, step.Details)
 		if err != nil {
-			return nil, errors.Wrap(err, "unable to run before step function")
+			return nil, fmt.Errorf("unable to run before step function: %w", err)
 		}
 	}
 
@@ -156,7 +156,7 @@ func sequentialSinkFn[I any](
 				continue
 			}
 
-			return errors.Wrapf(err, "go routine %d", goIdx)
+			return fmt.Errorf("go routine %d: %w", goIdx, err)
 		}
 
 		var end time.Duration
@@ -169,7 +169,7 @@ func sequentialSinkFn[I any](
 		for _, opt := range cfg.opts {
 			err := opt.OnSinkOutput(input.Details, step.Details)
 			if err != nil {
-				return errors.Wrap(err, "unable to run before step function")
+				return fmt.Errorf("unable to run before step function: %w", err)
 			}
 		}
 
@@ -177,7 +177,7 @@ func sequentialSinkFn[I any](
 			for _, opt := range cfg.metricsOpts {
 				err := opt.OnSinkOutputMetrics(input.Details, step.Details, end-endFn, endFn)
 				if err != nil {
-					return errors.Wrap(err, "unable to run before step function")
+					return fmt.Errorf("unable to run before step function: %w", err)
 				}
 			}
 		}
@@ -205,7 +205,7 @@ func concurrentSinkFn[I any](
 
 	err := errGrp.Wait()
 	if err != nil {
-		return errors.Wrap(err, "unable to wait for all go routines")
+		return fmt.Errorf("unable to wait for all go routines: %w", err)
 	}
 
 	return nil
@@ -283,7 +283,7 @@ func Sink[I any](
 			for _, opt := range cfg.opts {
 				err := opt.AfterSink(step.Details)
 				if err != nil {
-					errC <- errors.Wrap(err, "unable to run before step function")
+					errC <- fmt.Errorf("unable to run before step function: %w", err)
 				}
 			}
 
@@ -292,7 +292,7 @@ func Sink[I any](
 				for _, opt := range cfg.metricsOpts {
 					err := opt.AfterSinkMetrics(step.Details, totalDuration)
 					if err != nil {
-						errC <- errors.Wrap(err, "unable to run before step function")
+						errC <- fmt.Errorf("unable to run before step function: %w", err)
 					}
 				}
 			}
@@ -357,7 +357,7 @@ func SinkFromChan[I any](
 			for _, opt := range cfg.opts {
 				err := opt.AfterSink(step.Details)
 				if err != nil {
-					errC <- errors.Wrap(err, "unable to run before step function")
+					errC <- fmt.Errorf("unable to run before step function: %w", err)
 				}
 			}
 
@@ -366,7 +366,7 @@ func SinkFromChan[I any](
 				for _, opt := range cfg.metricsOpts {
 					err := opt.AfterSinkMetrics(step.Details, totalDuration)
 					if err != nil {
-						errC <- errors.Wrap(err, "unable to run before step function")
+						errC <- fmt.Errorf("unable to run before step function: %w", err)
 					}
 				}
 			}
@@ -438,7 +438,7 @@ func sequentialSinkFromChanFn[I any](
 
 	err := stepFn(ctx, inputPlaceholder)
 	if err != nil {
-		return errors.Wrap(err, "unable to run sink function")
+		return fmt.Errorf("unable to run sink function: %w", err)
 	}
 
 	var endStep time.Duration
@@ -457,7 +457,7 @@ func sequentialSinkFromChanFn[I any](
 	for _, opt := range cfg.opts {
 		err := opt.OnSinkOutput(input.Details, step.Details)
 		if err != nil {
-			return errors.Wrapf(err, "go routine %d: unable to run after step function", goIdx)
+			return fmt.Errorf("go routine %d: unable to run after step function: %w", goIdx, err)
 		}
 	}
 
@@ -468,7 +468,7 @@ func sequentialSinkFromChanFn[I any](
 		for _, opt := range cfg.metricsOpts {
 			err := opt.OnSinkOutputMetrics(input.Details, step.Details, iterDuration, compDuration)
 			if err != nil {
-				return errors.Wrapf(err, "go routine %d: unable to run after step function", goIdx)
+				return fmt.Errorf("go routine %d: unable to run after step function: %w", goIdx, err)
 			}
 		}
 	}
@@ -496,7 +496,7 @@ func concurrentSinkFromChanFn[I any](
 
 	err := errGrp.Wait()
 	if err != nil {
-		return errors.Wrap(err, "unable to wait for all go routines")
+		return fmt.Errorf("unable to wait for all go routines: %w", err)
 	}
 
 	return nil

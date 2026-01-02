@@ -2,8 +2,7 @@ package pipeline
 
 import (
 	"context"
-
-	"github.com/pkg/errors"
+	"fmt"
 
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
@@ -12,7 +11,7 @@ func prepareRootStep[O any](pipe *Pipeline, step *Step[O]) error {
 	for _, opt := range pipe.opts {
 		err := opt.PrepareStep(model.StartStep.Details, step.Details)
 		if err != nil {
-			return errors.Wrap(err, "unable to run before step function")
+			return fmt.Errorf("unable to run before step function: %w", err)
 		}
 	}
 

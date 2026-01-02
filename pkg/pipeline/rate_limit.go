@@ -2,10 +2,9 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
-
-	"github.com/pkg/errors"
 
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
@@ -49,7 +48,7 @@ func (rl *rateLimiter) wait(ctx context.Context) error {
 		case <-ctx.Done():
 			timer.Stop()
 
-			return errors.Wrap(ctx.Err(), "rate limit canceled")
+			return fmt.Errorf("rate limit canceled: %w", ctx.Err())
 		case <-timer.C:
 		}
 	}

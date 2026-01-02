@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/dominikbraun/graph"
-	"github.com/pkg/errors"
 
 	//nolint
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline/measure"
@@ -37,7 +36,7 @@ func NewSVGDrawer(svgFileName string) *SVGDrawer {
 func (d *SVGDrawer) AddStep(name string) error {
 	err := d.graph.AddVertex(name)
 	if err != nil {
-		return errors.Wrap(err, "unable to add vertex")
+		return fmt.Errorf("unable to add vertex: %w", err)
 	}
 
 	d.steps[name] = struct{}{}
@@ -49,7 +48,7 @@ func (d *SVGDrawer) AddStep(name string) error {
 func (d *SVGDrawer) AddLink(parentName, childrenName string) error {
 	err := d.graph.AddEdge(parentName, childrenName)
 	if err != nil {
-		return errors.Wrapf(err, "unable to add edge from %s to %s", parentName, childrenName)
+		return fmt.Errorf("unable to add edge from %s to %s: %w", parentName, childrenName, err)
 	}
 
 	return nil
@@ -59,19 +58,19 @@ func (d *SVGDrawer) AddLink(parentName, childrenName string) error {
 func (d *SVGDrawer) Draw() (err error) {
 	file, err := os.Create(d.svgFileName)
 	if err != nil {
-		return errors.Wrapf(err, "unable to create file %s", d.svgFileName)
+		return fmt.Errorf("unable to create file %s: %w", d.svgFileName, err)
 	}
 
 	defer func() {
 		closeErr := file.Close()
 		if closeErr != nil && err == nil {
-			err = errors.Wrapf(closeErr, "unable to close file %s", d.svgFileName)
+			err = fmt.Errorf("unable to close file %s: %w", d.svgFileName, closeErr)
 		}
 	}()
 
 	err = dot(d.graph, file)
 	if err != nil {
-		return errors.Wrapf(err, "unable to create dot file %s", d.svgFileName)
+		return fmt.Errorf("unable to create dot file %s: %w", d.svgFileName, err)
 	}
 
 	return err
@@ -81,7 +80,7 @@ func (d *SVGDrawer) Draw() (err error) {
 func (d *SVGDrawer) SetTotalTime(stepName string, startTime time.Time) error {
 	_, properties, err := d.graph.VertexWithProperties(stepName)
 	if err != nil {
-		return errors.Wrap(err, "unable to get end vertex properties")
+		return fmt.Errorf("unable to get end vertex properties: %w", err)
 	}
 
 	properties.Attributes["xlabel"] = time.Since(startTime).String()
@@ -120,7 +119,7 @@ func (d *SVGDrawer) AddMeasure(msr measure.Measure) error {
 	if len(sortedAllChanElapsed) == 0 {
 		err := d.updateMetrics(msr, allChanElapsed)
 		if err != nil {
-			return errors.Wrap(err, "unable to update metrics")
+			return fmt.Errorf("unable to update metrics: %w", err)
 		}
 
 		return nil
@@ -148,7 +147,7 @@ func (d *SVGDrawer) AddMeasure(msr measure.Measure) error {
 
 	err := d.updateMetrics(msr, allChanElapsed)
 	if err != nil {
-		return errors.Wrap(err, "unable to update metrics")
+		return fmt.Errorf("unable to update metrics: %w", err)
 	}
 
 	return nil
@@ -158,7 +157,7 @@ func (d *SVGDrawer) updateMetrics(msr measure.Measure, allChanElapsed map[time.D
 	for name, step := range msr.AllMetrics() {
 		_, properties, err := d.graph.VertexWithProperties(name)
 		if err != nil {
-			return errors.Wrap(err, "unable to get vertex properties")
+			return fmt.Errorf("unable to get vertex properties: %w", err)
 		}
 
 		var labelParts []string
@@ -215,7 +214,7 @@ func (d *SVGDrawer) updateMetrics(msr measure.Measure, allChanElapsed map[time.D
 				graph.EdgeAttribute("color", allChanElapsed[info.Elapsed]), //nolint
 			)
 			if err != nil {
-				return errors.Wrap(err, "unable to update edge")
+				return fmt.Errorf("unable to update edge: %w", err)
 			}
 		}
 	}
@@ -286,13 +285,13 @@ func generateDOT[K comparable, T any](gra graph.Graph[K, T], options ...func(*de
 
 	adjacencyMap, err := gra.AdjacencyMap()
 	if err != nil {
-		return desc, errors.Wrap(err, "unable to get adjacency map")
+		return desc, fmt.Errorf("unable to get adjacency map: %w", err)
 	}
 
 	for vertex, adjacencies := range adjacencyMap {
 		_, sourceProperties, err := gra.VertexWithProperties(vertex)
 		if err != nil {
-			return desc, errors.Wrap(err, "unable to get vertex properties")
+			return desc, fmt.Errorf("unable to get vertex properties: %w", err)
 		}
 
 		htmlAttributes := make(map[string]string)
@@ -333,7 +332,7 @@ func renderDOT(wri io.Writer, desc description) error {
 
 	err = tpl.Execute(wri, desc)
 	if err != nil {
-		return errors.Wrap(err, "unable to execute template")
+		return fmt.Errorf("unable to execute template: %w", err)
 	}
 
 	return nil

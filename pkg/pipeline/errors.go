@@ -1,9 +1,9 @@
 package pipeline
 
 import (
+	"errors"
+	"fmt"
 	"sync"
-
-	"github.com/pkg/errors"
 )
 
 var (
@@ -78,7 +78,7 @@ func mergeErrors(errChs ...*errorChan) <-chan error {
 		}
 
 		for n := range errC.c {
-			out <- errors.Wrap(n, errC.name)
+			out <- fmt.Errorf("%s: %w", errC.name, n)
 		}
 	}
 

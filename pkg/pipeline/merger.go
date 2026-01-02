@@ -2,10 +2,9 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
-
-	"github.com/pkg/errors"
 
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
@@ -28,7 +27,7 @@ func prepareMerger[I any](pipe *Pipeline, output chan I, name string, steps ...*
 	for _, opt := range pipe.opts {
 		err := opt.PrepareMerger(stepInfos, outputStep.Details)
 		if err != nil {
-			return nil, errors.Wrap(err, "unable to run before merger function")
+			return nil, fmt.Errorf("unable to run before merger function: %w", err)
 		}
 	}
 
@@ -62,7 +61,7 @@ func runStepMerger[I any](ctx context.Context, pipe *Pipeline, errC chan error, 
 				for _, opt := range cfg.opts {
 					err := opt.OnMergerOutput(step.Details, outputStep.Details)
 					if err != nil {
-						errC <- errors.Wrap(err, "unable to run before merger function")
+						errC <- fmt.Errorf("unable to run before merger function: %w", err)
 					}
 				}
 
@@ -71,7 +70,7 @@ func runStepMerger[I any](ctx context.Context, pipe *Pipeline, errC chan error, 
 					for _, opt := range cfg.metricsOpts {
 						err := opt.OnMergerOutputMetrics(step.Details, outputStep.Details, endIter)
 						if err != nil {
-							errC <- errors.Wrap(err, "unable to run before merger function")
+							errC <- fmt.Errorf("unable to run before merger function: %w", err)
 						}
 					}
 				}

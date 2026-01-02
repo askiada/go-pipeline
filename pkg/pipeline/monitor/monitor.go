@@ -15,8 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pkg/errors"
-
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline"
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
@@ -85,7 +83,7 @@ func (pm *pipelineMonitor) New() error {
 	} else {
 		emitter, err := newTelegrafEmitter(pm.cfg.TelegrafNet, pm.cfg.TelegrafAddr, pm.cfg.BufferSize)
 		if err != nil {
-			return errors.Wrap(err, "create telegraf emitter")
+			return fmt.Errorf("create telegraf emitter: %w", err)
 		}
 
 		pm.emitter = emitter
@@ -109,17 +107,17 @@ func (pm *pipelineMonitor) Finish() error {
 
 	err = pm.emitter.Close()
 	if err != nil {
-		return errors.Wrap(err, "close monitoring emitter")
+		return fmt.Errorf("close monitoring emitter: %w", err)
 	}
 
 	emitErr := pm.emitter.Err()
 	if emitErr != nil {
-		return errors.Wrap(emitErr, "monitoring emitter error")
+		return fmt.Errorf("monitoring emitter error: %w", emitErr)
 	}
 
 	err = pm.uiError()
 	if err != nil {
-		return errors.Wrap(err, "monitoring ui")
+		return fmt.Errorf("monitoring ui: %w", err)
 	}
 
 	return nil
@@ -507,7 +505,7 @@ func newTelegrafEmitter(network, address string, bufferSize int) (*telegrafEmitt
 
 	conn, err := dialer.DialContext(context.Background(), network, address)
 	if err != nil {
-		return nil, errors.Wrap(err, "dial telegraf")
+		return nil, fmt.Errorf("dial telegraf: %w", err)
 	}
 
 	emitter := &telegrafEmitter{
@@ -542,7 +540,7 @@ func (te *telegrafEmitter) Close() error {
 
 	err := te.conn.Close()
 	if err != nil {
-		return errors.Wrap(err, "close telegraf connection")
+		return fmt.Errorf("close telegraf connection: %w", err)
 	}
 
 	return nil

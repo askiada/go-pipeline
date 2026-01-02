@@ -4,13 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"net"
 	"net/http"
 	"sync"
 	"time"
-
-	pkgerrors "github.com/pkg/errors"
 )
 
 const (
@@ -194,7 +193,7 @@ func (pm *pipelineMonitor) startUI() {
 
 		listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", pm.cfg.BindAddr)
 		if err != nil {
-			pm.setUIErr(pkgerrors.Wrap(err, "listen monitoring ui"))
+			pm.setUIErr(fmt.Errorf("listen monitoring ui: %w", err))
 
 			return
 		}
@@ -217,7 +216,7 @@ func (pm *pipelineMonitor) startUI() {
 		go func() {
 			err := server.Serve(listener)
 			if err != nil && !errors.Is(err, http.ErrServerClosed) {
-				pm.setUIErr(pkgerrors.Wrap(err, "serve monitoring ui"))
+				pm.setUIErr(fmt.Errorf("serve monitoring ui: %w", err))
 			}
 		}()
 	})
@@ -244,7 +243,7 @@ func (pm *pipelineMonitor) stopUI() error {
 
 	err := server.Shutdown(ctx)
 	if err != nil {
-		return pkgerrors.Wrap(err, "shutdown monitoring ui")
+		return fmt.Errorf("shutdown monitoring ui: %w", err)
 	}
 
 	return nil

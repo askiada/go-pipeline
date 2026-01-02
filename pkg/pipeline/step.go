@@ -2,10 +2,10 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"time"
 
-	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
@@ -33,7 +33,7 @@ func acquireStepInput[I any](
 
 	err := inFlight.acquire(ctx)
 	if err != nil {
-		return entry, false, nil, errors.Wrapf(err, "go routine %d", goIdx)
+		return entry, false, nil, fmt.Errorf("go routine %d: %w", goIdx, err)
 	}
 
 	released := false
@@ -51,7 +51,7 @@ func acquireStepInput[I any](
 	case <-ctx.Done():
 		release()
 
-		return entry, false, nil, errors.Wrapf(ctx.Err(), "go routine %d", goIdx)
+		return entry, false, nil, fmt.Errorf("go routine %d: %w", goIdx, ctx.Err())
 	case entry, ok := <-input:
 		if !ok {
 			release()
@@ -75,7 +75,7 @@ func nextStepInput[I any](ctx context.Context, goIdx int, inFlight *inFlightLimi
 
 	select {
 	case <-ctx.Done():
-		return entry, false, nil, errors.Wrapf(ctx.Err(), "go routine %d", goIdx)
+		return entry, false, nil, fmt.Errorf("go routine %d: %w", goIdx, ctx.Err())
 	case entry, ok := <-input:
 		if !ok {
 			return entry, false, nil, nil
@@ -88,7 +88,7 @@ func nextStepInput[I any](ctx context.Context, goIdx int, inFlight *inFlightLimi
 func waitRateLimit(ctx context.Context, goIdx int, limiter *rateLimiter) error {
 	err := limiter.wait(ctx)
 	if err != nil {
-		return errors.Wrapf(err, "go routine %d", goIdx)
+		return fmt.Errorf("go routine %d: %w", goIdx, err)
 	}
 
 	return nil
@@ -131,7 +131,7 @@ func sendStepOutput[I, O any](
 	for _, opt := range cfg.opts {
 		err := opt.OnStepOutput(input.Details, output.Details)
 		if err != nil {
-			return false, errors.Wrap(err, "unable to run before step function")
+			return false, fmt.Errorf("unable to run before step function: %w", err)
 		}
 	}
 
@@ -140,7 +140,7 @@ func sendStepOutput[I, O any](
 		for _, opt := range cfg.metricsOpts {
 			err := opt.OnStepOutputMetrics(input.Details, output.Details, elapsed-fnDuration, fnDuration)
 			if err != nil {
-				return false, errors.Wrap(err, "unable to run before step function")
+				return false, fmt.Errorf("unable to run before step function: %w", err)
 			}
 		}
 	}
@@ -189,7 +189,7 @@ func sendOneToManyOutputs[I, O any](
 	for _, opt := range cfg.opts {
 		err := opt.OnStepOutput(input.Details, output.Details)
 		if err != nil {
-			return false, errors.Wrap(err, "unable to run before step function")
+			return false, fmt.Errorf("unable to run before step function: %w", err)
 		}
 	}
 
@@ -198,7 +198,7 @@ func sendOneToManyOutputs[I, O any](
 		for _, opt := range cfg.metricsOpts {
 			err := opt.OnStepOutputMetrics(input.Details, output.Details, end-fnDuration, fnDuration)
 			if err != nil {
-				return false, errors.Wrap(err, "unable to run before step function")
+				return false, fmt.Errorf("unable to run before step function: %w", err)
 			}
 		}
 	}
@@ -286,7 +286,7 @@ func sequentialOneToOneFn[I any, O any](
 				continue
 			}
 
-			return errors.Wrapf(err, "go routine %d", goIdx)
+			return fmt.Errorf("go routine %d: %w", goIdx, err)
 		}
 
 		if ignoreZero && reflect.ValueOf(outcome).IsZero() {
@@ -325,7 +325,7 @@ func concurrentOneToOneFn[I any, O any](
 
 	err := errGrp.Wait()
 	if err != nil {
-		return errors.Wrap(err, "unable to wait for all go routines")
+		return fmt.Errorf("unable to wait for all go routines: %w", err)
 	}
 
 	return nil
@@ -433,7 +433,7 @@ func sequentialOneToManyFn[I any, O any](
 				continue
 			}
 
-			return errors.Wrapf(err, "go routine %d", goIdx)
+			return fmt.Errorf("go routine %d: %w", goIdx, err)
 		}
 
 		_, err = sendOneToManyOutputs(ctx, goIdx, input, output, outcome, start, endFn, release, sendTimer, cfg)
@@ -467,7 +467,7 @@ func concurrentOneToManyFn[I any, O any](
 
 	err := errGrp.Wait()
 	if err != nil {
-		return errors.Wrap(err, "unable to wait for all go routines")
+		return fmt.Errorf("unable to wait for all go routines: %w", err)
 	}
 
 	return nil
@@ -499,7 +499,7 @@ func prepareStep[I, O any](pipe *Pipeline, input *Step[I], step *Step[O]) error 
 	for _, opt := range pipe.opts {
 		err := opt.PrepareStep(input.Details, step.Details)
 		if err != nil {
-			return errors.Wrap(err, "unable to run before step function")
+			return fmt.Errorf("unable to run before step function: %w", err)
 		}
 	}
 
@@ -698,7 +698,7 @@ func sequentialStepFromChanFn[I any, O any](
 
 	err := stepFn(ctx, inputPlaceholder, output.Output)
 	if err != nil {
-		return errors.Wrap(err, "unable to run step function")
+		return fmt.Errorf("unable to run step function: %w", err)
 	}
 
 	var endStep time.Duration
@@ -717,7 +717,7 @@ func sequentialStepFromChanFn[I any, O any](
 	for _, opt := range cfg.opts {
 		err := opt.OnStepOutput(input.Details, output.Details)
 		if err != nil {
-			return errors.Wrapf(err, "go routine %d: unable to run after step function", goIdx)
+			return fmt.Errorf("go routine %d: unable to run after step function: %w", goIdx, err)
 		}
 	}
 
@@ -728,7 +728,7 @@ func sequentialStepFromChanFn[I any, O any](
 		for _, opt := range cfg.metricsOpts {
 			err := opt.OnStepOutputMetrics(input.Details, output.Details, iterDuration, compDuration)
 			if err != nil {
-				return errors.Wrapf(err, "go routine %d: unable to run after step function", goIdx)
+				return fmt.Errorf("go routine %d: unable to run after step function: %w", goIdx, err)
 			}
 		}
 	}
@@ -757,7 +757,7 @@ func concurrentStepFromChanFn[I any, O any](
 
 	err := errGrp.Wait()
 	if err != nil {
-		return errors.Wrap(err, "unable to wait for all go routines")
+		return fmt.Errorf("unable to wait for all go routines: %w", err)
 	}
 
 	return nil

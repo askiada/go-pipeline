@@ -4,9 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"time"
-
-	"github.com/pkg/errors"
 
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
@@ -18,7 +18,7 @@ func randomJitterSeed() (float64, error) {
 
 	_, err := rand.Read(buf[:])
 	if err != nil {
-		return 0, errors.Wrap(err, "read jitter seed")
+		return 0, fmt.Errorf("read jitter seed: %w", err)
 	}
 
 	value := binary.LittleEndian.Uint64(buf[:])
@@ -95,7 +95,7 @@ func sleepRetry(ctx context.Context, policy *model.RetryPolicy, attempt int) err
 
 	select {
 	case <-ctx.Done():
-		return errors.Wrap(ctx.Err(), "context done")
+		return fmt.Errorf("context done: %w", ctx.Err())
 	case <-timer.C:
 		return nil
 	}
@@ -115,7 +115,7 @@ func reportStepRetry(
 
 		err := retryOpt.OnStepRetry(parentStep, step, attempt, computationDuration)
 		if err != nil {
-			return errors.Wrap(err, "unable to report retry")
+			return fmt.Errorf("unable to report retry: %w", err)
 		}
 	}
 
@@ -147,7 +147,7 @@ func executeWithRetry[T any](
 
 	for attempt := 1; attempt <= policy.MaxAttempts; attempt++ {
 		if ctx.Err() != nil {
-			return zero, 0, errors.Wrap(ctx.Err(), "context done")
+			return zero, 0, fmt.Errorf("context done: %w", ctx.Err())
 		}
 
 		var duration time.Duration

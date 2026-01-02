@@ -1,9 +1,8 @@
 package drawer
 
 import (
+	"fmt"
 	"time"
-
-	"github.com/pkg/errors"
 
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline"
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline/measure"
@@ -22,12 +21,12 @@ type pipelineDrawer struct {
 func (pd *pipelineDrawer) New() error {
 	err := pd.AddStep(model.StartStep.Details.Name)
 	if err != nil {
-		return errors.Wrap(err, "unable to add start step to drawer")
+		return fmt.Errorf("unable to add start step to drawer: %w", err)
 	}
 
 	err = pd.AddStep(model.EndStep.Details.Name)
 	if err != nil {
-		return errors.Wrap(err, "unable to add end step to drawer")
+		return fmt.Errorf("unable to add end step to drawer: %w", err)
 	}
 
 	return nil
@@ -105,18 +104,18 @@ func (pd *pipelineDrawer) Finish() error {
 	if pd.m != nil && !pd.runOpts.DryRun {
 		err := pd.SetTotalTime(model.EndStep.Details.Name, pd.startTime)
 		if err != nil {
-			return errors.Wrap(err, "unable to set total time")
+			return fmt.Errorf("unable to set total time: %w", err)
 		}
 
 		err = pd.AddMeasure(pd.m)
 		if err != nil {
-			return errors.Wrap(err, "unable to add measure")
+			return fmt.Errorf("unable to add measure: %w", err)
 		}
 	}
 
 	err := pd.Draw()
 	if err != nil {
-		return errors.Wrap(err, "unable to draw pipeline")
+		return fmt.Errorf("unable to draw pipeline: %w", err)
 	}
 
 	return nil

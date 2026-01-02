@@ -2,8 +2,7 @@ package pipeline
 
 import (
 	"context"
-
-	"github.com/pkg/errors"
+	"fmt"
 )
 
 type inFlightLimiter struct {
@@ -27,7 +26,7 @@ func (l *inFlightLimiter) acquire(ctx context.Context) error {
 	case l.sem <- struct{}{}:
 		return nil
 	case <-ctx.Done():
-		return errors.Wrap(ctx.Err(), "max in-flight canceled")
+		return fmt.Errorf("max in-flight canceled: %w", ctx.Err())
 	}
 }
 
