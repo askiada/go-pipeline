@@ -22,7 +22,7 @@ type StepFromChanFn[I, O any] func(ctx context.Context, input <-chan I, output c
 
 type stepToStepFn[I, O any] func(ctx context.Context, input *Step[I], output *Step[O]) error
 
-//nolint:ireturn,gocritic // Generic helper returns entry values; unnamed results keep call sites concise.
+//nolint:gocritic,ireturn // Generic helper returns entry values; unnamed results keep call sites concise.
 func acquireStepInput[I any](
 	ctx context.Context,
 	goIdx int,
@@ -65,7 +65,7 @@ func acquireStepInput[I any](
 
 func noopRelease() {}
 
-//nolint:ireturn,gocritic // Keep the call sites compact for hot paths.
+//nolint:gocritic,ireturn // Keep the call sites compact for hot paths.
 func nextStepInput[I any](ctx context.Context, goIdx int, inFlight *inFlightLimiter, input <-chan I) (I, bool, func(), error) {
 	if inFlight != nil {
 		return acquireStepInput(ctx, goIdx, inFlight, input)

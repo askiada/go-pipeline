@@ -89,7 +89,7 @@ func (d *SVGDrawer) SetTotalTime(stepName string, startTime time.Time) error {
 	return nil
 }
 
-const maxRGB = 240
+const maxRGB uint8 = 240
 
 // AddMeasure adds measure to drawer.
 func (d *SVGDrawer) AddMeasure(msr measure.Measure) error {
@@ -126,33 +126,27 @@ func (d *SVGDrawer) AddMeasure(msr measure.Measure) error {
 		return nil
 	}
 
-	redColor, err := rgb(255, 0, 0) //nolint
-	if err != nil {
-		return errors.Wrap(err, "unable to get colour")
-	}
+	redColour := rgb(255, 0, 0) //nolint
 
 	maxValue := sortedAllChanElapsed[0]
 	minValue := sortedAllChanElapsed[len(sortedAllChanElapsed)-1]
 
-	allChanElapsed[maxValue] = redColor.toHEX().string()
+	allChanElapsed[maxValue] = redColour.toHEX().string()
 	for curr := range allChanElapsed {
 		fraction := time.Duration(1)
 		if maxValue > minValue {
 			fraction = (curr - minValue) / (maxValue - minValue)
 		}
 
-		red := maxRGB * fraction
-		blue := -maxRGB*fraction + maxRGB
+		red := maxRGB * uint8(fraction)         //nolint:gosec // False positive
+		blue := maxRGB - maxRGB*uint8(fraction) //nolint:gosec // False positive
 
-		redColor, err := rgb(uint8(red), 0, uint8(blue)) //nolint
-		if err != nil {
-			return errors.Wrap(err, "unable to get colour")
-		}
+		redColour := rgb(red, 0, blue)
 
-		allChanElapsed[curr] = redColor.toHEX().string()
+		allChanElapsed[curr] = redColour.toHEX().string()
 	}
 
-	err = d.updateMetrics(msr, allChanElapsed)
+	err := d.updateMetrics(msr, allChanElapsed)
 	if err != nil {
 		return errors.Wrap(err, "unable to update metrics")
 	}
@@ -345,37 +339,30 @@ func renderDOT(wri io.Writer, desc description) error {
 	return nil
 }
 
-type rgbColor struct {
+type rgbColour struct {
 	R uint8
 	G uint8
 	B uint8
 }
 
-// rgb validates and returns a new RGBColor object from the provided r, g, b values
-func rgb(r, g, b uint8) (*rgbColor, error) {
-	return &rgbColor{R: r, G: g, B: b}, nil
+// rgb validates and returns a new RGBColor object from the provided r, g, b values.
+func rgb(r, g, b uint8) *rgbColour {
+	return &rgbColour{R: r, G: g, B: b}
 }
 
-const rgbString = "rgb(%d,%d,%d)"
-
-// hexColor represents a HEX color
-type hexColor struct {
+// hexColour represents a HEX colour.
+type hexColour struct {
 	hex string
 }
 
-// string returns the string representation on the HEXColor
-func (c *hexColor) string() string {
+// string returns the string representation on the hexColour.
+func (c *hexColour) string() string {
 	return c.hex
 }
 
-// string returns the string representation on the RGBColor
-func (c *rgbColor) string() string {
-	return fmt.Sprintf(rgbString, c.R, c.G, c.B)
-}
-
-// toHEX converts the RGBColor to a HEXColor
-func (c *rgbColor) toHEX() *hexColor {
-	return &hexColor{hex: fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B)}
+// toHEX converts the rgbColor to a hexColour.
+func (c *rgbColour) toHEX() *hexColour {
+	return &hexColour{hex: fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B)}
 }
 
 var _ Drawer = (*SVGDrawer)(nil)
