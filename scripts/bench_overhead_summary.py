@@ -3,7 +3,7 @@
 Summarize go-pipeline overhead benchmarks from `go test -bench` output.
 
 Defaults match the current benchmark suite (work sweep + step sweep). The script
-prints markdown tables that can be pasted into benchmarks.md.
+prints markdown tables that can be pasted into docs/benchmarks.md.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from statistics import median
 BENCH_OVERHEAD_ITEMS = 4096
 WORK_SWEEP = [0, 4, 16, 64, 256, 1024, 4096]
 STEP_COUNTS = [1, 2, 4, 8, 16, 32, 64]
+COMPOSITE_STAGE_COUNTS = [1, 2, 4, 8, 12]
 COMPOSITE_SWEEPS = {
     "OneToMany (expand -> reduce)": "BenchmarkOverheadCompositeOneToMany",
     "Batch (batch -> unbatch)": "BenchmarkOverheadCompositeBatch",
@@ -160,7 +161,7 @@ def print_composite_sweep(
     bench_prefix: str,
 ) -> list[tuple[int, float]]:
     names = []
-    for stages in STEP_COUNTS:
+    for stages in COMPOSITE_STAGE_COUNTS:
         names.extend(
             [
                 f"{bench_prefix}/stages={stages}/loop-serial-8",
@@ -179,7 +180,7 @@ def print_composite_sweep(
     print("| ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
 
     overheads: list[tuple[int, float]] = []
-    for stages in STEP_COUNTS:
+    for stages in COMPOSITE_STAGE_COUNTS:
         loop = median_value(vals, f"{bench_prefix}/stages={stages}/loop-serial-8")
         channels = median_value(vals, f"{bench_prefix}/stages={stages}/channels-8")
         pipe = median_value(vals, f"{bench_prefix}/stages={stages}/pipeline-8")

@@ -30,29 +30,26 @@ type stepRetryOption interface {
 	OnStepRetry(parentStep, step *StepInfo, attempt int, computationDuration time.Duration) error
 }
 
-type retryOutcome[T any] struct {
-	value T
-}
-
 func shouldRetry(ctx context.Context, policy *model.RetryPolicy, err error) bool {
 	if err == nil {
 		return false
 	}
 
-	if ctx.Err() != nil {
+	select {
+	case <-ctx.Done():
 		return false
-	}
+	default:
+		if policy == nil {
+			return false
+		}
 
-	if policy == nil {
-		return false
-	}
+		if policy.RetryOn != nil {
+			return policy.RetryOn(err)
+		}
 
-	if policy.RetryOn != nil {
-		return policy.RetryOn(err)
-	}
-
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return false
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return false
+		}
 	}
 
 	return true
@@ -135,26 +132,25 @@ func executeWithRetry[T any](
 	attemptFn func() (T, error),
 	reportRetry func(attempt int, duration time.Duration) error,
 	timingEnabled bool,
-) (retryOutcome[T], time.Duration, error) {
+) (T, time.Duration, error) {
 	var zero T
-	zeroOutcome := retryOutcome[T]{value: zero}
 
 	if policy == nil || policy.MaxAttempts < 2 {
 		if !timingEnabled {
 			out, err := attemptFn()
 
-			return retryOutcome[T]{value: out}, 0, err
+			return out, 0, err
 		}
 
 		start := time.Now()
 		out, err := attemptFn()
 
-		return retryOutcome[T]{value: out}, time.Since(start), err
+		return out, time.Since(start), err
 	}
 
 	for attempt := 1; attempt <= policy.MaxAttempts; attempt++ {
 		if ctx.Err() != nil {
-			return zeroOutcome, 0, errors.Wrap(ctx.Err(), "context done")
+			return zero, 0, errors.Wrap(ctx.Err(), "context done")
 		}
 
 		var duration time.Duration
@@ -170,25 +166,25 @@ func executeWithRetry[T any](
 		}
 
 		if err == nil {
-			return retryOutcome[T]{value: out}, duration, nil
+			return out, duration, nil
 		}
 
 		if !shouldRetry(ctx, policy, err) || attempt == policy.MaxAttempts {
-			return zeroOutcome, duration, err
+			return zero, duration, err
 		}
 
 		if reportRetry != nil {
 			reportErr := reportRetry(attempt, duration)
 			if reportErr != nil {
-				return zeroOutcome, duration, reportErr
+				return zero, duration, reportErr
 			}
 		}
 
 		sleepErr := sleepRetry(ctx, policy, attempt)
 		if sleepErr != nil {
-			return zeroOutcome, duration, sleepErr
+			return zero, duration, sleepErr
 		}
 	}
 
-	return zeroOutcome, 0, nil
+	return zero, 0, nil
 }

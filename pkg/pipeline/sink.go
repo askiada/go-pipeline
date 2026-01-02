@@ -98,6 +98,14 @@ func sequentialSinkFn[I any](
 	inFlight *inFlightLimiter,
 	cfg hookConfig,
 ) error {
+	var reportRetry retryFn
+
+	if cfg.retry {
+		reportRetry = func(attempt int, duration time.Duration) error {
+			return reportStepRetry(cfg.opts, input.Details, step.Details, attempt, duration)
+		}
+	}
+
 	for {
 		var start time.Time
 		if cfg.outputMetrics {
@@ -121,13 +129,6 @@ func sequentialSinkFn[I any](
 		}
 
 		itemCtx, cancel := stepItemContext(ctx, timeout)
-
-		reportRetry := func(attempt int, duration time.Duration) error {
-			return reportStepRetry(cfg.opts, input.Details, step.Details, attempt, duration)
-		}
-		if !cfg.retry {
-			reportRetry = nil
-		}
 
 		_, endFn, err := executeWithRetry(itemCtx, step.RetryPolicy, func() (struct{}, error) {
 			return struct{}{}, sinkFn(itemCtx, entry)

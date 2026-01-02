@@ -206,6 +206,8 @@ func sendOneToManyOutputs[I, O any](
 	return false, nil
 }
 
+type retryFn func(attempt int, duration time.Duration) error
+
 //nolint:gocognit,cyclop,gocyclo // error handling and option checks are centralised here.
 func sequentialOneToOneFn[I any, O any](
 	ctx context.Context,
@@ -225,6 +227,14 @@ func sequentialOneToOneFn[I any, O any](
 		stopBatchTimer(sendTimer)
 	}
 	defer stopBatchTimer(sendTimer)
+
+	var reportRetry retryFn
+
+	if cfg.retry {
+		reportRetry = func(attempt int, duration time.Duration) error {
+			return reportStepRetry(cfg.opts, input.Details, output.Details, attempt, duration)
+		}
+	}
 
 	for {
 		var start time.Time
@@ -250,18 +260,11 @@ func sequentialOneToOneFn[I any, O any](
 
 		itemCtx, cancel := stepItemContext(ctx, timeout)
 
-		reportRetry := func(attempt int, duration time.Duration) error {
-			return reportStepRetry(cfg.opts, input.Details, output.Details, attempt, duration)
-		}
-		if !cfg.retry {
-			reportRetry = nil
-		}
-
 		outcome, endFn, err := executeWithRetry(itemCtx, output.RetryPolicy, func() (O, error) {
 			return oneToOne(itemCtx, entry)
 		}, reportRetry, cfg.timing)
 
-		cancel()
+		cancel() // cancel timeout context. Noop if no timeout set.
 
 		//nolint:nestif // keep drop/error routing logic together.
 		if err != nil {
@@ -286,14 +289,13 @@ func sequentialOneToOneFn[I any, O any](
 			return errors.Wrapf(err, "go routine %d", goIdx)
 		}
 
-		out := outcome.value
-		if ignoreZero && reflect.ValueOf(out).IsZero() {
+		if ignoreZero && reflect.ValueOf(outcome).IsZero() {
 			release()
 
 			continue
 		}
 
-		_, err = sendStepOutput(ctx, goIdx, input, output, out, start, endFn, release, sendTimer, cfg)
+		_, err = sendStepOutput(ctx, goIdx, input, output, outcome, start, endFn, release, sendTimer, cfg)
 		if err != nil {
 			return err
 		}
@@ -316,10 +318,8 @@ func concurrentOneToOneFn[I any, O any](
 	// starts many consumers concurrently
 	// each consumer stops as soon as an error happens
 	for goIdx := range output.Details.Concurrent {
-		localGoIdx := goIdx
-
 		errGrp.Go(func() error {
-			return sequentialOneToOneFn(dCtx, localGoIdx, input, output, oneToOne, ignoreZero, timeout, limiter, inFlight, cfg)
+			return sequentialOneToOneFn(dCtx, goIdx, input, output, oneToOne, ignoreZero, timeout, limiter, inFlight, cfg)
 		})
 	}
 
@@ -343,8 +343,11 @@ func runOneToOne[I any, O any](
 		output.Details.Concurrent = 1
 	}
 
+	// setup rate limiter and in flight limiter
+	// they will be nil if not configured
 	limiter := newRateLimiter(output.RateLimitPolicy)
 	inFlight := newInFlightLimiter(output.MaxInFlight)
+	// timeout for each item processed
 	timeout := output.Timeout
 
 	if output.Details.Concurrent == 1 {
@@ -373,6 +376,14 @@ func sequentialOneToManyFn[I any, O any](
 	}
 	defer stopBatchTimer(sendTimer)
 
+	var reportRetry retryFn
+
+	if cfg.retry {
+		reportRetry = func(attempt int, duration time.Duration) error {
+			return reportStepRetry(cfg.opts, input.Details, output.Details, attempt, duration)
+		}
+	}
+
 	for {
 		var start time.Time
 		if cfg.outputMetrics {
@@ -396,13 +407,6 @@ func sequentialOneToManyFn[I any, O any](
 		}
 
 		itemCtx, cancel := stepItemContext(ctx, timeout)
-
-		reportRetry := func(attempt int, duration time.Duration) error {
-			return reportStepRetry(cfg.opts, input.Details, output.Details, attempt, duration)
-		}
-		if !cfg.retry {
-			reportRetry = nil
-		}
 
 		outcome, endFn, err := executeWithRetry(itemCtx, output.RetryPolicy, func() ([]O, error) {
 			return oneToMany(itemCtx, entry)
@@ -433,7 +437,7 @@ func sequentialOneToManyFn[I any, O any](
 			return errors.Wrapf(err, "go routine %d", goIdx)
 		}
 
-		_, err = sendOneToManyOutputs(ctx, goIdx, input, output, outcome.value, start, endFn, release, sendTimer, cfg)
+		_, err = sendOneToManyOutputs(ctx, goIdx, input, output, outcome, start, endFn, release, sendTimer, cfg)
 		if err != nil {
 			return err
 		}
