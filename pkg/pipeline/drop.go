@@ -76,7 +76,14 @@ func reportStepErrorRoute(opts []model.PipelineOption, step *model.StepInfo) err
 	return nil
 }
 
-func routeStepError[O any](ctx context.Context, step *Step[O], item any, err error, opts ...model.PipelineOption) error {
+func routeStepError[O any](
+	ctx context.Context,
+	step *Step[O],
+	item any,
+	err error,
+	errorRouteEnabled bool,
+	opts ...model.PipelineOption,
+) error {
 	if step == nil || step.ErrorOutput == nil {
 		return nil
 	}
@@ -100,17 +107,28 @@ func routeStepError[O any](ctx context.Context, step *Step[O], item any, err err
 		Err:      err,
 	}
 
-	err = sendStepError(ctx, step.ErrorOutput, payload)
-	if err != nil {
-		return err
+	sendErr := sendStepError(ctx, step.ErrorOutput, payload)
+	if sendErr != nil {
+		return sendErr
 	}
 
-	err = reportStepErrorRoute(opts, step.Details)
-	if err != nil {
-		return errors.Wrap(err, "unable to report step error route")
+	if !errorRouteEnabled {
+		return nil
 	}
 
-	return err
+	reportErr := reportStepErrorRoute(opts, step.Details)
+	if reportErr == nil {
+		return nil
+	}
+
+	payload.Err = reportErr
+
+	sendErr = sendStepError(ctx, step.ErrorOutput, payload)
+	if sendErr != nil {
+		return errors.Wrap(sendErr, "unable to route step error route failure")
+	}
+
+	return reportErr
 }
 
 func sendStepError(ctx context.Context, out chan<- model.StepError, payload model.StepError) error {
@@ -128,6 +146,7 @@ func sendOutputWithPolicy[O any](
 	step *Step[O],
 	value O,
 	timer *time.Timer,
+	dropEnabled bool,
 	opts ...model.PipelineOption,
 ) (bool, error) {
 	if step == nil {
@@ -141,7 +160,11 @@ func sendOutputWithPolicy[O any](
 		case step.Output <- value:
 			return false, nil
 		default:
-			return true, reportStepDrop(opts, step.Details, model.StepDropBufferFull)
+			if dropEnabled {
+				return true, reportStepDrop(opts, step.Details, model.StepDropBufferFull)
+			}
+
+			return true, nil
 		}
 	}
 
@@ -165,7 +188,11 @@ func sendOutputWithPolicy[O any](
 		case <-timer.C:
 			stopBatchTimer(timer)
 
-			return true, reportStepDrop(opts, step.Details, model.StepDropSendTimeout)
+			if dropEnabled {
+				return true, reportStepDrop(opts, step.Details, model.StepDropSendTimeout)
+			}
+
+			return true, nil
 		}
 	}
 

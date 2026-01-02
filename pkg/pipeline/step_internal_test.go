@@ -42,7 +42,7 @@ func TestOneToOne(t *testing.T) {
 
 				err := runOneToOne(ctx, input, output, func(ctx context.Context, i int) (int, error) {
 					return i, nil
-				}, false)
+				}, false, hookConfig{})
 				assert.NoError(t, err)
 			}()
 
@@ -83,7 +83,7 @@ func TestOneToOneCancelInput(t *testing.T) {
 
 				err := runOneToOne(ctx, input, output, func(ctx context.Context, i int) (int, error) {
 					return i, nil
-				}, false)
+				}, false, hookConfig{})
 				assert.Error(t, err)
 			}()
 
@@ -130,7 +130,7 @@ func TestOneToOneCancelOutput(t *testing.T) {
 					}
 
 					return i, nil
-				}, false)
+				}, false, hookConfig{})
 				assert.Error(t, err)
 			}()
 
@@ -175,7 +175,7 @@ func TestOneToOneError(t *testing.T) {
 					}
 
 					return i, nil
-				}, false)
+				}, false, hookConfig{})
 				assert.Error(t, err)
 			}()
 
@@ -216,7 +216,7 @@ func TestOneToOneOrZero(t *testing.T) {
 
 				err := runOneToOne(ctx, input, output, func(ctx context.Context, i int) (int, error) {
 					return i, nil
-				}, true)
+				}, true, hookConfig{})
 				assert.NoError(t, err)
 			}()
 
@@ -257,7 +257,7 @@ func TestOneToOneOrZeroCancelInput(t *testing.T) {
 
 				err := runOneToOne(ctx, input, output, func(ctx context.Context, i int) (int, error) {
 					return i, nil
-				}, false)
+				}, false, hookConfig{})
 				assert.Error(t, err)
 			}()
 
@@ -304,7 +304,7 @@ func TestOneToOneOrZeroCancelOutput(t *testing.T) {
 					}
 
 					return i, nil
-				}, false)
+				}, false, hookConfig{})
 				assert.Error(t, err)
 			}()
 
@@ -349,7 +349,7 @@ func TestOneToOneOrZeroError(t *testing.T) {
 					}
 
 					return i, nil
-				}, true)
+				}, true, hookConfig{})
 				assert.Error(t, err)
 			}()
 
@@ -389,7 +389,7 @@ func TestOneToMany(t *testing.T) {
 
 				err := runOneToMany(ctx, input, output, func(ctx context.Context, i int) ([]int, error) {
 					return []int{i, i * 10}, nil
-				})
+				}, hookConfig{})
 				assert.NoError(t, err)
 			}()
 
@@ -429,7 +429,7 @@ func TestOneToManyCancelInput(t *testing.T) {
 
 				err := runOneToMany(ctx, input, output, func(ctx context.Context, i int) ([]int, error) {
 					return []int{i, i * 10}, nil
-				})
+				}, hookConfig{})
 				assert.Error(t, err)
 			}()
 
@@ -475,7 +475,7 @@ func TestOneToManyCancelOutput(t *testing.T) {
 					}
 
 					return []int{i, i * 10}, nil
-				})
+				}, hookConfig{})
 				assert.Error(t, err)
 			}()
 
@@ -523,7 +523,7 @@ func TestOneToManyError(t *testing.T) {
 					}
 
 					return []int{i, i * 10}, nil
-				})
+				}, hookConfig{})
 				assert.Error(t, err)
 			}()
 

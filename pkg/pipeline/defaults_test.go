@@ -2,7 +2,6 @@ package pipeline_test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -20,12 +19,12 @@ func TestPipelineDefaultsHooksAreNoop(t *testing.T) {
 	require.NoError(t, defaults.New())
 	require.NoError(t, defaults.Finish())
 	require.NoError(t, defaults.PrepareStep(parent, step))
-	require.NoError(t, defaults.OnStepOutput(parent, step, time.Millisecond, time.Millisecond))
+	require.NoError(t, defaults.OnStepOutput(parent, step))
 	require.NoError(t, defaults.PrepareSplitter(parent, step))
-	require.NoError(t, defaults.OnSplitterOutput(parent, step, time.Millisecond, time.Millisecond))
+	require.NoError(t, defaults.OnSplitterOutput(parent, step))
 	require.NoError(t, defaults.PrepareMerger([]*model.StepInfo{parent}, step))
-	require.NoError(t, defaults.OnMergerOutput(parent, step, time.Millisecond))
+	require.NoError(t, defaults.OnMergerOutput(parent, step))
 	require.NoError(t, defaults.PrepareSink(parent, step))
-	require.NoError(t, defaults.OnSinkOutput(parent, step, time.Millisecond, time.Millisecond))
-	require.NoError(t, defaults.AfterSink(step, time.Millisecond))
+	require.NoError(t, defaults.OnSinkOutput(parent, step))
+	require.NoError(t, defaults.AfterSink(step))
 }

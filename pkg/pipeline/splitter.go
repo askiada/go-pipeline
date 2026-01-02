@@ -135,6 +135,7 @@ func warnSplitterBuffer(name string, bufferSize, inputConcurrent int) {
 	}
 }
 
+//nolint:cyclop,gocognit,gocyclo // Branch-heavy error handling stays localised here.
 func runSplitter[I any](
 	ctx context.Context,
 	pipe *Pipeline,
@@ -153,8 +154,13 @@ func runSplitter[I any](
 		close(errC)
 	}()
 
+	cfg := pipe.hookConfig()
+
 	for {
-		startIter := time.Now()
+		var startIter time.Time
+		if cfg.outputMetrics {
+			startIter = time.Now()
+		}
 
 		select {
 		case <-ctx.Done():
@@ -166,7 +172,10 @@ func runSplitter[I any](
 				return
 			}
 
-			startFn := time.Now()
+			var startFn time.Time
+			if cfg.outputMetrics {
+				startFn = time.Now()
+			}
 
 			for _, buf := range splitterBuffer {
 				localEntry := entry
@@ -181,11 +190,22 @@ func runSplitter[I any](
 				}
 			}
 
+			for _, opt := range cfg.opts {
+				err := opt.OnSplitterOutput(input.Details, splitter.mainStep.Details)
+				if err != nil {
+					errC <- errors.Wrap(err, "unable to run before merger function")
+				}
+			}
+
+			if !cfg.outputMetrics {
+				continue
+			}
+
 			endFn := time.Since(startFn)
 			endIter := time.Since(startIter) - endFn
 
-			for _, opt := range pipe.opts {
-				err := opt.OnSplitterOutput(input.Details, splitter.mainStep.Details, endIter, endFn)
+			for _, opt := range cfg.metricsOpts {
+				err := opt.OnSplitterOutputMetrics(input.Details, splitter.mainStep.Details, endIter, endFn)
 				if err != nil {
 					errC <- errors.Wrap(err, "unable to run before merger function")
 				}

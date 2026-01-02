@@ -35,9 +35,15 @@ func prepareMerger[I any](pipe *Pipeline, output chan I, name string, steps ...*
 	return outputStep, nil
 }
 
+//nolint:gocognit // Branch-heavy error handling stays localised here.
 func runStepMerger[I any](ctx context.Context, pipe *Pipeline, errC chan error, step, outputStep *Step[I]) {
+	cfg := pipe.hookConfig()
+
 	for {
-		startIter := time.Now()
+		var startIter time.Time
+		if cfg.outputMetrics {
+			startIter = time.Now()
+		}
 
 		select {
 		case <-ctx.Done():
@@ -53,11 +59,20 @@ func runStepMerger[I any](ctx context.Context, pipe *Pipeline, errC chan error, 
 			case <-ctx.Done():
 				errC <- ctx.Err()
 			case outputStep.Output <- entry:
-				endIter := time.Since(startIter)
-				for _, opt := range pipe.opts {
-					err := opt.OnMergerOutput(step.Details, outputStep.Details, endIter)
+				for _, opt := range cfg.opts {
+					err := opt.OnMergerOutput(step.Details, outputStep.Details)
 					if err != nil {
 						errC <- errors.Wrap(err, "unable to run before merger function")
+					}
+				}
+
+				if cfg.outputMetrics {
+					endIter := time.Since(startIter)
+					for _, opt := range cfg.metricsOpts {
+						err := opt.OnMergerOutputMetrics(step.Details, outputStep.Details, endIter)
+						if err != nil {
+							errC <- errors.Wrap(err, "unable to run before merger function")
+						}
 					}
 				}
 			}

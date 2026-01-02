@@ -86,6 +86,7 @@ func validateSinkFromChanOptions[I any](step *Step[I]) error {
 	return nil
 }
 
+//nolint:gocognit,cyclop,gocyclo // complex error handling and option checks are localised here.
 func sequentialSinkFn[I any](
 	ctx context.Context,
 	goIdx int,
@@ -95,10 +96,13 @@ func sequentialSinkFn[I any](
 	timeout time.Duration,
 	limiter *rateLimiter,
 	inFlight *inFlightLimiter,
-	opts ...model.PipelineOption,
+	cfg hookConfig,
 ) error {
 	for {
-		start := time.Now()
+		var start time.Time
+		if cfg.outputMetrics {
+			start = time.Now()
+		}
 
 		entry, ok, release, err := nextStepInput(ctx, goIdx, inFlight, input.Output)
 		if err != nil {
@@ -117,26 +121,35 @@ func sequentialSinkFn[I any](
 		}
 
 		itemCtx, cancel := stepItemContext(ctx, timeout)
+
+		reportRetry := func(attempt int, duration time.Duration) error {
+			return reportStepRetry(cfg.opts, input.Details, step.Details, attempt, duration)
+		}
+		if !cfg.retry {
+			reportRetry = nil
+		}
+
 		_, endFn, err := executeWithRetry(itemCtx, step.RetryPolicy, func() (struct{}, error) {
 			return struct{}{}, sinkFn(itemCtx, entry)
-		}, func(attempt int, duration time.Duration) error {
-			return reportStepRetry(opts, input.Details, step.Details, attempt, duration)
-		})
+		}, reportRetry, cfg.timing)
 
 		cancel()
 
+		//nolint:nestif // keep error handling together for clarity.
 		if err != nil {
 			release()
 
-			routeErr := routeStepError(ctx, step, entry, err, opts...)
+			routeErr := routeStepError(ctx, step, entry, err, cfg.errorRoute, cfg.opts...)
 			if routeErr != nil {
 				return routeErr
 			}
 
 			if step.DropOnError {
-				err = reportStepDrop(opts, step.Details, model.StepDropError)
-				if err != nil {
-					return err
+				if cfg.drop {
+					err = reportStepDrop(cfg.opts, step.Details, model.StepDropError)
+					if err != nil {
+						return err
+					}
 				}
 
 				continue
@@ -145,14 +158,26 @@ func sequentialSinkFn[I any](
 			return errors.Wrapf(err, "go routine %d", goIdx)
 		}
 
-		end := time.Since(start)
+		var end time.Duration
+		if cfg.outputMetrics {
+			end = time.Since(start)
+		}
 
 		release()
 
-		for _, opt := range opts {
-			err := opt.OnSinkOutput(input.Details, step.Details, end-endFn, endFn)
+		for _, opt := range cfg.opts {
+			err := opt.OnSinkOutput(input.Details, step.Details)
 			if err != nil {
 				return errors.Wrap(err, "unable to run before step function")
+			}
+		}
+
+		if cfg.outputMetrics {
+			for _, opt := range cfg.metricsOpts {
+				err := opt.OnSinkOutputMetrics(input.Details, step.Details, end-endFn, endFn)
+				if err != nil {
+					return errors.Wrap(err, "unable to run before step function")
+				}
 			}
 		}
 	}
@@ -166,14 +191,14 @@ func concurrentSinkFn[I any](
 	timeout time.Duration,
 	limiter *rateLimiter,
 	inFlight *inFlightLimiter,
-	opts ...model.PipelineOption,
+	cfg hookConfig,
 ) error {
 	errGrp, dCtx := errgroup.WithContext(ctx)
 	errGrp.SetLimit(step.Details.Concurrent)
 
 	for goIdx := range step.Details.Concurrent {
 		errGrp.Go(func() error {
-			return sequentialSinkFn(dCtx, goIdx, input, step, sinkFn, timeout, limiter, inFlight, opts...)
+			return sequentialSinkFn(dCtx, goIdx, input, step, sinkFn, timeout, limiter, inFlight, cfg)
 		})
 	}
 
@@ -190,7 +215,7 @@ func runSink[I any](
 	input *Step[I],
 	step *Step[I],
 	sinkFn func(ctx context.Context, input I) error,
-	opts ...model.PipelineOption,
+	cfg hookConfig,
 ) error {
 	if step.DropOnOutputFull || step.DropOnOutputTimeout > 0 {
 		return ErrDropOutputUnsupported
@@ -205,10 +230,10 @@ func runSink[I any](
 	timeout := step.Timeout
 
 	if step.Details.Concurrent == 1 {
-		return sequentialSinkFn(ctx, 1, input, step, sinkFn, timeout, limiter, inFlight, opts...)
+		return sequentialSinkFn(ctx, 1, input, step, sinkFn, timeout, limiter, inFlight, cfg)
 	}
 
-	return concurrentSinkFn(ctx, input, step, sinkFn, timeout, limiter, inFlight, opts...)
+	return concurrentSinkFn(ctx, input, step, sinkFn, timeout, limiter, inFlight, cfg)
 }
 
 // Sink adds a sink step to the pipeline. It will consume the input channel and run the sink function.
@@ -247,17 +272,27 @@ func Sink[I any](
 				}
 			}()
 
-			err := runSink(ctx, input, step, sinkFn, pipe.opts...)
+			cfg := pipe.hookConfig()
+
+			err := runSink(ctx, input, step, sinkFn, cfg)
 			if err != nil {
 				errC <- err
 			}
 
-			totalDuration := time.Since(pipe.startTime)
-
-			for _, opt := range pipe.opts {
-				err := opt.AfterSink(step.Details, totalDuration)
+			for _, opt := range cfg.opts {
+				err := opt.AfterSink(step.Details)
 				if err != nil {
 					errC <- errors.Wrap(err, "unable to run before step function")
+				}
+			}
+
+			if cfg.outputMetrics {
+				totalDuration := time.Since(pipe.startTime)
+				for _, opt := range cfg.metricsOpts {
+					err := opt.AfterSinkMetrics(step.Details, totalDuration)
+					if err != nil {
+						errC <- errors.Wrap(err, "unable to run before step function")
+					}
 				}
 			}
 		}()
@@ -311,16 +346,27 @@ func SinkFromChan[I any](
 				}
 			}()
 
-			err := runSinkFromChan(ctx, input, step, stepFn, pipe.opts...)
+			cfg := pipe.hookConfig()
+
+			err := runSinkFromChan(ctx, input, step, stepFn, cfg)
 			if err != nil {
 				errC <- err
 			}
 
-			totalDuration := time.Since(pipe.startTime)
-			for _, opt := range pipe.opts {
-				err := opt.AfterSink(step.Details, totalDuration)
+			for _, opt := range cfg.opts {
+				err := opt.AfterSink(step.Details)
 				if err != nil {
 					errC <- errors.Wrap(err, "unable to run before step function")
+				}
+			}
+
+			if cfg.outputMetrics {
+				totalDuration := time.Since(pipe.startTime)
+				for _, opt := range cfg.metricsOpts {
+					err := opt.AfterSinkMetrics(step.Details, totalDuration)
+					if err != nil {
+						errC <- errors.Wrap(err, "unable to run before step function")
+					}
 				}
 			}
 		}()
@@ -331,6 +377,7 @@ func SinkFromChan[I any](
 	return step
 }
 
+//nolint:gocognit,cyclop,gocyclo // channel plumbing and accounting make this verbose.
 func sequentialSinkFromChanFn[I any](
 	ctx context.Context,
 	goIdx int,
@@ -338,11 +385,15 @@ func sequentialSinkFromChanFn[I any](
 	step *Step[I],
 	stepFn func(ctx context.Context, input <-chan I) error,
 	conc int,
-	opts ...model.PipelineOption,
+	cfg hookConfig,
 ) error {
 	inputPlaceholder := make(chan I)
 	total := float64(0)
-	start := time.Now()
+
+	var start time.Time
+	if cfg.outputMetrics {
+		start = time.Now()
+	}
 
 	var end time.Duration
 
@@ -352,7 +403,9 @@ func sequentialSinkFromChanFn[I any](
 		defer func() {
 			close(inputPlaceholder)
 
-			end = time.Since(start)
+			if cfg.outputMetrics {
+				end = time.Since(start)
+			}
 
 			done <- struct{}{}
 		}()
@@ -377,14 +430,20 @@ func sequentialSinkFromChanFn[I any](
 		}
 	}()
 
-	startStep := time.Now()
+	var startStep time.Time
+	if cfg.outputMetrics {
+		startStep = time.Now()
+	}
 
 	err := stepFn(ctx, inputPlaceholder)
 	if err != nil {
 		return errors.Wrap(err, "unable to run sink function")
 	}
 
-	endStep := time.Since(startStep)
+	var endStep time.Duration
+	if cfg.outputMetrics {
+		endStep = time.Since(startStep)
+	}
 
 	if total == 0 {
 		return nil
@@ -394,15 +453,22 @@ func sequentialSinkFromChanFn[I any](
 
 	<-done
 
-	for _, opt := range opts {
-		err := opt.OnSinkOutput(
-			input.Details,
-			step.Details,
-			time.Duration(float64(end)/float64(total)),
-			time.Duration(float64(endStep)/float64(total)),
-		)
+	for _, opt := range cfg.opts {
+		err := opt.OnSinkOutput(input.Details, step.Details)
 		if err != nil {
 			return errors.Wrapf(err, "go routine %d: unable to run after step function", goIdx)
+		}
+	}
+
+	if cfg.outputMetrics {
+		iterDuration := time.Duration(float64(end) / float64(total))
+		compDuration := time.Duration(float64(endStep) / float64(total))
+
+		for _, opt := range cfg.metricsOpts {
+			err := opt.OnSinkOutputMetrics(input.Details, step.Details, iterDuration, compDuration)
+			if err != nil {
+				return errors.Wrapf(err, "go routine %d: unable to run after step function", goIdx)
+			}
 		}
 	}
 
@@ -414,7 +480,7 @@ func concurrentSinkFromChanFn[I any](
 	input *Step[I],
 	step *Step[I],
 	stepFn func(ctx context.Context, input <-chan I) error,
-	opts ...model.PipelineOption,
+	cfg hookConfig,
 ) error {
 	errGrp, dCtx := errgroup.WithContext(ctx)
 	errGrp.SetLimit(step.Details.Concurrent)
@@ -423,7 +489,7 @@ func concurrentSinkFromChanFn[I any](
 		localGoIdx := goIdx
 
 		errGrp.Go(func() error {
-			return sequentialSinkFromChanFn(dCtx, localGoIdx, input, step, stepFn, step.Details.Concurrent, opts...)
+			return sequentialSinkFromChanFn(dCtx, localGoIdx, input, step, stepFn, step.Details.Concurrent, cfg)
 		})
 	}
 
@@ -440,7 +506,7 @@ func runSinkFromChan[I any](
 	input *Step[I],
 	step *Step[I],
 	stepFn func(ctx context.Context, input <-chan I) error,
-	opts ...model.PipelineOption,
+	cfg hookConfig,
 ) error {
 	err := validateSinkFromChanOptions(step)
 	if err != nil {
@@ -452,8 +518,8 @@ func runSinkFromChan[I any](
 	}
 
 	if step.Details.Concurrent == 1 {
-		return sequentialSinkFromChanFn(ctx, 1, input, step, stepFn, 1, opts...)
+		return sequentialSinkFromChanFn(ctx, 1, input, step, stepFn, 1, cfg)
 	}
 
-	return concurrentSinkFromChanFn(ctx, input, step, stepFn, opts...)
+	return concurrentSinkFromChanFn(ctx, input, step, stepFn, cfg)
 }

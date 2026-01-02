@@ -54,10 +54,7 @@ func (pm *pipelineMeasure) Finish() error {
 }
 
 // OnStepOutput is called after each step output is processed.
-func (pm *pipelineMeasure) OnStepOutput(parentStep, step *model.StepInfo, iterationDuration, computationDuration time.Duration) error {
-	pm.GetMetric(step.Name).AddDuration(computationDuration)
-	pm.GetMetric(step.Name).AddTransportDuration(parentStep.Name, iterationDuration)
-
+func (pm *pipelineMeasure) OnStepOutput(_, _ *model.StepInfo) error {
 	return nil
 }
 
@@ -95,7 +92,42 @@ func (pm *pipelineMeasure) OnStepErrorRoute(step *model.StepInfo) error {
 }
 
 // OnSplitterOutput is called after each splitter step output is processed.
-func (pm *pipelineMeasure) OnSplitterOutput(
+func (pm *pipelineMeasure) OnSplitterOutput(_, _ *model.StepInfo) error {
+	return nil
+}
+
+// OnMergerOutput is called after each merger step output is processed.
+func (pm *pipelineMeasure) OnMergerOutput(_, _ *model.StepInfo) error {
+	return nil
+}
+
+// OnSinkOutput is called after each sink step output is processed.
+func (pm *pipelineMeasure) OnSinkOutput(_, _ *model.StepInfo) error {
+	return nil
+}
+
+// AfterSink is called after the sink step is executed.
+func (pm *pipelineMeasure) AfterSink(_ *model.StepInfo) error {
+	return nil
+}
+
+// OnStepOutputMetrics is called after each step output is processed.
+//
+//nolint:unparam // Required by the pipeline option interface.
+func (pm *pipelineMeasure) OnStepOutputMetrics(
+	parentStep, step *model.StepInfo,
+	iterationDuration, computationDuration time.Duration,
+) error {
+	pm.GetMetric(step.Name).AddDuration(computationDuration)
+	pm.GetMetric(step.Name).AddTransportDuration(parentStep.Name, iterationDuration)
+
+	return nil
+}
+
+// OnSplitterOutputMetrics is called after each splitter step output is processed.
+//
+//nolint:unparam // Required by the pipeline option interface.
+func (pm *pipelineMeasure) OnSplitterOutputMetrics(
 	parentStep, splitterStep *model.StepInfo,
 	iterationDuration, computationDuration time.Duration,
 ) error {
@@ -105,23 +137,35 @@ func (pm *pipelineMeasure) OnSplitterOutput(
 	return nil
 }
 
-// OnMergerOutput is called after each merger step output is processed.
-func (pm *pipelineMeasure) OnMergerOutput(parentStep, outputStep *model.StepInfo, iterationDuration time.Duration) error {
+// OnMergerOutputMetrics is called after each merger step output is processed.
+//
+//nolint:unparam // Required by the pipeline option interface.
+func (pm *pipelineMeasure) OnMergerOutputMetrics(
+	parentStep, outputStep *model.StepInfo,
+	iterationDuration time.Duration,
+) error {
 	pm.GetMetric(outputStep.Name).AddTransportDuration(parentStep.Name, iterationDuration)
 
 	return nil
 }
 
-// OnSinkOutput is called after each sink step output is processed.
-func (pm *pipelineMeasure) OnSinkOutput(parentStep, step *model.StepInfo, iterationDuration, computationDuration time.Duration) error {
+// OnSinkOutputMetrics is called after each sink step output is processed.
+//
+//nolint:unparam // Required by the pipeline option interface.
+func (pm *pipelineMeasure) OnSinkOutputMetrics(
+	parentStep, step *model.StepInfo,
+	iterationDuration, computationDuration time.Duration,
+) error {
 	pm.GetMetric(step.Name).AddDuration(computationDuration)
 	pm.GetMetric(step.Name).AddTransportDuration(parentStep.Name, iterationDuration)
 
 	return nil
 }
 
-// AfterSink is called after the sink step is executed.
-func (pm *pipelineMeasure) AfterSink(step *model.StepInfo, totalDuration time.Duration) error {
+// AfterSinkMetrics is called after the sink step is executed.
+//
+//nolint:unparam // Required by the pipeline option interface.
+func (pm *pipelineMeasure) AfterSinkMetrics(step *model.StepInfo, totalDuration time.Duration) error {
 	pm.GetMetric(step.Name).SetTotalDuration(totalDuration)
 
 	return nil

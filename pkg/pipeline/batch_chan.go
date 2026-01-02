@@ -14,7 +14,7 @@ type batchChanState[I any] struct {
 	goIdx      int
 	input      *Step[I]
 	output     *Step[<-chan I]
-	opts       []model.PipelineOption
+	cfg        hookConfig
 	maxSize    int
 	maxWait    time.Duration
 	batchCount int
@@ -30,13 +30,13 @@ func newBatchChanState[I any](
 	input *Step[I],
 	output *Step[<-chan I],
 	policy *model.BatchPolicy,
-	opts []model.PipelineOption,
+	cfg hookConfig,
 ) *batchChanState[I] {
 	state := &batchChanState[I]{
 		goIdx:   goIdx,
 		input:   input,
 		output:  output,
-		opts:    opts,
+		cfg:     cfg,
 		maxSize: policy.MaxSize,
 		maxWait: policy.MaxWait,
 	}
@@ -81,7 +81,7 @@ func (bs *batchChanState[I]) startBatch(ctx context.Context) (bool, error) {
 	bs.batchStart = time.Now()
 	bs.resetTimer()
 
-	dropped, err := sendOutputWithPolicy(ctx, bs.goIdx, bs.output, bs.batchCh, bs.sendTimer, bs.opts...)
+	dropped, err := sendOutputWithPolicy(ctx, bs.goIdx, bs.output, bs.batchCh, bs.sendTimer, bs.cfg.drop, bs.cfg.opts...)
 	if err != nil {
 		close(bs.batchCh)
 		bs.batchCh = nil
@@ -110,7 +110,10 @@ func (bs *batchChanState[I]) closeBatch() error {
 		return nil
 	}
 
-	elapsed := time.Since(bs.batchStart)
+	var elapsed time.Duration
+	if bs.cfg.outputMetrics {
+		elapsed = time.Since(bs.batchStart)
+	}
 
 	close(bs.batchCh)
 	bs.batchCh = nil
@@ -118,10 +121,19 @@ func (bs *batchChanState[I]) closeBatch() error {
 	bs.batchStart = time.Time{}
 	bs.clearTimer()
 
-	for _, opt := range bs.opts {
-		err := opt.OnStepOutput(bs.input.Details, bs.output.Details, elapsed, elapsed)
+	for _, opt := range bs.cfg.opts {
+		err := opt.OnStepOutput(bs.input.Details, bs.output.Details)
 		if err != nil {
 			return errors.Wrap(err, "unable to run before step function")
+		}
+	}
+
+	if bs.cfg.outputMetrics {
+		for _, opt := range bs.cfg.metricsOpts {
+			err := opt.OnStepOutputMetrics(bs.input.Details, bs.output.Details, elapsed, elapsed)
+			if err != nil {
+				return errors.Wrap(err, "unable to run before step function")
+			}
 		}
 	}
 
@@ -166,7 +178,7 @@ func sequentialBatchChanFn[I any](
 	goIdx int,
 	input *Step[I],
 	output *Step[<-chan I],
-	opts ...model.PipelineOption,
+	cfg hookConfig,
 ) error {
 	policy := output.BatchPolicy
 
@@ -175,7 +187,7 @@ func sequentialBatchChanFn[I any](
 		return err
 	}
 
-	state := newBatchChanState(goIdx, input, output, policy, opts)
+	state := newBatchChanState(goIdx, input, output, policy, cfg)
 
 	for {
 		select {
@@ -205,7 +217,7 @@ func concurrentBatchChanFn[I any](
 	ctx context.Context,
 	input *Step[I],
 	output *Step[<-chan I],
-	opts ...model.PipelineOption,
+	cfg hookConfig,
 ) error {
 	errGrp, dCtx := errgroup.WithContext(ctx)
 	errGrp.SetLimit(output.Details.Concurrent)
@@ -214,7 +226,7 @@ func concurrentBatchChanFn[I any](
 		localGoIdx := goIdx
 
 		errGrp.Go(func() error {
-			return sequentialBatchChanFn(dCtx, localGoIdx, input, output, opts...)
+			return sequentialBatchChanFn(dCtx, localGoIdx, input, output, cfg)
 		})
 	}
 
@@ -230,7 +242,7 @@ func runBatchChan[I any](
 	ctx context.Context,
 	input *Step[I],
 	output *Step[<-chan I],
-	opts ...model.PipelineOption,
+	cfg hookConfig,
 ) error {
 	err := validateBatchPolicy(output.BatchPolicy)
 	if err != nil {
@@ -242,10 +254,10 @@ func runBatchChan[I any](
 	}
 
 	if output.Details.Concurrent == 1 {
-		return sequentialBatchChanFn(ctx, 1, input, output, opts...)
+		return sequentialBatchChanFn(ctx, 1, input, output, cfg)
 	}
 
-	return concurrentBatchChanFn(ctx, input, output, opts...)
+	return concurrentBatchChanFn(ctx, input, output, cfg)
 }
 
 // BatchChan adds a step that groups incoming items into channels before emitting them downstream.
@@ -329,7 +341,7 @@ func BatchChan[I any](
 				}
 			}()
 
-			err := runBatchChan(ctx, input, step, pipe.opts...)
+			err := runBatchChan(ctx, input, step, pipe.hookConfig())
 			if err != nil {
 				errC <- err
 			}

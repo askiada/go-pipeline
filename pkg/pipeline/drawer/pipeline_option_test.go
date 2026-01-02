@@ -141,9 +141,9 @@ func TestPipelineDrawerOutputHooksNoop(t *testing.T) {
 	parent := &model.StepInfo{Name: "parent", Concurrent: 1}
 	step := &model.StepInfo{Name: "step", Concurrent: 1}
 
-	require.NoError(t, opt.OnStepOutput(parent, step, time.Millisecond, time.Millisecond))
-	require.NoError(t, opt.OnSplitterOutput(parent, step, time.Millisecond, time.Millisecond))
-	require.NoError(t, opt.OnMergerOutput(parent, step, time.Millisecond))
-	require.NoError(t, opt.OnSinkOutput(parent, step, time.Millisecond, time.Millisecond))
-	require.NoError(t, opt.AfterSink(step, time.Millisecond))
+	require.NoError(t, opt.OnStepOutput(parent, step))
+	require.NoError(t, opt.OnSplitterOutput(parent, step))
+	require.NoError(t, opt.OnMergerOutput(parent, step))
+	require.NoError(t, opt.OnSinkOutput(parent, step))
+	require.NoError(t, opt.AfterSink(step))
 }

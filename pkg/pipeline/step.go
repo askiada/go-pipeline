@@ -113,13 +113,13 @@ func sendStepOutput[I, O any](
 	fnDuration time.Duration,
 	release func(),
 	timer *time.Timer,
-	opts ...model.PipelineOption,
+	cfg hookConfig,
 ) (bool, error) {
 	if release != nil {
 		release()
 	}
 
-	dropped, err := sendOutputWithPolicy(ctx, goIdx, output, value, timer, opts...)
+	dropped, err := sendOutputWithPolicy(ctx, goIdx, output, value, timer, cfg.drop, cfg.opts...)
 	if err != nil {
 		return dropped, err
 	}
@@ -128,10 +128,20 @@ func sendStepOutput[I, O any](
 		return true, nil
 	}
 
-	for _, opt := range opts {
-		err := opt.OnStepOutput(input.Details, output.Details, time.Since(start)-fnDuration, fnDuration)
+	for _, opt := range cfg.opts {
+		err := opt.OnStepOutput(input.Details, output.Details)
 		if err != nil {
 			return false, errors.Wrap(err, "unable to run before step function")
+		}
+	}
+
+	if cfg.outputMetrics {
+		elapsed := time.Since(start)
+		for _, opt := range cfg.metricsOpts {
+			err := opt.OnStepOutputMetrics(input.Details, output.Details, elapsed-fnDuration, fnDuration)
+			if err != nil {
+				return false, errors.Wrap(err, "unable to run before step function")
+			}
 		}
 	}
 
@@ -148,7 +158,7 @@ func sendOneToManyOutputs[I, O any](
 	fnDuration time.Duration,
 	release func(),
 	timer *time.Timer,
-	opts ...model.PipelineOption,
+	cfg hookConfig,
 ) (bool, error) {
 	if release != nil {
 		release()
@@ -158,7 +168,7 @@ func sendOneToManyOutputs[I, O any](
 	sent := false
 
 	for _, value := range values {
-		itemDropped, err := sendOutputWithPolicy(ctx, goIdx, output, value, timer, opts...)
+		itemDropped, err := sendOutputWithPolicy(ctx, goIdx, output, value, timer, cfg.drop, cfg.opts...)
 		if err != nil {
 			return dropped, err
 		}
@@ -176,17 +186,27 @@ func sendOneToManyOutputs[I, O any](
 		return dropped, nil
 	}
 
-	end := time.Since(start)
-	for _, opt := range opts {
-		err := opt.OnStepOutput(input.Details, output.Details, end-fnDuration, fnDuration)
+	for _, opt := range cfg.opts {
+		err := opt.OnStepOutput(input.Details, output.Details)
 		if err != nil {
 			return false, errors.Wrap(err, "unable to run before step function")
+		}
+	}
+
+	if cfg.outputMetrics {
+		end := time.Since(start)
+		for _, opt := range cfg.metricsOpts {
+			err := opt.OnStepOutputMetrics(input.Details, output.Details, end-fnDuration, fnDuration)
+			if err != nil {
+				return false, errors.Wrap(err, "unable to run before step function")
+			}
 		}
 	}
 
 	return false, nil
 }
 
+//nolint:gocognit,cyclop,gocyclo // error handling and option checks are centralised here.
 func sequentialOneToOneFn[I any, O any](
 	ctx context.Context,
 	goIdx int,
@@ -197,7 +217,7 @@ func sequentialOneToOneFn[I any, O any](
 	timeout time.Duration,
 	limiter *rateLimiter,
 	inFlight *inFlightLimiter,
-	opts ...model.PipelineOption,
+	cfg hookConfig,
 ) error {
 	var sendTimer *time.Timer
 	if output.DropOnOutputTimeout > 0 {
@@ -207,7 +227,10 @@ func sequentialOneToOneFn[I any, O any](
 	defer stopBatchTimer(sendTimer)
 
 	for {
-		start := time.Now()
+		var start time.Time
+		if cfg.outputMetrics {
+			start = time.Now()
+		}
 
 		entry, ok, release, err := nextStepInput(ctx, goIdx, inFlight, input.Output)
 		if err != nil {
@@ -226,26 +249,35 @@ func sequentialOneToOneFn[I any, O any](
 		}
 
 		itemCtx, cancel := stepItemContext(ctx, timeout)
+
+		reportRetry := func(attempt int, duration time.Duration) error {
+			return reportStepRetry(cfg.opts, input.Details, output.Details, attempt, duration)
+		}
+		if !cfg.retry {
+			reportRetry = nil
+		}
+
 		outcome, endFn, err := executeWithRetry(itemCtx, output.RetryPolicy, func() (O, error) {
 			return oneToOne(itemCtx, entry)
-		}, func(attempt int, duration time.Duration) error {
-			return reportStepRetry(opts, input.Details, output.Details, attempt, duration)
-		})
+		}, reportRetry, cfg.timing)
 
 		cancel()
 
+		//nolint:nestif // keep drop/error routing logic together.
 		if err != nil {
 			release()
 
-			routeErr := routeStepError(ctx, output, entry, err, opts...)
+			routeErr := routeStepError(ctx, output, entry, err, cfg.errorRoute, cfg.opts...)
 			if routeErr != nil {
 				return routeErr
 			}
 
 			if output.DropOnError {
-				err = reportStepDrop(opts, output.Details, model.StepDropError)
-				if err != nil {
-					return err
+				if cfg.drop {
+					err = reportStepDrop(cfg.opts, output.Details, model.StepDropError)
+					if err != nil {
+						return err
+					}
 				}
 
 				continue
@@ -261,7 +293,7 @@ func sequentialOneToOneFn[I any, O any](
 			continue
 		}
 
-		_, err = sendStepOutput(ctx, goIdx, input, output, out, start, endFn, release, sendTimer, opts...)
+		_, err = sendStepOutput(ctx, goIdx, input, output, out, start, endFn, release, sendTimer, cfg)
 		if err != nil {
 			return err
 		}
@@ -277,7 +309,7 @@ func concurrentOneToOneFn[I any, O any](
 	timeout time.Duration,
 	limiter *rateLimiter,
 	inFlight *inFlightLimiter,
-	opts ...model.PipelineOption,
+	cfg hookConfig,
 ) error {
 	errGrp, dCtx := errgroup.WithContext(ctx)
 	errGrp.SetLimit(output.Details.Concurrent)
@@ -287,7 +319,7 @@ func concurrentOneToOneFn[I any, O any](
 		localGoIdx := goIdx
 
 		errGrp.Go(func() error {
-			return sequentialOneToOneFn(dCtx, localGoIdx, input, output, oneToOne, ignoreZero, timeout, limiter, inFlight, opts...)
+			return sequentialOneToOneFn(dCtx, localGoIdx, input, output, oneToOne, ignoreZero, timeout, limiter, inFlight, cfg)
 		})
 	}
 
@@ -305,7 +337,7 @@ func runOneToOne[I any, O any](
 	output *Step[O],
 	oneToOne OneToOneFn[I, O],
 	ignoreZero bool,
-	opts ...model.PipelineOption,
+	cfg hookConfig,
 ) error {
 	if output.Details.Concurrent == 0 {
 		output.Details.Concurrent = 1
@@ -316,12 +348,13 @@ func runOneToOne[I any, O any](
 	timeout := output.Timeout
 
 	if output.Details.Concurrent == 1 {
-		return sequentialOneToOneFn(ctx, 1, input, output, oneToOne, ignoreZero, timeout, limiter, inFlight, opts...)
+		return sequentialOneToOneFn(ctx, 1, input, output, oneToOne, ignoreZero, timeout, limiter, inFlight, cfg)
 	}
 
-	return concurrentOneToOneFn(ctx, input, output, oneToOne, ignoreZero, timeout, limiter, inFlight, opts...)
+	return concurrentOneToOneFn(ctx, input, output, oneToOne, ignoreZero, timeout, limiter, inFlight, cfg)
 }
 
+//nolint:gocognit // error handling and option checks are centralised here.
 func sequentialOneToManyFn[I any, O any](
 	ctx context.Context,
 	goIdx int,
@@ -331,7 +364,7 @@ func sequentialOneToManyFn[I any, O any](
 	timeout time.Duration,
 	limiter *rateLimiter,
 	inFlight *inFlightLimiter,
-	opts ...model.PipelineOption,
+	cfg hookConfig,
 ) error {
 	var sendTimer *time.Timer
 	if output.DropOnOutputTimeout > 0 {
@@ -341,7 +374,10 @@ func sequentialOneToManyFn[I any, O any](
 	defer stopBatchTimer(sendTimer)
 
 	for {
-		start := time.Now()
+		var start time.Time
+		if cfg.outputMetrics {
+			start = time.Now()
+		}
 
 		entry, ok, release, err := nextStepInput(ctx, goIdx, inFlight, input.Output)
 		if err != nil {
@@ -360,26 +396,35 @@ func sequentialOneToManyFn[I any, O any](
 		}
 
 		itemCtx, cancel := stepItemContext(ctx, timeout)
+
+		reportRetry := func(attempt int, duration time.Duration) error {
+			return reportStepRetry(cfg.opts, input.Details, output.Details, attempt, duration)
+		}
+		if !cfg.retry {
+			reportRetry = nil
+		}
+
 		outcome, endFn, err := executeWithRetry(itemCtx, output.RetryPolicy, func() ([]O, error) {
 			return oneToMany(itemCtx, entry)
-		}, func(attempt int, duration time.Duration) error {
-			return reportStepRetry(opts, input.Details, output.Details, attempt, duration)
-		})
+		}, reportRetry, cfg.timing)
 
 		cancel()
 
+		//nolint:nestif // keep drop/error routing logic together.
 		if err != nil {
 			release()
 
-			routeErr := routeStepError(ctx, output, entry, err, opts...)
+			routeErr := routeStepError(ctx, output, entry, err, cfg.errorRoute, cfg.opts...)
 			if routeErr != nil {
 				return routeErr
 			}
 
 			if output.DropOnError {
-				err = reportStepDrop(opts, output.Details, model.StepDropError)
-				if err != nil {
-					return err
+				if cfg.drop {
+					err = reportStepDrop(cfg.opts, output.Details, model.StepDropError)
+					if err != nil {
+						return err
+					}
 				}
 
 				continue
@@ -388,7 +433,7 @@ func sequentialOneToManyFn[I any, O any](
 			return errors.Wrapf(err, "go routine %d", goIdx)
 		}
 
-		_, err = sendOneToManyOutputs(ctx, goIdx, input, output, outcome.value, start, endFn, release, sendTimer, opts...)
+		_, err = sendOneToManyOutputs(ctx, goIdx, input, output, outcome.value, start, endFn, release, sendTimer, cfg)
 		if err != nil {
 			return err
 		}
@@ -403,7 +448,7 @@ func concurrentOneToManyFn[I any, O any](
 	timeout time.Duration,
 	limiter *rateLimiter,
 	inFlight *inFlightLimiter,
-	opts ...model.PipelineOption,
+	cfg hookConfig,
 ) error {
 	errGrp, dCtx := errgroup.WithContext(ctx)
 	errGrp.SetLimit(output.Details.Concurrent)
@@ -413,7 +458,7 @@ func concurrentOneToManyFn[I any, O any](
 		localGoIdx := goIdx
 
 		errGrp.Go(func() error {
-			return sequentialOneToManyFn(dCtx, localGoIdx, input, output, oneToMany, timeout, limiter, inFlight, opts...)
+			return sequentialOneToManyFn(dCtx, localGoIdx, input, output, oneToMany, timeout, limiter, inFlight, cfg)
 		})
 	}
 
@@ -430,7 +475,7 @@ func runOneToMany[I any, O any](
 	input *Step[I],
 	output *Step[O],
 	oneToMany func(context.Context, I) ([]O, error),
-	opts ...model.PipelineOption,
+	cfg hookConfig,
 ) error {
 	if output.Details.Concurrent == 0 {
 		output.Details.Concurrent = 1
@@ -441,10 +486,10 @@ func runOneToMany[I any, O any](
 	timeout := output.Timeout
 
 	if output.Details.Concurrent == 1 {
-		return sequentialOneToManyFn(ctx, 1, input, output, oneToMany, timeout, limiter, inFlight, opts...)
+		return sequentialOneToManyFn(ctx, 1, input, output, oneToMany, timeout, limiter, inFlight, cfg)
 	}
 
-	return concurrentOneToManyFn(ctx, input, output, oneToMany, timeout, limiter, inFlight, opts...)
+	return concurrentOneToManyFn(ctx, input, output, oneToMany, timeout, limiter, inFlight, cfg)
 }
 
 func prepareStep[I, O any](pipe *Pipeline, input *Step[I], step *Step[O]) error {
@@ -536,7 +581,7 @@ func runStepFromChan[I, O any](
 	input *Step[I],
 	output *Step[O],
 	stepFn StepFromChanFn[I, O],
-	opts ...model.PipelineOption,
+	cfg hookConfig,
 ) error {
 	err := validateFromChanOptions(output)
 	if err != nil {
@@ -548,10 +593,10 @@ func runStepFromChan[I, O any](
 	}
 
 	if output.Details.Concurrent == 1 {
-		return sequentialStepFromChanFn(ctx, 1, input, output, stepFn, 1, opts...)
+		return sequentialStepFromChanFn(ctx, 1, input, output, stepFn, 1, cfg)
 	}
 
-	return concurrentStepFromChanFn(ctx, input, output, stepFn, opts...)
+	return concurrentStepFromChanFn(ctx, input, output, stepFn, cfg)
 }
 
 func validateFromChanOptions[O any](step *Step[O]) error {
@@ -590,6 +635,7 @@ func validateFromChanOptions[O any](step *Step[O]) error {
 	return nil
 }
 
+//nolint:gocognit,cyclop,gocyclo // channel plumbing and accounting make this verbose.
 func sequentialStepFromChanFn[I any, O any](
 	ctx context.Context,
 	goIdx int,
@@ -597,11 +643,15 @@ func sequentialStepFromChanFn[I any, O any](
 	output *Step[O],
 	stepFn StepFromChanFn[I, O],
 	conc int,
-	opts ...model.PipelineOption,
+	cfg hookConfig,
 ) error {
 	inputPlaceholder := make(chan I)
 	total := float64(0)
-	start := time.Now()
+
+	var start time.Time
+	if cfg.outputMetrics {
+		start = time.Now()
+	}
 
 	var end time.Duration
 
@@ -611,7 +661,9 @@ func sequentialStepFromChanFn[I any, O any](
 		defer func() {
 			close(inputPlaceholder)
 
-			end = time.Since(start)
+			if cfg.outputMetrics {
+				end = time.Since(start)
+			}
 
 			done <- struct{}{}
 		}()
@@ -636,14 +688,20 @@ func sequentialStepFromChanFn[I any, O any](
 		}
 	}()
 
-	startStep := time.Now()
+	var startStep time.Time
+	if cfg.outputMetrics {
+		startStep = time.Now()
+	}
 
 	err := stepFn(ctx, inputPlaceholder, output.Output)
 	if err != nil {
 		return errors.Wrap(err, "unable to run step function")
 	}
 
-	endStep := time.Since(startStep)
+	var endStep time.Duration
+	if cfg.outputMetrics {
+		endStep = time.Since(startStep)
+	}
 
 	if total == 0 {
 		return nil
@@ -653,15 +711,22 @@ func sequentialStepFromChanFn[I any, O any](
 
 	<-done
 
-	for _, opt := range opts {
-		err := opt.OnStepOutput(
-			input.Details,
-			output.Details,
-			time.Duration(float64(end)/float64(total)),
-			time.Duration(float64(endStep)/float64(total)),
-		)
+	for _, opt := range cfg.opts {
+		err := opt.OnStepOutput(input.Details, output.Details)
 		if err != nil {
 			return errors.Wrapf(err, "go routine %d: unable to run after step function", goIdx)
+		}
+	}
+
+	if cfg.outputMetrics {
+		iterDuration := time.Duration(float64(end) / float64(total))
+		compDuration := time.Duration(float64(endStep) / float64(total))
+
+		for _, opt := range cfg.metricsOpts {
+			err := opt.OnStepOutputMetrics(input.Details, output.Details, iterDuration, compDuration)
+			if err != nil {
+				return errors.Wrapf(err, "go routine %d: unable to run after step function", goIdx)
+			}
 		}
 	}
 
@@ -673,7 +738,7 @@ func concurrentStepFromChanFn[I any, O any](
 	input *Step[I],
 	output *Step[O],
 	stepFn StepFromChanFn[I, O],
-	opts ...model.PipelineOption,
+	cfg hookConfig,
 ) error {
 	errGrp, dCtx := errgroup.WithContext(ctx)
 	errGrp.SetLimit(output.Details.Concurrent)
@@ -683,7 +748,7 @@ func concurrentStepFromChanFn[I any, O any](
 		localGoIdx := goIdx
 
 		errGrp.Go(func() error {
-			return sequentialStepFromChanFn(dCtx, localGoIdx, input, output, stepFn, output.Details.Concurrent, opts...)
+			return sequentialStepFromChanFn(dCtx, localGoIdx, input, output, stepFn, output.Details.Concurrent, cfg)
 		})
 	}
 
@@ -704,7 +769,7 @@ func OneToOne[I any, O any](
 	opts ...StepOption[O],
 ) *Step[O] {
 	return addStep(pipe, name, input, func(ctx context.Context, in *Step[I], out *Step[O]) error {
-		return runOneToOne(ctx, in, out, oneToOne, false, pipe.opts...)
+		return runOneToOne(ctx, in, out, oneToOne, false, pipe.hookConfig())
 	}, opts...)
 }
 
@@ -717,7 +782,7 @@ func OneToOneOrZero[I any, O any](
 	opts ...StepOption[O],
 ) *Step[O] {
 	return addStep(pipe, name, input, func(ctx context.Context, in *Step[I], out *Step[O]) error {
-		return runOneToOne(ctx, in, out, oneToOne, true, pipe.opts...)
+		return runOneToOne(ctx, in, out, oneToOne, true, pipe.hookConfig())
 	}, opts...)
 }
 
@@ -730,7 +795,7 @@ func OneToMany[I any, O any](
 	opts ...StepOption[O],
 ) *Step[O] {
 	return addStep(pipe, name, input, func(ctx context.Context, in *Step[I], out *Step[O]) error {
-		return runOneToMany(ctx, in, out, oneToMany, pipe.opts...)
+		return runOneToMany(ctx, in, out, oneToMany, pipe.hookConfig())
 	}, opts...)
 }
 
@@ -743,7 +808,7 @@ func FromChan[I any, O any](
 	opts ...StepOption[O],
 ) *Step[O] {
 	step := addStep(pipe, name, input, func(ctx context.Context, in *Step[I], out *Step[O]) error {
-		return runStepFromChan(ctx, in, out, stepFromChan, pipe.opts...)
+		return runStepFromChan(ctx, in, out, stepFromChan, pipe.hookConfig())
 	}, opts...)
 
 	if step == nil {

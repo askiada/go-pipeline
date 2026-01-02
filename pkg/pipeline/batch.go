@@ -67,7 +67,7 @@ type batchState[I any] struct {
 	goIdx      int
 	input      *Step[I]
 	output     *Step[[]I]
-	opts       []model.PipelineOption
+	cfg        hookConfig
 	maxSize    int
 	maxWait    time.Duration
 	batch      []I
@@ -82,13 +82,13 @@ func newBatchState[I any](
 	input *Step[I],
 	output *Step[[]I],
 	policy *model.BatchPolicy,
-	opts []model.PipelineOption,
+	cfg hookConfig,
 ) *batchState[I] {
 	state := &batchState[I]{
 		goIdx:   goIdx,
 		input:   input,
 		output:  output,
-		opts:    opts,
+		cfg:     cfg,
 		maxSize: policy.MaxSize,
 		maxWait: policy.MaxWait,
 	}
@@ -131,18 +131,23 @@ func (bs *batchState[I]) flush(ctx context.Context) error {
 		return nil
 	}
 
-	if bs.batchStart.IsZero() {
-		bs.batchStart = time.Now()
+	var elapsed time.Duration
+
+	if bs.cfg.outputMetrics {
+		if bs.batchStart.IsZero() {
+			bs.batchStart = time.Now()
+		}
+
+		elapsed = time.Since(bs.batchStart)
 	}
 
-	elapsed := time.Since(bs.batchStart)
 	batchToSend := bs.batch
 
 	bs.batch = nil
 	bs.batchStart = time.Time{}
 	bs.clearTimer()
 
-	dropped, err := sendOutputWithPolicy(ctx, bs.goIdx, bs.output, batchToSend, bs.sendTimer, bs.opts...)
+	dropped, err := sendOutputWithPolicy(ctx, bs.goIdx, bs.output, batchToSend, bs.sendTimer, bs.cfg.drop, bs.cfg.opts...)
 	if err != nil {
 		return err
 	}
@@ -151,10 +156,19 @@ func (bs *batchState[I]) flush(ctx context.Context) error {
 		return nil
 	}
 
-	for _, opt := range bs.opts {
-		err := opt.OnStepOutput(bs.input.Details, bs.output.Details, elapsed, elapsed)
+	for _, opt := range bs.cfg.opts {
+		err := opt.OnStepOutput(bs.input.Details, bs.output.Details)
 		if err != nil {
 			return errors.Wrap(err, "unable to run before step function")
+		}
+	}
+
+	if bs.cfg.outputMetrics {
+		for _, opt := range bs.cfg.metricsOpts {
+			err := opt.OnStepOutputMetrics(bs.input.Details, bs.output.Details, elapsed, elapsed)
+			if err != nil {
+				return errors.Wrap(err, "unable to run before step function")
+			}
 		}
 	}
 
@@ -189,7 +203,7 @@ func sequentialBatchFn[I any](
 	goIdx int,
 	input *Step[I],
 	output *Step[[]I],
-	opts ...model.PipelineOption,
+	cfg hookConfig,
 ) error {
 	policy := output.BatchPolicy
 
@@ -198,7 +212,7 @@ func sequentialBatchFn[I any](
 		return err
 	}
 
-	state := newBatchState(goIdx, input, output, policy, opts)
+	state := newBatchState(goIdx, input, output, policy, cfg)
 
 	for {
 		select {
@@ -226,7 +240,7 @@ func concurrentBatchFn[I any](
 	ctx context.Context,
 	input *Step[I],
 	output *Step[[]I],
-	opts ...model.PipelineOption,
+	cfg hookConfig,
 ) error {
 	errGrp, dCtx := errgroup.WithContext(ctx)
 	errGrp.SetLimit(output.Details.Concurrent)
@@ -235,7 +249,7 @@ func concurrentBatchFn[I any](
 		localGoIdx := goIdx
 
 		errGrp.Go(func() error {
-			return sequentialBatchFn(dCtx, localGoIdx, input, output, opts...)
+			return sequentialBatchFn(dCtx, localGoIdx, input, output, cfg)
 		})
 	}
 
@@ -251,7 +265,7 @@ func runBatch[I any](
 	ctx context.Context,
 	input *Step[I],
 	output *Step[[]I],
-	opts ...model.PipelineOption,
+	cfg hookConfig,
 ) error {
 	err := validateBatchPolicy(output.BatchPolicy)
 	if err != nil {
@@ -263,10 +277,10 @@ func runBatch[I any](
 	}
 
 	if output.Details.Concurrent == 1 {
-		return sequentialBatchFn(ctx, 1, input, output, opts...)
+		return sequentialBatchFn(ctx, 1, input, output, cfg)
 	}
 
-	return concurrentBatchFn(ctx, input, output, opts...)
+	return concurrentBatchFn(ctx, input, output, cfg)
 }
 
 // Batch adds a step that groups incoming items into batches before emitting them downstream.
@@ -350,7 +364,7 @@ func Batch[I any](
 				}
 			}()
 
-			err := runBatch(ctx, input, step, pipe.opts...)
+			err := runBatch(ctx, input, step, pipe.hookConfig())
 			if err != nil {
 				errC <- err
 			}

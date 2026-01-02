@@ -23,8 +23,20 @@ type stepOutputCounter struct {
 	count atomic.Int32
 }
 
-func (c *stepOutputCounter) OnStepOutput(_, _ *model.StepInfo, _, _ time.Duration) error {
+func (c *stepOutputCounter) OnStepOutput(_, _ *model.StepInfo) error {
 	c.count.Add(1)
+
+	return nil
+}
+
+type metricsOffObserver struct {
+	pipeline.PipelineDefaults
+
+	count atomic.Int32
+}
+
+func (o *metricsOffObserver) OnStepOutput(_, _ *model.StepInfo) error {
+	o.count.Add(1)
 
 	return nil
 }
@@ -317,6 +329,34 @@ func TestOneToOneDropOnErrorRoutes(t *testing.T) {
 	require.Equal(t, int64(2), dropMetric.DropCount(model.StepDropError))
 	require.Equal(t, int64(2), dropMetric.RoutedErrorCount())
 	require.Equal(t, int64(2), dropMetric.TotalDropCount())
+}
+
+func TestOutputHooksRunWithoutMetrics(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	observer := &metricsOffObserver{}
+	pipe, err := pipeline.New(observer)
+	require.NoError(t, err)
+
+	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+		out <- 1
+
+		return nil
+	})
+	require.NotNil(t, root)
+
+	step := pipeline.OneToOne(pipe, "step", root, func(ctx context.Context, input int) (int, error) {
+		return input, nil
+	})
+	require.NotNil(t, step)
+
+	pipeline.Sink(pipe, "sink", step, func(ctx context.Context, input int) error {
+		return nil
+	})
+
+	require.NoError(t, pipe.Run(ctx))
+	assert.Equal(t, int32(1), observer.count.Load())
 }
 
 func TestOneToManyDropStillReportsStepOutput(t *testing.T) {

@@ -1,10 +1,6 @@
 package pipeline
 
-import (
-	"time"
-
-	"github.com/askiada/go-pipeline/pkg/pipeline/model"
-)
+import "github.com/askiada/go-pipeline/pkg/pipeline/model"
 
 // PipelineDefaults configures default step and splitter behaviour.
 //
@@ -32,7 +28,7 @@ func (PipelineDefaults) PrepareStep(_, _ *model.StepInfo) error {
 }
 
 // OnStepOutput implements model.PipelineOption.
-func (PipelineDefaults) OnStepOutput(_, _ *model.StepInfo, _, _ time.Duration) error {
+func (PipelineDefaults) OnStepOutput(_, _ *model.StepInfo) error {
 	return nil
 }
 
@@ -42,7 +38,7 @@ func (PipelineDefaults) PrepareSplitter(_, _ *model.StepInfo) error {
 }
 
 // OnSplitterOutput implements model.PipelineOption.
-func (PipelineDefaults) OnSplitterOutput(_, _ *model.StepInfo, _, _ time.Duration) error {
+func (PipelineDefaults) OnSplitterOutput(_, _ *model.StepInfo) error {
 	return nil
 }
 
@@ -52,7 +48,7 @@ func (PipelineDefaults) PrepareMerger(_ []*model.StepInfo, _ *model.StepInfo) er
 }
 
 // OnMergerOutput implements model.PipelineOption.
-func (PipelineDefaults) OnMergerOutput(_, _ *model.StepInfo, _ time.Duration) error {
+func (PipelineDefaults) OnMergerOutput(_, _ *model.StepInfo) error {
 	return nil
 }
 
@@ -62,12 +58,12 @@ func (PipelineDefaults) PrepareSink(_, _ *model.StepInfo) error {
 }
 
 // OnSinkOutput implements model.PipelineOption.
-func (PipelineDefaults) OnSinkOutput(_, _ *model.StepInfo, _, _ time.Duration) error {
+func (PipelineDefaults) OnSinkOutput(_, _ *model.StepInfo) error {
 	return nil
 }
 
 // AfterSink implements model.PipelineOption.
-func (PipelineDefaults) AfterSink(_ *model.StepInfo, _ time.Duration) error {
+func (PipelineDefaults) AfterSink(_ *model.StepInfo) error {
 	return nil
 }
 

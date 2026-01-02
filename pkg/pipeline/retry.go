@@ -134,11 +134,18 @@ func executeWithRetry[T any](
 	policy *model.RetryPolicy,
 	attemptFn func() (T, error),
 	reportRetry func(attempt int, duration time.Duration) error,
+	timingEnabled bool,
 ) (retryOutcome[T], time.Duration, error) {
 	var zero T
 	zeroOutcome := retryOutcome[T]{value: zero}
 
 	if policy == nil || policy.MaxAttempts < 2 {
+		if !timingEnabled {
+			out, err := attemptFn()
+
+			return retryOutcome[T]{value: out}, 0, err
+		}
+
 		start := time.Now()
 		out, err := attemptFn()
 
@@ -150,10 +157,18 @@ func executeWithRetry[T any](
 			return zeroOutcome, 0, errors.Wrap(ctx.Err(), "context done")
 		}
 
-		start := time.Now()
-		out, err := attemptFn()
+		var duration time.Duration
+		var out T
+		var err error
 
-		duration := time.Since(start)
+		if timingEnabled {
+			start := time.Now()
+			out, err = attemptFn()
+			duration = time.Since(start)
+		} else {
+			out, err = attemptFn()
+		}
+
 		if err == nil {
 			return retryOutcome[T]{value: out}, duration, nil
 		}

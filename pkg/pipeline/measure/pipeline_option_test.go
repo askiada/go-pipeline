@@ -32,11 +32,13 @@ func TestPipelineMeasureHooks(t *testing.T) {
 	computation := 2 * time.Millisecond
 	total := 12 * time.Millisecond
 
-	require.NoError(t, opt.OnStepOutput(parent, step, iteration, computation))
-	require.NoError(t, opt.OnSplitterOutput(parent, splitter, iteration, computation))
-	require.NoError(t, opt.OnMergerOutput(parent, merger, iteration))
-	require.NoError(t, opt.OnSinkOutput(parent, sink, iteration, computation))
-	require.NoError(t, opt.AfterSink(sink, total))
+	metricsOpt, ok := opt.(model.PipelineMetricsOption)
+	require.True(t, ok)
+	require.NoError(t, metricsOpt.OnStepOutputMetrics(parent, step, iteration, computation))
+	require.NoError(t, metricsOpt.OnSplitterOutputMetrics(parent, splitter, iteration, computation))
+	require.NoError(t, metricsOpt.OnMergerOutputMetrics(parent, merger, iteration))
+	require.NoError(t, metricsOpt.OnSinkOutputMetrics(parent, sink, iteration, computation))
+	require.NoError(t, metricsOpt.AfterSinkMetrics(sink, total))
 
 	stepMetric := msr.GetMetric(step.Name)
 	require.NotNil(t, stepMetric)
