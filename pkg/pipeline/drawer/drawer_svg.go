@@ -13,8 +13,8 @@ import (
 	"github.com/pkg/errors"
 	"gopkg.in/go-playground/colors.v1" //nolint
 
-	"github.com/askiada/go-pipeline/pkg/pipeline/measure"
-	"github.com/askiada/go-pipeline/pkg/pipeline/model"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/measure"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
 
 // SVGDrawer is a drawer that creates a SVG file with the pipeline graph.

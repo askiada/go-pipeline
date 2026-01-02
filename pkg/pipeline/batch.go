@@ -7,7 +7,7 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/askiada/go-pipeline/pkg/pipeline/model"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
 
 func validateBatchPolicy(policy *model.BatchPolicy) error {

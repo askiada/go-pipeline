@@ -1,6 +1,6 @@
 package pipeline
 
-import "github.com/askiada/go-pipeline/pkg/pipeline/model"
+import "github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 
 type hookConfig struct {
 	opts          []model.PipelineOption

@@ -248,7 +248,7 @@ Notes: Default GOMAXPROCS. Overhead sweeps use items=4096 (iters up to 4096, ste
 
 goos: darwin
 goarch: amd64
-pkg: github.com/askiada/go-pipeline/pkg/pipeline
+pkg: github.com/askiada/go-pipeline/v2/pkg/pipeline
 cpu: VirtualApple @ 2.50GHz
 BenchmarkOneToOne/items=1k/conc=1/loop-serial-8         	   16240	      7332 ns/op	       0 B/op	       0 allocs/op
 BenchmarkOneToOne/items=1k/conc=1/loop-workers-8        	   29850	      3802 ns/op	      16 B/op	       1 allocs/op
@@ -477,5 +477,5 @@ BenchmarkOverheadCompositeBatchChan/stages=32/pipeline-8         	       1	 1346
 BenchmarkOverheadCompositeBatchChan/stages=64/loop-serial-8      	     186	    624538 ns/op	 2097158 B/op	      64 allocs/op
 BenchmarkOverheadCompositeBatchChan/stages=64/pipeline-8         	       1	 236162500 ns/op	 1051504 B/op	   10236 allocs/op
 PASS
-ok  	github.com/askiada/go-pipeline/pkg/pipeline	39.975s
+ok  	github.com/askiada/go-pipeline/v2/pkg/pipeline	39.975s
 ```

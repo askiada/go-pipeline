@@ -7,10 +7,10 @@ import (
 	"log"
 	"time"
 
-	"github.com/askiada/go-pipeline/pkg/pipeline"
-	"github.com/askiada/go-pipeline/pkg/pipeline/drawer"
-	"github.com/askiada/go-pipeline/pkg/pipeline/measure"
-	"github.com/askiada/go-pipeline/pkg/pipeline/model"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/drawer"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/measure"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
 
 func newPipeline(withDrawer bool) (*pipeline.Pipeline, *measure.DefaultMeasure, error) {

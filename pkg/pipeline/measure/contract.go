@@ -3,7 +3,7 @@ package measure
 import (
 	"time"
 
-	"github.com/askiada/go-pipeline/pkg/pipeline/model"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
 
 // Measure is an interface that defines the methods for measuring the performance of a pipeline.

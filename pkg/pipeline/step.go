@@ -8,7 +8,7 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/askiada/go-pipeline/pkg/pipeline/model"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
 
 // OneToOneFn is a function that takes an input and produces an output.

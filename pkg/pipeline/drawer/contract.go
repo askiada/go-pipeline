@@ -3,7 +3,7 @@ package drawer
 import (
 	"time"
 
-	"github.com/askiada/go-pipeline/pkg/pipeline/measure"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/measure"
 )
 
 // Drawer is an interface that defines the methods for drawing a pipeline.

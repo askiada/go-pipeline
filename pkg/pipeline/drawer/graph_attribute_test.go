@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/askiada/go-pipeline/pkg/pipeline/drawer"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/drawer"
 )
 
 func TestGraphAttributeSetsAttributes(t *testing.T) {

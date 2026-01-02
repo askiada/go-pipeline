@@ -8,9 +8,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/askiada/go-pipeline/pkg/pipeline"
-	"github.com/askiada/go-pipeline/pkg/pipeline/drawer"
-	"github.com/askiada/go-pipeline/pkg/pipeline/measure"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/drawer"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/measure"
 )
 
 type job struct {

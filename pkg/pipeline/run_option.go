@@ -1,6 +1,6 @@
 package pipeline
 
-import "github.com/askiada/go-pipeline/pkg/pipeline/model"
+import "github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 
 // RunOption configures execution-time behaviour for a pipeline run.
 type RunOption func(*model.RunOptions)

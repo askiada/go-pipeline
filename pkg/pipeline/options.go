@@ -3,7 +3,7 @@ package pipeline
 import (
 	"time"
 
-	"github.com/askiada/go-pipeline/pkg/pipeline/model"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
 
 // StepOption is a function that modifies a Step.

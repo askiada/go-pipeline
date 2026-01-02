@@ -8,9 +8,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/askiada/go-pipeline/pkg/pipeline/drawer"
-	"github.com/askiada/go-pipeline/pkg/pipeline/measure"
-	"github.com/askiada/go-pipeline/pkg/pipeline/model"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/drawer"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/measure"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
 
 func TestSVGDrawerDrawWritesDotFile(t *testing.T) {

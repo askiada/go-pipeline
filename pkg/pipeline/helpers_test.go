@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/askiada/go-pipeline/pkg/pipeline"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline"
 )
 
 func createInputChan(t *testing.T, total int) chan int {

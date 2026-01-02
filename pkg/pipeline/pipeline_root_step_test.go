@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/askiada/go-pipeline/pkg/pipeline"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline"
 )
 
 func TestRootNilPipe(t *testing.T) {

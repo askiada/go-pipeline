@@ -1,6 +1,6 @@
 # go-pipeline
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/askiada/go-pipeline.svg)](https://pkg.go.dev/github.com/askiada/go-pipeline)
+[![Go Reference](https://pkg.go.dev/badge/github.com/askiada/go-pipeline/v2.svg)](https://pkg.go.dev/github.com/askiada/go-pipeline/v2)
 [![Go Report Card](https://goreportcard.com/badge/github.com/askiada/go-pipeline)](https://goreportcard.com/report/github.com/askiada/go-pipeline)
 [![CI](https://github.com/askiada/go-pipeline/actions/workflows/go.yml/badge.svg)](https://github.com/askiada/go-pipeline/actions/workflows/go.yml)
 
@@ -42,7 +42,7 @@ The pipeline package provides a channel-based, concurrent processing model with 
 
 ## Installation
 ```bash
-go get github.com/askiada/go-pipeline
+go get github.com/askiada/go-pipeline/v2
 ```
 
 ## Quick start
@@ -54,7 +54,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/askiada/go-pipeline/pkg/pipeline"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline"
 )
 
 func main() {
@@ -112,7 +112,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/askiada/go-pipeline/pkg/pipeline"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline"
 )
 
 func main() {
@@ -318,9 +318,9 @@ You can attach pipeline options to collect metrics and emit Graphviz-ready outpu
 package main
 
 import (
-	"github.com/askiada/go-pipeline/pkg/pipeline"
-	"github.com/askiada/go-pipeline/pkg/pipeline/drawer"
-	"github.com/askiada/go-pipeline/pkg/pipeline/measure"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/drawer"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/measure"
 )
 
 func buildPipeline() (*pipeline.Pipeline, error) {
@@ -337,7 +337,7 @@ func buildPipeline() (*pipeline.Pipeline, error) {
 For live monitoring with Telegraf (Influx line protocol), use the monitoring option:
 
 ```go
-import "github.com/askiada/go-pipeline/pkg/pipeline/monitor"
+import "github.com/askiada/go-pipeline/v2/pkg/pipeline/monitor"
 
 func buildPipeline() (*pipeline.Pipeline, error) {
 	cfg := monitor.Config{

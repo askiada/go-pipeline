@@ -5,8 +5,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/askiada/go-pipeline/pkg/pipeline"
-	"github.com/askiada/go-pipeline/pkg/pipeline/model"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
 
 func TestPipelineDefaultsHooksAreNoop(t *testing.T) {

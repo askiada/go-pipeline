@@ -1,6 +1,6 @@
 package pipeline
 
-import "github.com/askiada/go-pipeline/pkg/pipeline/model"
+import "github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 
 // PipelineDefaults configures default step and splitter behaviour.
 //

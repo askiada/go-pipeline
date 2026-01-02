@@ -7,7 +7,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/askiada/go-pipeline/pkg/pipeline/model"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
 
 func prepareMerger[I any](pipe *Pipeline, output chan I, name string, steps ...*Step[I]) (*Step[I], error) {

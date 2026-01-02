@@ -7,9 +7,9 @@ import (
 	"log"
 	"sync"
 
-	"github.com/askiada/go-pipeline/pkg/pipeline"
-	"github.com/askiada/go-pipeline/pkg/pipeline/drawer"
-	"github.com/askiada/go-pipeline/pkg/pipeline/measure"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/drawer"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/measure"
 )
 
 func newPipeline(withDrawer bool) (*pipeline.Pipeline, error) {
