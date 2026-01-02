@@ -11,8 +11,8 @@ import (
 
 	"github.com/dominikbraun/graph"
 	"github.com/pkg/errors"
-	"gopkg.in/go-playground/colors.v1" //nolint
 
+	//nolint
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline/measure"
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
@@ -126,7 +126,7 @@ func (d *SVGDrawer) AddMeasure(msr measure.Measure) error {
 		return nil
 	}
 
-	redColor, err := colors.RGB(255, 0, 0) //nolint
+	redColor, err := rgb(255, 0, 0) //nolint
 	if err != nil {
 		return errors.Wrap(err, "unable to get colour")
 	}
@@ -134,7 +134,7 @@ func (d *SVGDrawer) AddMeasure(msr measure.Measure) error {
 	maxValue := sortedAllChanElapsed[0]
 	minValue := sortedAllChanElapsed[len(sortedAllChanElapsed)-1]
 
-	allChanElapsed[maxValue] = redColor.ToHEX().String()
+	allChanElapsed[maxValue] = redColor.toHEX().string()
 	for curr := range allChanElapsed {
 		fraction := time.Duration(1)
 		if maxValue > minValue {
@@ -144,12 +144,12 @@ func (d *SVGDrawer) AddMeasure(msr measure.Measure) error {
 		red := maxRGB * fraction
 		blue := -maxRGB*fraction + maxRGB
 
-		redColor, err := colors.RGB(uint8(red), 0, uint8(blue)) //nolint
+		redColor, err := rgb(uint8(red), 0, uint8(blue)) //nolint
 		if err != nil {
 			return errors.Wrap(err, "unable to get colour")
 		}
 
-		allChanElapsed[curr] = redColor.ToHEX().String()
+		allChanElapsed[curr] = redColor.toHEX().string()
 	}
 
 	err = d.updateMetrics(msr, allChanElapsed)
@@ -343,6 +343,39 @@ func renderDOT(wri io.Writer, desc description) error {
 	}
 
 	return nil
+}
+
+type rgbColor struct {
+	R uint8
+	G uint8
+	B uint8
+}
+
+// rgb validates and returns a new RGBColor object from the provided r, g, b values
+func rgb(r, g, b uint8) (*rgbColor, error) {
+	return &rgbColor{R: r, G: g, B: b}, nil
+}
+
+const rgbString = "rgb(%d,%d,%d)"
+
+// hexColor represents a HEX color
+type hexColor struct {
+	hex string
+}
+
+// string returns the string representation on the HEXColor
+func (c *hexColor) string() string {
+	return c.hex
+}
+
+// string returns the string representation on the RGBColor
+func (c *rgbColor) string() string {
+	return fmt.Sprintf(rgbString, c.R, c.G, c.B)
+}
+
+// toHEX converts the RGBColor to a HEXColor
+func (c *rgbColor) toHEX() *hexColor {
+	return &hexColor{hex: fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B)}
 }
 
 var _ Drawer = (*SVGDrawer)(nil)
