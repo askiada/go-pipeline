@@ -1,5 +1,3 @@
-// Package monitor streams pipeline run data and can serve a local UI.
-// It sends metrics to Telegraf and can render live step data in a browser.
 package monitor
 
 import (

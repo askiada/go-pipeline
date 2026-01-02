@@ -46,37 +46,32 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline"
 )
 
 func main() {
-	ctx := context.Background()
-	pipe, err := pipeline.New()
-	if err != nil {
-		log.Fatal(err)
-	}
+	pipe, _ := pipeline.New()
 
 	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
-		for i := range 5 {
+		for i := range 3 {
 			out <- i
 		}
+
 		return nil
 	})
 
-	double := pipeline.OneToOne(pipe, "double", root, func(ctx context.Context, in int) (int, error) {
-		return in * 2, nil
-	}, pipeline.StepConcurrency[int](2))
+	doubled := pipeline.OneToOne(pipe, "double", root, func(ctx context.Context, v int) (int, error) {
+		return v * 2, nil
+	})
 
-	pipeline.Sink(pipe, "print", double, func(ctx context.Context, in int) error {
-		fmt.Println(in)
+	pipeline.Sink(pipe, "print", doubled, func(ctx context.Context, v int) error {
+		fmt.Println(v)
+
 		return nil
 	})
 
-	if err := pipe.Run(ctx); err != nil {
-		log.Fatal(err)
-	}
+	_ = pipe.Run(context.Background())
 }
 ```
 Construction errors are deferred until `pipe.Run(ctx)` so you can wire the

@@ -12,9 +12,10 @@
 //	pipe, _ := pipeline.New()
 //
 //	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
-//		for i := 0; i < 3; i++ {
+//		for i := range 3 {
 //			out <- i
 //		}
+//
 //		return nil
 //	})
 //
@@ -24,6 +25,7 @@
 //
 //	pipeline.Sink(pipe, "print", doubled, func(ctx context.Context, v int) error {
 //		fmt.Println(v)
+//
 //		return nil
 //	})
 //
