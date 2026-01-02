@@ -145,7 +145,7 @@ func StepErrorOutput[O any](bufferSize int) (*Step[model.StepError], StepOption[
 	}
 
 	errorStep := &Step[model.StepError]{
-		Details: &model.StepInfo{
+		Details: &StepInfo{
 			Type:       model.NormalStepType,
 			Concurrent: 1,
 			BufferSize: bufferSize,

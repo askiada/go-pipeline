@@ -17,6 +17,7 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline"
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
 
@@ -139,7 +140,7 @@ func (pm *pipelineMonitor) SetRunOptions(opts model.RunOptions) {
 }
 
 // PrepareStep records step metadata.
-func (pm *pipelineMonitor) PrepareStep(parentStep, step *model.StepInfo) error {
+func (pm *pipelineMonitor) PrepareStep(parentStep, step *pipeline.StepInfo) error {
 	pm.emitStepMeta(step, parentStep)
 	pm.emitLink(parentStep, step)
 
@@ -147,7 +148,7 @@ func (pm *pipelineMonitor) PrepareStep(parentStep, step *model.StepInfo) error {
 }
 
 // PrepareSplitter records splitter metadata.
-func (pm *pipelineMonitor) PrepareSplitter(parentStep, splitterStep *model.StepInfo) error {
+func (pm *pipelineMonitor) PrepareSplitter(parentStep, splitterStep *pipeline.StepInfo) error {
 	pm.emitStepMeta(splitterStep, parentStep)
 	pm.emitLink(parentStep, splitterStep)
 
@@ -155,7 +156,7 @@ func (pm *pipelineMonitor) PrepareSplitter(parentStep, splitterStep *model.StepI
 }
 
 // PrepareMerger records merger metadata.
-func (pm *pipelineMonitor) PrepareMerger(parentStep []*model.StepInfo, step *model.StepInfo) error {
+func (pm *pipelineMonitor) PrepareMerger(parentStep []*pipeline.StepInfo, step *pipeline.StepInfo) error {
 	pm.emitStepMeta(step, nil)
 
 	for _, parent := range parentStep {
@@ -166,7 +167,7 @@ func (pm *pipelineMonitor) PrepareMerger(parentStep []*model.StepInfo, step *mod
 }
 
 // PrepareSink records sink metadata.
-func (pm *pipelineMonitor) PrepareSink(parentStep, step *model.StepInfo) error {
+func (pm *pipelineMonitor) PrepareSink(parentStep, step *pipeline.StepInfo) error {
 	pm.emitStepMeta(step, parentStep)
 	pm.emitLink(parentStep, step)
 
@@ -174,27 +175,27 @@ func (pm *pipelineMonitor) PrepareSink(parentStep, step *model.StepInfo) error {
 }
 
 // OnStepOutput records per-step metrics.
-func (pm *pipelineMonitor) OnStepOutput(_, _ *model.StepInfo) error {
+func (pm *pipelineMonitor) OnStepOutput(_, _ *pipeline.StepInfo) error {
 	return nil
 }
 
 // OnSplitterOutput records per-splitter metrics.
-func (pm *pipelineMonitor) OnSplitterOutput(_, _ *model.StepInfo) error {
+func (pm *pipelineMonitor) OnSplitterOutput(_, _ *pipeline.StepInfo) error {
 	return nil
 }
 
 // OnMergerOutput records per-merger metrics.
-func (pm *pipelineMonitor) OnMergerOutput(_, _ *model.StepInfo) error {
+func (pm *pipelineMonitor) OnMergerOutput(_, _ *pipeline.StepInfo) error {
 	return nil
 }
 
 // OnSinkOutput records per-sink metrics.
-func (pm *pipelineMonitor) OnSinkOutput(_, _ *model.StepInfo) error {
+func (pm *pipelineMonitor) OnSinkOutput(_, _ *pipeline.StepInfo) error {
 	return nil
 }
 
 // AfterSink records total duration for the sink.
-func (pm *pipelineMonitor) AfterSink(_ *model.StepInfo) error {
+func (pm *pipelineMonitor) AfterSink(_ *pipeline.StepInfo) error {
 	return nil
 }
 
@@ -202,7 +203,7 @@ func (pm *pipelineMonitor) AfterSink(_ *model.StepInfo) error {
 //
 //nolint:unparam // Required by the pipeline option interface.
 func (pm *pipelineMonitor) OnStepOutputMetrics(
-	parentStep, step *model.StepInfo,
+	parentStep, step *pipeline.StepInfo,
 	iterationDuration, computationDuration time.Duration,
 ) error {
 	pm.emitOutput("step_output", parentStep, step, iterationDuration, computationDuration)
@@ -214,7 +215,7 @@ func (pm *pipelineMonitor) OnStepOutputMetrics(
 //
 //nolint:unparam // Required by the pipeline option interface.
 func (pm *pipelineMonitor) OnSplitterOutputMetrics(
-	parentStep, splitterStep *model.StepInfo,
+	parentStep, splitterStep *pipeline.StepInfo,
 	iterationDuration, computationDuration time.Duration,
 ) error {
 	pm.emitOutput("splitter_output", parentStep, splitterStep, iterationDuration, computationDuration)
@@ -226,7 +227,7 @@ func (pm *pipelineMonitor) OnSplitterOutputMetrics(
 //
 //nolint:unparam // Required by the pipeline option interface.
 func (pm *pipelineMonitor) OnMergerOutputMetrics(
-	parentStep, outputStep *model.StepInfo,
+	parentStep, outputStep *pipeline.StepInfo,
 	iterationDuration time.Duration,
 ) error {
 	pm.emitOutput("merger_output", parentStep, outputStep, iterationDuration, 0)
@@ -238,7 +239,7 @@ func (pm *pipelineMonitor) OnMergerOutputMetrics(
 //
 //nolint:unparam // Required by the pipeline option interface.
 func (pm *pipelineMonitor) OnSinkOutputMetrics(
-	parentStep, step *model.StepInfo,
+	parentStep, step *pipeline.StepInfo,
 	iterationDuration, computationDuration time.Duration,
 ) error {
 	pm.emitOutput("sink_output", parentStep, step, iterationDuration, computationDuration)
@@ -249,7 +250,7 @@ func (pm *pipelineMonitor) OnSinkOutputMetrics(
 // AfterSinkMetrics records total duration for the sink.
 //
 //nolint:unparam // Required by the pipeline option interface.
-func (pm *pipelineMonitor) AfterSinkMetrics(step *model.StepInfo, totalDuration time.Duration) error {
+func (pm *pipelineMonitor) AfterSinkMetrics(step *pipeline.StepInfo, totalDuration time.Duration) error {
 	pm.emitFields(
 		"run_total",
 		pm.stepTags(step, nil),
@@ -264,7 +265,7 @@ func (pm *pipelineMonitor) AfterSinkMetrics(step *model.StepInfo, totalDuration 
 // OnStepDrop records drop events.
 //
 //nolint:unparam // interface requires error return.
-func (pm *pipelineMonitor) OnStepDrop(step *model.StepInfo, kind model.StepDropKind) error {
+func (pm *pipelineMonitor) OnStepDrop(step *pipeline.StepInfo, kind model.StepDropKind) error {
 	pm.emitFields(
 		"step_drop",
 		pm.stepTags(step, nil, map[string]string{"drop_kind": string(kind)}),
@@ -277,7 +278,7 @@ func (pm *pipelineMonitor) OnStepDrop(step *model.StepInfo, kind model.StepDropK
 // OnStepRetry records retry events.
 //
 //nolint:unparam // interface requires error return.
-func (pm *pipelineMonitor) OnStepRetry(_, step *model.StepInfo, attempt int, duration time.Duration) error {
+func (pm *pipelineMonitor) OnStepRetry(_, step *pipeline.StepInfo, attempt int, duration time.Duration) error {
 	pm.emitFields(
 		"step_retry",
 		pm.stepTags(step, nil),
@@ -294,7 +295,7 @@ func (pm *pipelineMonitor) OnStepRetry(_, step *model.StepInfo, attempt int, dur
 // OnStepErrorRoute records error routing.
 //
 //nolint:unparam // interface requires error return.
-func (pm *pipelineMonitor) OnStepErrorRoute(step *model.StepInfo) error {
+func (pm *pipelineMonitor) OnStepErrorRoute(step *pipeline.StepInfo) error {
 	pm.emitFields(
 		"step_error_route",
 		pm.stepTags(step, nil),
@@ -304,7 +305,7 @@ func (pm *pipelineMonitor) OnStepErrorRoute(step *model.StepInfo) error {
 	return nil
 }
 
-func (pm *pipelineMonitor) emitStepMeta(step, parent *model.StepInfo) {
+func (pm *pipelineMonitor) emitStepMeta(step, parent *pipeline.StepInfo) {
 	if step == nil {
 		return
 	}
@@ -316,7 +317,7 @@ func (pm *pipelineMonitor) emitStepMeta(step, parent *model.StepInfo) {
 	pm.emitFields("pipeline_step", pm.stepTags(step, parent), fields)
 }
 
-func (pm *pipelineMonitor) emitLink(from, to *model.StepInfo) {
+func (pm *pipelineMonitor) emitLink(from, to *pipeline.StepInfo) {
 	if from == nil || to == nil {
 		return
 	}
@@ -333,7 +334,7 @@ func (pm *pipelineMonitor) emitLink(from, to *model.StepInfo) {
 
 func (pm *pipelineMonitor) emitOutput(
 	measurement string,
-	parentStep, step *model.StepInfo,
+	parentStep, step *pipeline.StepInfo,
 	iterationDuration, computationDuration time.Duration,
 ) {
 	fields := map[string]any{
@@ -427,7 +428,7 @@ func (pm *pipelineMonitor) buildBaseTags() {
 }
 
 func (pm *pipelineMonitor) stepTags(
-	step, parent *model.StepInfo,
+	step, parent *pipeline.StepInfo,
 	extra ...map[string]string,
 ) map[string]string {
 	tags := map[string]string{}

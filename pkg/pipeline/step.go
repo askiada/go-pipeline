@@ -530,7 +530,7 @@ func addStep[I any, O any](
 	errC := make(chan error, 1)
 	decoratedError := newErrorChan(name, errC)
 	step := &Step[O]{
-		Details: &model.StepInfo{
+		Details: &StepInfo{
 			Type:       model.NormalStepType,
 			Name:       name,
 			Concurrent: 1,

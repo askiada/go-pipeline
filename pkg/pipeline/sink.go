@@ -20,7 +20,7 @@ func prepareSink[I any](pipe *Pipeline, name string, input *Step[I], opts ...Ste
 	}
 
 	step := &Step[I]{
-		Details: &model.StepInfo{
+		Details: &StepInfo{
 			Type:       model.SinkStepType,
 			Name:       name,
 			Concurrent: 1,

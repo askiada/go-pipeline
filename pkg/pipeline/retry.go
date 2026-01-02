@@ -27,7 +27,7 @@ func randomJitterSeed() (float64, error) {
 }
 
 type stepRetryOption interface {
-	OnStepRetry(parentStep, step *model.StepInfo, attempt int, computationDuration time.Duration) error
+	OnStepRetry(parentStep, step *StepInfo, attempt int, computationDuration time.Duration) error
 }
 
 type retryOutcome[T any] struct {
@@ -110,7 +110,7 @@ func sleepRetry(ctx context.Context, policy *model.RetryPolicy, attempt int) err
 
 func reportStepRetry(
 	opts []model.PipelineOption,
-	parentStep, step *model.StepInfo,
+	parentStep, step *StepInfo,
 	attempt int,
 	computationDuration time.Duration,
 ) error {

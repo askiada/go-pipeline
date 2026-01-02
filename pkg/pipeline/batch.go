@@ -309,7 +309,7 @@ func Batch[I any](
 	errC := make(chan error, 1)
 	decoratedError := newErrorChan(name, errC)
 	step := &Step[[]I]{
-		Details: &model.StepInfo{
+		Details: &StepInfo{
 			Type:       model.NormalStepType,
 			Name:       name,
 			Concurrent: 1,

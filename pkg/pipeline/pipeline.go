@@ -13,6 +13,8 @@ import (
 // Step is an alias to the model step definition used across the pipeline API.
 type Step[O any] = model.Step[O]
 
+type StepInfo = model.StepInfo
+
 // Pipeline is a pipeline of steps.
 type Pipeline struct {
 	errcList             *errorChans

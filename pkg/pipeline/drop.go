@@ -36,7 +36,7 @@ func prepareErrorStep[O any](pipe *Pipeline, step *Step[O]) error {
 	return nil
 }
 
-func reportStepDrop(opts []model.PipelineOption, step *model.StepInfo, kind model.StepDropKind) error {
+func reportStepDrop(opts []model.PipelineOption, step *StepInfo, kind model.StepDropKind) error {
 	if step == nil {
 		return nil
 	}
@@ -56,7 +56,7 @@ func reportStepDrop(opts []model.PipelineOption, step *model.StepInfo, kind mode
 	return nil
 }
 
-func reportStepErrorRoute(opts []model.PipelineOption, step *model.StepInfo) error {
+func reportStepErrorRoute(opts []model.PipelineOption, step *StepInfo) error {
 	if step == nil {
 		return nil
 	}

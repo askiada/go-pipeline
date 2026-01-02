@@ -12,7 +12,7 @@ import (
 
 func prepareMerger[I any](pipe *Pipeline, output chan I, name string, steps ...*Step[I]) (*Step[I], error) {
 	outputStep := &Step[I]{
-		Details: &model.StepInfo{
+		Details: &StepInfo{
 			Type:       model.MergerStepType,
 			Name:       name,
 			Concurrent: 1,
@@ -20,7 +20,7 @@ func prepareMerger[I any](pipe *Pipeline, output chan I, name string, steps ...*
 		Output: output,
 	}
 
-	stepInfos := make([]*model.StepInfo, len(steps))
+	stepInfos := make([]*StepInfo, len(steps))
 	for i, step := range steps {
 		stepInfos[i] = step.Details
 	}

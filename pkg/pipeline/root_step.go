@@ -40,7 +40,7 @@ func Root[O any](
 	decoratedError := newErrorChan(name, errC)
 
 	step := &Step[O]{
-		Details: &model.StepInfo{
+		Details: &StepInfo{
 			Type:       model.RootStepType,
 			Name:       name,
 			Concurrent: 1,

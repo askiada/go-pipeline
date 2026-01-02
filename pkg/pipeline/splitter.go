@@ -53,7 +53,7 @@ func prepareSplitter[I any](pipe *Pipeline, name string, input *Step[I], total i
 	splitter := &Splitter[I]{
 		Total: total,
 		mainStep: &Step[I]{
-			Details: &model.StepInfo{
+			Details: &StepInfo{
 				Type:       model.SplitterStepType,
 				Name:       name,
 				Concurrent: 1,
@@ -82,7 +82,7 @@ func prepareSplitter[I any](pipe *Pipeline, name string, input *Step[I], total i
 
 	for idx := range total {
 		step := Step[I]{
-			Details: &model.StepInfo{
+			Details: &StepInfo{
 				Type:       model.SplitterStepType,
 				Name:       name,
 				Concurrent: 1,

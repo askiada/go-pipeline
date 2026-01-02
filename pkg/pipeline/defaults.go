@@ -1,7 +1,5 @@
 package pipeline
 
-import "github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
-
 // PipelineDefaults configures default step and splitter behaviour.
 //
 //nolint:revive // Name is part of the public API.
@@ -23,47 +21,47 @@ func (PipelineDefaults) Finish() error {
 }
 
 // PrepareStep implements model.PipelineOption.
-func (PipelineDefaults) PrepareStep(_, _ *model.StepInfo) error {
+func (PipelineDefaults) PrepareStep(_, _ *StepInfo) error {
 	return nil
 }
 
 // OnStepOutput implements model.PipelineOption.
-func (PipelineDefaults) OnStepOutput(_, _ *model.StepInfo) error {
+func (PipelineDefaults) OnStepOutput(_, _ *StepInfo) error {
 	return nil
 }
 
 // PrepareSplitter implements model.PipelineOption.
-func (PipelineDefaults) PrepareSplitter(_, _ *model.StepInfo) error {
+func (PipelineDefaults) PrepareSplitter(_, _ *StepInfo) error {
 	return nil
 }
 
 // OnSplitterOutput implements model.PipelineOption.
-func (PipelineDefaults) OnSplitterOutput(_, _ *model.StepInfo) error {
+func (PipelineDefaults) OnSplitterOutput(_, _ *StepInfo) error {
 	return nil
 }
 
 // PrepareMerger implements model.PipelineOption.
-func (PipelineDefaults) PrepareMerger(_ []*model.StepInfo, _ *model.StepInfo) error {
+func (PipelineDefaults) PrepareMerger(_ []*StepInfo, _ *StepInfo) error {
 	return nil
 }
 
 // OnMergerOutput implements model.PipelineOption.
-func (PipelineDefaults) OnMergerOutput(_, _ *model.StepInfo) error {
+func (PipelineDefaults) OnMergerOutput(_, _ *StepInfo) error {
 	return nil
 }
 
 // PrepareSink implements model.PipelineOption.
-func (PipelineDefaults) PrepareSink(_, _ *model.StepInfo) error {
+func (PipelineDefaults) PrepareSink(_, _ *StepInfo) error {
 	return nil
 }
 
 // OnSinkOutput implements model.PipelineOption.
-func (PipelineDefaults) OnSinkOutput(_, _ *model.StepInfo) error {
+func (PipelineDefaults) OnSinkOutput(_, _ *StepInfo) error {
 	return nil
 }
 
 // AfterSink implements model.PipelineOption.
-func (PipelineDefaults) AfterSink(_ *model.StepInfo) error {
+func (PipelineDefaults) AfterSink(_ *StepInfo) error {
 	return nil
 }
 

@@ -5,6 +5,7 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline"
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline/measure"
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
@@ -33,7 +34,7 @@ func (pd *pipelineDrawer) New() error {
 }
 
 // PrepareStep is called before the step is executed.
-func (pd *pipelineDrawer) PrepareStep(parentStep, step *model.StepInfo) error {
+func (pd *pipelineDrawer) PrepareStep(parentStep, step *pipeline.StepInfo) error {
 	err := pd.AddStep(step.Name)
 	if err != nil {
 		return err
@@ -48,7 +49,7 @@ func (pd *pipelineDrawer) PrepareStep(parentStep, step *model.StepInfo) error {
 }
 
 // PrepareSplitter is called before the splitter step is executed.
-func (pd *pipelineDrawer) PrepareSplitter(parentStep, splitterStep *model.StepInfo) error {
+func (pd *pipelineDrawer) PrepareSplitter(parentStep, splitterStep *pipeline.StepInfo) error {
 	err := pd.AddStep(splitterStep.Name)
 	if err != nil {
 		return err
@@ -63,7 +64,7 @@ func (pd *pipelineDrawer) PrepareSplitter(parentStep, splitterStep *model.StepIn
 }
 
 // PrepareMerger is called before the merger step is executed.
-func (pd *pipelineDrawer) PrepareMerger(parentStep []*model.StepInfo, step *model.StepInfo) error {
+func (pd *pipelineDrawer) PrepareMerger(parentStep []*pipeline.StepInfo, step *pipeline.StepInfo) error {
 	err := pd.AddStep(step.Name)
 	if err != nil {
 		return err
@@ -80,7 +81,7 @@ func (pd *pipelineDrawer) PrepareMerger(parentStep []*model.StepInfo, step *mode
 }
 
 // PrepareSink is called before the sink step is executed.
-func (pd *pipelineDrawer) PrepareSink(parentStep, step *model.StepInfo) error {
+func (pd *pipelineDrawer) PrepareSink(parentStep, step *pipeline.StepInfo) error {
 	err := pd.AddStep(step.Name)
 	if err != nil {
 		return err
@@ -122,27 +123,27 @@ func (pd *pipelineDrawer) Finish() error {
 }
 
 // OnStepOutput is called after the step output is processed.
-func (pd *pipelineDrawer) OnStepOutput(_, _ *model.StepInfo) error {
+func (pd *pipelineDrawer) OnStepOutput(_, _ *pipeline.StepInfo) error {
 	return nil
 }
 
 // OnSplitterOutput is called after the splitter step output is processed.
-func (pd *pipelineDrawer) OnSplitterOutput(_, _ *model.StepInfo) error {
+func (pd *pipelineDrawer) OnSplitterOutput(_, _ *pipeline.StepInfo) error {
 	return nil
 }
 
 // OnMergerOutput is called after the merger step output is processed.
-func (pd *pipelineDrawer) OnMergerOutput(_, _ *model.StepInfo) error {
+func (pd *pipelineDrawer) OnMergerOutput(_, _ *pipeline.StepInfo) error {
 	return nil
 }
 
 // OnSinkOutput is called after the sink step output is processed.
-func (pd *pipelineDrawer) OnSinkOutput(_, _ *model.StepInfo) error {
+func (pd *pipelineDrawer) OnSinkOutput(_, _ *pipeline.StepInfo) error {
 	return nil
 }
 
 // AfterSink is called after the sink step is executed.
-func (pd *pipelineDrawer) AfterSink(_ *model.StepInfo) error {
+func (pd *pipelineDrawer) AfterSink(_ *pipeline.StepInfo) error {
 	return nil
 }
 
