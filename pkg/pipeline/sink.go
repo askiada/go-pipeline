@@ -237,7 +237,8 @@ func runSink[I any](
 	return concurrentSinkFn(ctx, input, step, sinkFn, timeout, limiter, inFlight, cfg)
 }
 
-// Sink adds a sink step to the pipeline. It will consume the input channel and run the sink function.
+// Sink adds a terminal step that consumes items and runs sinkFn.
+// It does not produce output; errors stop the run unless retries are set.
 func Sink[I any](
 	pipe *Pipeline,
 	name string,
@@ -304,7 +305,8 @@ func Sink[I any](
 	return step
 }
 
-// SinkFromChan adds a sink step to the pipeline. It will consume the input channel.
+// SinkFromChan adds a terminal step that reads directly from the input channel.
+// Use it when you want full control over the read loop.
 func SinkFromChan[I any](
 	pipe *Pipeline,
 	name string,

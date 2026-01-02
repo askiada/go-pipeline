@@ -7,13 +7,13 @@ import (
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
 
-// TransportInfo is a struct that contains the transport info.
+// TransportInfo stores transport timing data.
 type TransportInfo struct {
 	Elapsed time.Duration
 	total   int64
 }
 
-// DefaultMetric is a default implementation of the Metric interface.
+// DefaultMetric is an in-memory Metric implementation.
 type DefaultMetric struct {
 	allTransports map[string]*TransportInfo
 	mu            *sync.Mutex

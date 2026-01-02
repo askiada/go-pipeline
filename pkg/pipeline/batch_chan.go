@@ -260,8 +260,8 @@ func runBatchChan[I any](
 	return concurrentBatchChanFn(ctx, input, output, cfg)
 }
 
-// BatchChan adds a step that groups incoming items into channels before emitting them downstream.
-// The batch policy is required (MaxSize must be at least 1).
+// BatchChan groups incoming items into channels before emitting them downstream.
+// MaxSize must be at least 1. MaxWait <= 0 means no time flush.
 func BatchChan[I any](
 	pipe *Pipeline,
 	name string,

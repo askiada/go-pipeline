@@ -11,6 +11,7 @@ const (
 )
 
 // StepError captures an item that failed in a step.
+// It is sent on error routing channels when enabled.
 type StepError struct {
 	StepName string
 	Item     any

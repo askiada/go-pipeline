@@ -1,2 +1,3 @@
-// Package model provides the data structures and types used in the pipeline.
+// Package model holds shared types used by pipeline options and hooks.
+// It is not a full pipeline API by itself.
 package model

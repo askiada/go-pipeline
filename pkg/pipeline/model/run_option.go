@@ -2,6 +2,7 @@ package model
 
 // RunOptions describes execution-time settings for a pipeline run.
 type RunOptions struct {
+	// DryRun skips step execution but still runs validation and Finish hooks.
 	DryRun bool
 }
 

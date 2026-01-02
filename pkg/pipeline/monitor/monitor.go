@@ -1,4 +1,5 @@
-// Package monitor provides live pipeline monitoring via a pipeline option.
+// Package monitor streams pipeline run data and can serve a local UI.
+// It sends metrics to Telegraf and can render live step data in a browser.
 package monitor
 
 import (
@@ -29,6 +30,15 @@ const (
 )
 
 // Config configures live monitoring.
+//
+// Defaults:
+// - TelegrafNet: "udp"
+// - TelegrafAddr: "127.0.0.1:8094"
+// - BufferSize: 1024
+// - BindAddr: "127.0.0.1:8096" (only when EnableUI is true)
+// - RunID: random
+// - RunName: PipelineName or RunID
+// - Origin: hostname:pid.
 type Config struct {
 	RunID         string
 	RunName       string
@@ -62,10 +72,11 @@ type pipelineMonitor struct {
 	uiMeta       []monitorEvent
 }
 
-// PipelineMonitorOption is the exported alias for the monitoring option implementation.
+// PipelineMonitorOption is the pipeline option returned by PipelineMonitor.
 type PipelineMonitorOption = pipelineMonitor
 
 // PipelineMonitor creates a monitoring pipeline option.
+// Pass nil to use defaults.
 func PipelineMonitor(cfg *Config) *PipelineMonitorOption {
 	if cfg == nil {
 		cfg = &Config{}

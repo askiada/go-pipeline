@@ -2,10 +2,12 @@ package pipeline
 
 import "github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 
-// RunOption configures execution-time behaviour for a pipeline run.
+// RunOption changes execution-time behaviour for a pipeline run.
+// If no RunOption is set, defaults apply.
 type RunOption func(*model.RunOptions)
 
-// RunDry enables dry-run mode, skipping runner execution but keeping validation and Finish hooks.
+// RunDry enables dry-run mode.
+// It skips step execution but still runs validation and Finish hooks.
 func RunDry() RunOption {
 	return func(opts *model.RunOptions) {
 		opts.DryRun = true

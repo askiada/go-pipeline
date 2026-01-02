@@ -283,8 +283,8 @@ func runBatch[I any](
 	return concurrentBatchFn(ctx, input, output, cfg)
 }
 
-// Batch adds a step that groups incoming items into batches before emitting them downstream.
-// The batch policy is required (MaxSize must be at least 1).
+// Batch groups incoming items into slices before emitting them downstream.
+// MaxSize must be at least 1. MaxWait <= 0 means no time flush.
 func Batch[I any](
 	pipe *Pipeline,
 	name string,

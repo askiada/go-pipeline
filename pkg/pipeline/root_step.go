@@ -20,7 +20,9 @@ func prepareRootStep[O any](pipe *Pipeline, step *Step[O]) error {
 	return nil
 }
 
-// Root adds a root step to the pipeline. It will run the step function.
+// Root adds a source step that writes items into the pipeline.
+// The step function is called once per run and should send items to out.
+// Root does not support retries, timeouts, rate limits, drops, or error routing.
 func Root[O any](
 	pipe *Pipeline,
 	name string,

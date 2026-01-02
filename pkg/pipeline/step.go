@@ -11,13 +11,15 @@ import (
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
 
-// OneToOneFn is a function that takes an input and produces an output.
+// OneToOneFn transforms one input item into one output item.
+// Returning an error stops the run unless retries or drops are enabled.
 type OneToOneFn[I, O any] func(context.Context, I) (O, error)
 
-// OneToManyFn is a function that takes an input and produces many outputs.
+// OneToManyFn transforms one input item into zero or more output items.
 type OneToManyFn[I, O any] func(context.Context, I) ([]O, error)
 
-// StepFromChanFn is a function that takes an input channel and produces an output channel.
+// StepFromChanFn processes items from input and writes to output.
+// The output channel is owned by the pipeline and should not be closed.
 type StepFromChanFn[I, O any] func(ctx context.Context, input <-chan I, output chan O) error
 
 type stepToStepFn[I, O any] func(ctx context.Context, input *Step[I], output *Step[O]) error
@@ -763,7 +765,7 @@ func concurrentStepFromChanFn[I any, O any](
 	return nil
 }
 
-// OneToOne adds a step that takes one input and produces one output.
+// OneToOne adds a step that turns each input into one output.
 func OneToOne[I any, O any](
 	pipe *Pipeline,
 	name string,
@@ -776,7 +778,8 @@ func OneToOne[I any, O any](
 	}, opts...)
 }
 
-// OneToOneOrZero adds a step that takes one input and produces one output. If the output is a zero value, it is ignored.
+// OneToOneOrZero adds a step that turns each input into one output.
+// If the output is the zero value, it is skipped.
 func OneToOneOrZero[I any, O any](
 	pipe *Pipeline,
 	name string,
@@ -789,7 +792,7 @@ func OneToOneOrZero[I any, O any](
 	}, opts...)
 }
 
-// OneToMany adds a step that takes one input and produces many outputs.
+// OneToMany adds a step that turns each input into many outputs.
 func OneToMany[I any, O any](
 	pipe *Pipeline,
 	name string,
@@ -802,7 +805,8 @@ func OneToMany[I any, O any](
 	}, opts...)
 }
 
-// FromChan adds a step that takes an input channel and produces an output channel.
+// FromChan adds a step that owns its own input loop.
+// Use it when you already have a channel-based worker.
 func FromChan[I any, O any](
 	pipe *Pipeline,
 	name string,

@@ -79,7 +79,8 @@ func runStepMerger[I any](ctx context.Context, pipe *Pipeline, errC chan error, 
 	}
 }
 
-// Merge adds a merger step to the pipeline. It will merge the output of the steps into a single channel.
+// Merge combines the outputs of multiple steps into a single step.
+// Items can arrive in any order across inputs.
 func Merge[I any](pipe *Pipeline, name string, steps ...*Step[I]) *Step[I] {
 	if pipe == nil {
 		return nil

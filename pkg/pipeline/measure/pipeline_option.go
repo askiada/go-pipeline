@@ -172,7 +172,7 @@ func (pm *pipelineMeasure) AfterSinkMetrics(step *pipeline.StepInfo, totalDurati
 	return nil
 }
 
-// PipelineMeasure returns a pipeline option that measures the pipeline.
+// PipelineMeasure returns a pipeline option that records metrics.
 func PipelineMeasure(measure Measure) model.PipelineOption { //nolint:ireturn // it must implement the interface
 	return &pipelineMeasure{measure, map[string]Metric{}}
 }

@@ -6,7 +6,8 @@ import (
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
 
-// Measure is an interface that defines the methods for measuring the performance of a pipeline.
+// Measure stores metrics for a pipeline run.
+// Implementations should be safe for concurrent use.
 type Measure interface {
 	GetMetric(name string) Metric
 	AddMetric(name string, concurrent int) Metric
@@ -14,7 +15,8 @@ type Measure interface {
 	AllMetrics() map[string]Metric
 }
 
-// Metric is an interface that defines the methods for measuring the performance of a step.
+// Metric stores timing data for a single step.
+// Implementations should be safe for concurrent use.
 type Metric interface {
 	// AddDuration adds the duration.
 	AddDuration(elapsed time.Duration)

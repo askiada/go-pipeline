@@ -8,7 +8,7 @@ type PipelineOption interface {
 	New() error
 
 	pipelineStepOption
-	pipelineSpiltterOption
+	pipelineSplitterOption
 	pipelineMergerOption
 	pipelineSinkOption
 
@@ -20,15 +20,15 @@ type PipelineOption interface {
 type pipelineStepOption interface {
 	// PrepareStep runs before the step is executed.
 	PrepareStep(parentStep, step *StepInfo) error
-	// OnStepOutput runs everytime something is pushed to the output of the step.
+	// OnStepOutput runs every time something is pushed to the output of the step.
 	OnStepOutput(parentStep, step *StepInfo) error
 }
 
-// pipelineSpiltterOption defines the interface for splitter options at the pipeline level.
-type pipelineSpiltterOption interface {
+// pipelineSplitterOption defines the interface for splitter options at the pipeline level.
+type pipelineSplitterOption interface {
 	// PrepareSplitter runs before the splitter step is executed.
 	PrepareSplitter(parentStep, splitterStep *StepInfo) error
-	// OnSplitterOutput runs everytime something is pushed to the output of the splitter step.
+	// OnSplitterOutput runs every time something is pushed to the output of the splitter step.
 	OnSplitterOutput(parentStep, splitterStep *StepInfo) error
 }
 
@@ -36,7 +36,7 @@ type pipelineSpiltterOption interface {
 type pipelineMergerOption interface {
 	// PrepareMerger runs before the merger step is executed.
 	PrepareMerger(parentStep []*StepInfo, step *StepInfo) error
-	// OnMergerOutput runs everytime something is pushed to the output of the merger step.
+	// OnMergerOutput runs every time something is pushed to the output of the merger step.
 	OnMergerOutput(parentStep *StepInfo, outputStep *StepInfo) error
 }
 
@@ -44,7 +44,7 @@ type pipelineMergerOption interface {
 type pipelineSinkOption interface {
 	// PrepareSink runs before the sink step is executed.
 	PrepareSink(parentStep, step *StepInfo) error
-	// OnSinkOutput runs everytime something is pushed to the output of the sink step.
+	// OnSinkOutput runs every time something is pushed to the output of the sink step.
 	OnSinkOutput(parentStep, step *StepInfo) error
 	// AfterSink runs after the sink step is executed.
 	AfterSink(step *StepInfo) error

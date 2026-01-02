@@ -107,6 +107,7 @@ See `docs/examples.md` for a categorized index and `examples/README.md` for run
 commands. Timing diagrams live in `examples/timing-diagrams.md`.
 
 ## Documentation
+- Go doc (primary API reference): https://pkg.go.dev/github.com/askiada/go-pipeline/v2
 - `docs/README.md` is the docs index.
 - `docs/concepts.md` explains the pipeline mental model.
 - `docs/step-types.md` covers step types and usage guidance.

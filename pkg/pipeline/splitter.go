@@ -10,7 +10,8 @@ import (
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
 
-// Splitter is a step that splits the input into multiple outputs.
+// Splitter fans out items into multiple branch steps.
+// Use Get to retrieve each branch step in order.
 type Splitter[I any] struct {
 	mu            sync.Mutex
 	currIdx       int
@@ -20,7 +21,7 @@ type Splitter[I any] struct {
 	Total         int
 }
 
-// Get returns the next splitted step.
+// Get returns the next branch step in order.
 func (s *Splitter[I]) Get() (*Step[I], bool) {
 	s.mu.Lock()
 
@@ -258,7 +259,7 @@ func startSplitterWorkers[I any](
 	}
 }
 
-// Split adds a splitter step to the pipeline. It will split the input into multiple outputs based on the total.
+// Split adds a splitter step that copies each item to every branch.
 func Split[I any](pipe *Pipeline, name string, input *Step[I], total int, opts ...SplitterOption[I]) *Splitter[I] {
 	if pipe == nil {
 		return nil
@@ -302,10 +303,11 @@ func Split[I any](pipe *Pipeline, name string, input *Step[I], total int, opts .
 	return splitter
 }
 
-// SplitFn is a function that returns whether to keep the input or not.
+// SplitFn decides whether an item should be sent to a branch.
 type SplitFn[I any] func(ctx context.Context, input I) (bool, error)
 
-// SplitBy adds a splitter step to the pipeline. It will split the input into multiple outputs based on the provided functions.
+// SplitBy adds a splitter step that routes items to branches.
+// Each function is called for each item; returning true sends the item to that branch.
 func SplitBy[I any](
 	pipe *Pipeline,
 	name string,

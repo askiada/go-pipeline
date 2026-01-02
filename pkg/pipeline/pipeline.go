@@ -9,13 +9,15 @@ import (
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
 
-// Step is an alias to the model step definition used across the pipeline API.
+// Step is the pipeline step type used by the public API.
+// Steps are created by functions like Root, OneToOne, and Sink.
 type Step[O any] = model.Step[O]
 
-// StepInfo is an alias to the model step metadata used by metrics and reporting.
+// StepInfo holds step metadata used by options, metrics, and reporting.
 type StepInfo = model.StepInfo
 
-// Pipeline is a pipeline of steps.
+// Pipeline holds the built step graph and run settings.
+// A pipeline can be run once; build errors are stored and returned on Run.
 type Pipeline struct {
 	errcList             *errorChans
 	cancel               context.CancelFunc
@@ -41,7 +43,8 @@ type optionCapabilities struct {
 	retryEnabled         bool
 }
 
-// New creates a new pipeline.
+// New creates a new pipeline with optional pipeline options.
+// Options can add metrics, monitoring, or defaults for steps and splitters.
 func New(opts ...model.PipelineOption) (*Pipeline, error) {
 	pipe := &Pipeline{
 		errcList: &errorChans{},
@@ -155,7 +158,8 @@ func waitForPipeline(errs ...*errorChan) error {
 }
 
 // Run starts the pipeline and waits for it to finish.
-// Run options can change execution behaviour, e.g. RunDry skips runner execution.
+// It returns the first error from any step and stops other work.
+// Run options can change behaviour, for example RunDry skips execution.
 func (p *Pipeline) Run(ctx context.Context, opts ...RunOption) error {
 	if p == nil {
 		return ErrPipelineMustBeSet

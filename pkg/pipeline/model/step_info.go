@@ -17,44 +17,31 @@ const (
 	SinkStepType stepType = "sink"
 )
 
-// StepInfo contains information about a step in the pipeline.
+// StepInfo describes a step for hooks, metrics, and reporting.
 type StepInfo struct {
-	// Type represents the type of the step.
+	// Type is the step kind.
 	Type stepType
-	// Name is the name of the step.
-	// It is used to identify the step in the pipeline.
-	// It should be unique within the pipeline.
+	// Name is the step name and should be unique in the pipeline.
 	Name string
-	// Concurrent is the number of concurrent goroutines that can run this step.
-	// It is used to control the concurrency of the step.
-	// If it is set to 1, the step will run sequentially.
+	// Concurrent is how many goroutines run this step. Default is 1.
 	Concurrent int
-	// BufferSize is the size of the output channel buffer for this step.
-	// If it is set to 0, the output channel will be unbuffered.
+	// BufferSize is the output channel buffer size. Default is 0.
 	BufferSize int
 }
 
 var (
-	// StartStep is a special step that represents the start of the pipeline.
-	// It is used to initialise the pipeline and is not meant to be used as a regular step.
-	// It is the parent of all root steps in the pipeline.
+	// StartStep is a sentinel step used as the parent of root steps.
 	//
 	//nolint:gochecknoglobals // This is a global constant that represents the start of the pipeline.
 	StartStep = &Step[any]{Details: &StepInfo{Name: "start", Concurrent: 1}}
-	// EndStep is a special step that represents the end of the pipeline.
-	// It is used to signal the end of the pipeline and is not meant to be used as a regular step.
-	// It is the child of all sink steps in the pipeline.
+	// EndStep is a sentinel step used as the child of sink steps.
 	//
 	//nolint:gochecknoglobals // This is a global constant that represents the start of the pipeline.
 	EndStep = &Step[any]{Details: &StepInfo{Name: "end", Concurrent: 1}}
 )
 
-// Step represents a step in the pipeline.
-// It contains an output channel for the step's output, a flag to keep the channel open
-// after the step is done, and additional details about the step.
-// The output channel is used to send data from the step to the next step in the pipeline.
-// The KeepOpen flag indicates whether the output channel should remain open after the step is done,
-// allowing for further data to be sent to it.
+// Step holds runtime settings and channels for a pipeline step.
+// Most fields are set by step options before the pipeline runs.
 type Step[O any] struct {
 	Output   chan O
 	KeepOpen bool

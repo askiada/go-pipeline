@@ -1,12 +1,17 @@
 package pipeline
 
-// PipelineDefaults configures default step and splitter behaviour.
+// PipelineDefaults sets default values for steps and splitters.
+// Zero values mean "do not override".
 //
 //nolint:revive // Name is part of the public API.
 type PipelineDefaults struct {
-	StepConcurrency    int
-	StepKeepOpen       bool
-	StepBufferSize     int
+	// StepConcurrency sets the default step concurrency.
+	StepConcurrency int
+	// StepKeepOpen keeps step output channels open by default.
+	StepKeepOpen bool
+	// StepBufferSize sets the default step output buffer size.
+	StepBufferSize int
+	// SplitterBufferSize sets the default buffer size per splitter branch.
 	SplitterBufferSize int
 }
 
