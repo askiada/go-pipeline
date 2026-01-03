@@ -19,8 +19,6 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # needed because of the new-from-rev in golangci
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -43,7 +41,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version: "1.25"
 
       - uses: actions/cache@v4
         with:

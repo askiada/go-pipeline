@@ -5,6 +5,7 @@ monitoring UI, and optionally writes a drawer `.dot` file. The pipeline includes
 split/merge, batching, retries, and drop-on-full/blocked/error scenarios so you
 can see counters update live. The graph panel renders DOT using `@hpcc-js/wasm`
 from a CDN.
+The UI HTML template is embedded from `pkg/pipeline/monitor/ui_index.html`.
 
 Prerequisites:
 - Telegraf running with a socket listener for line protocol (default `udp://127.0.0.1:8094`).

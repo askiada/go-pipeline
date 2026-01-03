@@ -114,6 +114,7 @@ commands. Timing diagrams live in `examples/timing-diagrams.md`.
 - `docs/faq.md` answers common usage questions.
 - `docs/performance.md` and `docs/benchmarks.md` cover performance guidance.
 - `docs/examples.md` indexes runnable examples.
+- Benchmark summary script: `scripts/bench_overhead_summary.py` (see `docs/benchmarks.md`).
 
 ## Testing
 ```bash

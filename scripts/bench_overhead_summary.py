@@ -233,7 +233,8 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.bench_file:
-        text = open(args.bench_file, "r", encoding="utf-8").read()
+        with open(args.bench_file, "r", encoding="utf-8") as handle:
+            text = handle.read()
     else:
         text = sys.stdin.read()
 
