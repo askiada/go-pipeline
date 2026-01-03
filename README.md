@@ -20,6 +20,7 @@ go-pipeline is a Go library for building data-processing pipelines with composab
 - Contributing
 - Support
 - Release & versioning
+- Changelog
 - License
 
 ## Features
@@ -133,6 +134,9 @@ Please use GitHub Issues for all questions and communication.
 
 ## Release & versioning
 This project uses SemVer tags and GitHub Releases.
+
+## Changelog
+See `CHANGELOG.md`.
 
 ## License
 MIT. See `LICENSE`.
