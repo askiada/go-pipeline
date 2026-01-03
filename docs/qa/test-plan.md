@@ -1,6 +1,6 @@
 # QA Test Plan
 
-Date: 2026-01-02
+Date: 2026-01-03
 
 ## Scope
 - Core pipeline runtime (`pkg/pipeline`)
@@ -17,7 +17,7 @@ Date: 2026-01-02
 - CI: `.github/workflows/go.yml` runs `golangci-lint` and `go test -v ./...` on Go 1.24.
 
 ## Data requirements
-- None. Tests create in-memory channels and use synthetic inputs.
+- None. Tests create in-memory channels and use synthetic inputs, including UI snapshot counters.
 
 ## Implemented tests
 - `pkg/pipeline/pipeline_test.go` (Implemented): pipeline composition (root, one-to-one/one-to-many, split/merge, from-chan, sinks), one-to-one/one-to-many/from-chan/sink concurrency, error/cancellation paths, run-time context requirements, deferred construction errors, pipeline defaults, and runtime behavior.
@@ -47,6 +47,8 @@ Date: 2026-01-02
 - `pkg/pipeline/measure/pipeline_option_test.go` (Implemented): drop and error-route hooks populate metrics.
 - `pkg/pipeline/drawer/drawer_svg_test.go` (Implemented): drawer labels include drop counts and routed error counts.
 - `pkg/pipeline/monitor/monitor_test.go` (Implemented): monitoring line protocol includes run identity tags, skips emission during dry-run, and UI starts only on real runs.
+- `pkg/pipeline/monitor/monitor_test.go` (Implemented): UI snapshot event reports absolute output/drop/retry/error totals plus run total and sequence marker.
+- `pkg/pipeline/monitor/monitor_test.go` (Implemented): UI snapshot events are prioritized when the UI stream buffer is full.
 - `pkg/pipeline/pipeline_test.go` (Implemented): base output hooks run without metrics options; timing hooks are exercised via metrics options.
 
 ## Planned tests

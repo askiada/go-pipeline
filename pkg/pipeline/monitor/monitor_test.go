@@ -174,3 +174,80 @@ func TestMonitorUISkipsDryRun(t *testing.T) {
 
 	require.NoError(t, opt.Finish())
 }
+
+func TestMonitorUISnapshotTotals(t *testing.T) {
+	t.Parallel()
+
+	emitter := &stubEmitter{}
+	cfg := Config{
+		EnableUI:      true,
+		customEmitter: emitter,
+	}
+
+	opt := PipelineMonitor(&cfg)
+	require.NoError(t, opt.New())
+
+	metricsOpt, ok := any(opt).(model.PipelineMetricsOption)
+	require.True(t, ok)
+
+	stepA := &model.StepInfo{Name: "step-a", Type: model.NormalStepType}
+	stepB := &model.StepInfo{Name: "step-b", Type: model.NormalStepType}
+
+	require.NoError(t, metricsOpt.OnStepOutputMetrics(stepA, stepA, 30*time.Millisecond, 20*time.Millisecond))
+	require.NoError(t, metricsOpt.OnStepOutputMetrics(stepA, stepA, 10*time.Millisecond, 5*time.Millisecond))
+	require.NoError(t, metricsOpt.OnStepOutputMetrics(stepA, stepB, 12*time.Millisecond, 7*time.Millisecond))
+
+	require.NoError(t, opt.OnStepDrop(stepA, model.StepDropBufferFull))
+	require.NoError(t, opt.OnStepRetry(stepA, stepA, 1, 15*time.Millisecond))
+	require.NoError(t, opt.OnStepErrorRoute(stepB))
+
+	require.NoError(t, metricsOpt.AfterSinkMetrics(stepB, 1500*time.Millisecond))
+
+	snapshot := opt.uiSnapshotEvent()
+	require.NotNil(t, snapshot)
+
+	outputs, ok := snapshot.Fields["outputs"].(map[string]uiOutputTotals)
+	require.True(t, ok)
+
+	require.Equal(t, uiOutputTotals{Count: 2, DurationMs: 25, TransportMs: 40}, outputs["step-a"])
+	require.Equal(t, uiOutputTotals{Count: 1, DurationMs: 7, TransportMs: 12}, outputs["step-b"])
+
+	drops, ok := snapshot.Fields["drops"].(map[string]int64)
+	require.True(t, ok)
+	require.Equal(t, int64(1), drops["step-a"])
+
+	retries, ok := snapshot.Fields["retries"].(map[string]int64)
+	require.True(t, ok)
+	require.Equal(t, int64(1), retries["step-a"])
+
+	errorRoutes, ok := snapshot.Fields["error_routes"].(map[string]int64)
+	require.True(t, ok)
+	require.Equal(t, int64(1), errorRoutes["step-b"])
+
+	runTotal, ok := snapshot.Fields["run_total_ms"].(int64)
+	require.True(t, ok)
+	require.Equal(t, int64(1500), runTotal)
+
+	seq, ok := snapshot.Fields["snapshot_seq"].(int64)
+	require.True(t, ok)
+	require.Equal(t, int64(7), seq)
+
+	require.NoError(t, opt.Finish())
+}
+
+func TestUIHubPublishPriorityReplacesBufferedEvent(t *testing.T) {
+	t.Parallel()
+
+	hub := newUIHub(1)
+	stream := hub.subscribe()
+
+	hub.publish(monitorEvent{Measurement: "step_output"})
+	hub.publishPriority(monitorEvent{Measurement: "monitor_snapshot"})
+
+	select {
+	case event := <-stream:
+		require.Equal(t, "monitor_snapshot", event.Measurement)
+	case <-time.After(50 * time.Millisecond):
+		t.Fatal("timed out waiting for snapshot event")
+	}
+}

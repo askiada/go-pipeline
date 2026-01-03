@@ -6,6 +6,8 @@ split/merge, batching, retries, and drop-on-full/blocked/error scenarios so you
 can see counters update live. The graph panel renders DOT using `@hpcc-js/wasm`
 from a CDN.
 The UI HTML template is embedded from `pkg/pipeline/monitor/ui_index.html`.
+Opening the UI mid-run shows absolute totals thanks to snapshot counters.
+The UI sends a final snapshot on shutdown so totals reconcile even if the run finishes quickly.
 
 Prerequisites:
 - Telegraf running with a socket listener for line protocol (default `udp://127.0.0.1:8094`).

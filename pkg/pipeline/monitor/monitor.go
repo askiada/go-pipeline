@@ -68,6 +68,9 @@ type pipelineMonitor struct {
 	uiAddr       string
 	uiErr        error
 	uiMeta       []monitorEvent
+	uiSeq        int64
+	uiTotals     uiTotals
+	uiRunStarted time.Time
 }
 
 // PipelineMonitorOption is the pipeline option returned by PipelineMonitor.
@@ -139,6 +142,16 @@ func (pm *pipelineMonitor) SetRunOptions(opts model.RunOptions) {
 
 	if opts.DryRun {
 		return
+	}
+
+	if pm.cfg.EnableUI {
+		pm.uiMu.Lock()
+
+		if pm.uiRunStarted.IsZero() {
+			pm.uiRunStarted = time.Now()
+		}
+
+		pm.uiMu.Unlock()
 	}
 
 	if pm.cfg.EnableUI {

@@ -32,6 +32,30 @@ type uiHub struct {
 	closed  bool
 }
 
+type uiOutputTotals struct {
+	Count       int64 `json:"count"`
+	DurationMs  int64 `json:"duration_ms"`
+	TransportMs int64 `json:"transport_ms"`
+}
+
+type uiTotals struct {
+	outputs      map[string]uiOutputTotals
+	drops        map[string]int64
+	retries      map[string]int64
+	errorRoutes  map[string]int64
+	runTotalMs   int64
+	runTotalSeen bool
+}
+
+type uiTotalsSnapshot struct {
+	outputs      map[string]uiOutputTotals
+	drops        map[string]int64
+	retries      map[string]int64
+	errorRoutes  map[string]int64
+	runTotalMs   int64
+	runTotalSeen bool
+}
+
 func newUIHub(buffer int) *uiHub {
 	if buffer < 1 {
 		buffer = defaultBufferSize
@@ -92,6 +116,38 @@ func (h *uiHub) publish(event monitorEvent) {
 	}
 }
 
+func (h *uiHub) publishPriority(event monitorEvent) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	if h.closed {
+		return
+	}
+
+	for ch := range h.clients {
+		if h.trySend(ch, event) {
+			continue
+		}
+
+		// Drop one queued event to make room for the snapshot.
+		select {
+		case <-ch:
+		default:
+		}
+
+		h.trySend(ch, event)
+	}
+}
+
+func (h *uiHub) trySend(ch chan monitorEvent, event monitorEvent) bool {
+	select {
+	case ch <- event:
+		return true
+	default:
+		return false
+	}
+}
+
 func (h *uiHub) close() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -108,6 +164,100 @@ func (h *uiHub) close() {
 	h.closed = true
 }
 
+func (totals *uiTotals) apply(measurement string, tags map[string]string, fields map[string]any) {
+	switch measurement {
+	case "step_output", "splitter_output", "merger_output", "sink_output":
+		totals.applyOutput(tags, fields)
+	case "step_drop":
+		totals.drops = totals.applyCount(tags, fields, totals.drops)
+	case "step_retry":
+		totals.retries = totals.applyCount(tags, fields, totals.retries)
+	case "step_error_route":
+		totals.errorRoutes = totals.applyCount(tags, fields, totals.errorRoutes)
+	case "run_total":
+		totals.applyRunTotal(fields)
+	default:
+	}
+}
+
+func (totals *uiTotals) applyOutput(tags map[string]string, fields map[string]any) {
+	stepName := tagStepName(tags)
+	if stepName == "" {
+		return
+	}
+
+	if totals.outputs == nil {
+		totals.outputs = make(map[string]uiOutputTotals)
+	}
+
+	current := totals.outputs[stepName]
+	current.Count += fieldInt64(fields, "count")
+	current.DurationMs += fieldInt64(fields, "duration_ms")
+	current.TransportMs += fieldInt64(fields, "transport_ms")
+	totals.outputs[stepName] = current
+}
+
+func (totals *uiTotals) applyCount(tags map[string]string, fields map[string]any, target map[string]int64) map[string]int64 {
+	stepName := tagStepName(tags)
+	if stepName == "" {
+		return target
+	}
+
+	if target == nil {
+		target = make(map[string]int64)
+	}
+
+	target[stepName] += fieldInt64(fields, "count")
+
+	return target
+}
+
+func (totals *uiTotals) applyRunTotal(fields map[string]any) {
+	totals.runTotalMs = fieldInt64(fields, "duration_ms")
+	totals.runTotalSeen = true
+}
+
+func tagStepName(tags map[string]string) string {
+	if tags == nil {
+		return ""
+	}
+
+	return tags["step_name"]
+}
+
+func (totals *uiTotals) snapshot() uiTotalsSnapshot {
+	if totals == nil {
+		return uiTotalsSnapshot{}
+	}
+
+	snapshot := uiTotalsSnapshot{
+		runTotalMs:   totals.runTotalMs,
+		runTotalSeen: totals.runTotalSeen,
+	}
+
+	if len(totals.outputs) > 0 {
+		snapshot.outputs = make(map[string]uiOutputTotals, len(totals.outputs))
+		maps.Copy(snapshot.outputs, totals.outputs)
+	}
+
+	if len(totals.drops) > 0 {
+		snapshot.drops = make(map[string]int64, len(totals.drops))
+		maps.Copy(snapshot.drops, totals.drops)
+	}
+
+	if len(totals.retries) > 0 {
+		snapshot.retries = make(map[string]int64, len(totals.retries))
+		maps.Copy(snapshot.retries, totals.retries)
+	}
+
+	if len(totals.errorRoutes) > 0 {
+		snapshot.errorRoutes = make(map[string]int64, len(totals.errorRoutes))
+		maps.Copy(snapshot.errorRoutes, totals.errorRoutes)
+	}
+
+	return snapshot
+}
+
 func (pm *pipelineMonitor) emitUI(
 	measurement string,
 	tags map[string]string,
@@ -118,30 +268,74 @@ func (pm *pipelineMonitor) emitUI(
 		return
 	}
 
+	pm.uiMu.Lock()
+	pm.uiSeq++
+	seq := pm.uiSeq
+	pm.uiTotals.apply(measurement, tags, fields)
+	hub := pm.uiHub
+	storeMeta := hub == nil && isMetaMeasurement(measurement)
+
+	pm.uiMu.Unlock()
+
+	eventFields := copyFields(fields)
+	if eventFields == nil {
+		eventFields = make(map[string]any, 1)
+	}
+
+	eventFields["seq"] = seq
+
 	event := monitorEvent{
 		Measurement: measurement,
 		Tags:        pm.mergeTags(tags),
-		Fields:      copyFields(fields),
+		Fields:      eventFields,
 		Timestamp:   ts.UnixNano(),
 	}
 
-	pm.uiMu.Lock()
-	hub := pm.uiHub
-
-	if hub == nil && isMetaMeasurement(measurement) {
+	if storeMeta {
+		pm.uiMu.Lock()
 		pm.uiMeta = append(pm.uiMeta, event)
+
 		pm.uiMu.Unlock()
 
 		return
 	}
-
-	pm.uiMu.Unlock()
 
 	if hub == nil {
 		return
 	}
 
 	hub.publish(event)
+}
+
+func fieldInt64(fields map[string]any, key string) int64 {
+	if len(fields) == 0 {
+		return 0
+	}
+
+	value, ok := fields[key]
+	if !ok || value == nil {
+		return 0
+	}
+
+	switch typed := value.(type) {
+	case int64:
+		return typed
+	case int:
+		return int64(typed)
+	case float32:
+		return int64(typed)
+	case float64:
+		return int64(typed)
+	case json.Number:
+		num, err := typed.Int64()
+		if err != nil {
+			return 0
+		}
+
+		return num
+	default:
+		return 0
+	}
 }
 
 func (pm *pipelineMonitor) mergeTags(tags map[string]string) map[string]string {
@@ -232,6 +426,11 @@ func (pm *pipelineMonitor) stopUI() error {
 	pm.uiMu.Unlock()
 
 	if hub != nil {
+		snapshot := pm.uiSnapshotEvent()
+		if snapshot != nil {
+			hub.publishPriority(*snapshot)
+		}
+
 		hub.close()
 	}
 
@@ -283,16 +482,19 @@ func (pm *pipelineMonitor) serveEvents(writer http.ResponseWriter, request *http
 	writer.Header().Set("Cache-Control", "no-cache")
 	writer.Header().Set("Connection", "keep-alive")
 
-	pm.writeEvent(writer, pm.runInfoEvent())
-	pm.writeMetaEvents(writer)
-	flusher.Flush()
-
 	stream := hub.subscribe()
 	defer hub.unsubscribe(stream)
+
+	pm.writeEvent(writer, pm.runInfoEvent())
+	pm.writeMetaEvents(writer)
+	pm.writeSnapshotEvent(writer)
+	flusher.Flush()
 
 	for {
 		select {
 		case <-request.Context().Done():
+			pm.drainEvents(writer, stream, flusher)
+
 			return
 		case event, ok := <-stream:
 			if !ok {
@@ -312,6 +514,35 @@ func (pm *pipelineMonitor) writeMetaEvents(writer http.ResponseWriter) {
 	}
 }
 
+func (pm *pipelineMonitor) writeSnapshotEvent(writer http.ResponseWriter) {
+	snapshot := pm.uiSnapshotEvent()
+	if snapshot == nil {
+		return
+	}
+
+	pm.writeEvent(writer, *snapshot)
+}
+
+func (pm *pipelineMonitor) drainEvents(
+	writer http.ResponseWriter,
+	stream <-chan monitorEvent,
+	flusher http.Flusher,
+) {
+	for {
+		select {
+		case event, ok := <-stream:
+			if !ok {
+				return
+			}
+
+			pm.writeEvent(writer, event)
+			flusher.Flush()
+		default:
+			return
+		}
+	}
+}
+
 func (pm *pipelineMonitor) metaSnapshot() []monitorEvent {
 	pm.uiMu.Lock()
 	defer pm.uiMu.Unlock()
@@ -324,6 +555,52 @@ func (pm *pipelineMonitor) metaSnapshot() []monitorEvent {
 	copy(meta, pm.uiMeta)
 
 	return meta
+}
+
+func (pm *pipelineMonitor) uiSnapshotEvent() *monitorEvent {
+	if pm == nil || !pm.cfg.EnableUI {
+		return nil
+	}
+
+	pm.uiMu.Lock()
+	snapshot := pm.uiTotals.snapshot()
+	snapshotSeq := pm.uiSeq
+	runStarted := pm.uiRunStarted
+	pm.uiMu.Unlock()
+
+	fields := make(map[string]any)
+	if len(snapshot.outputs) > 0 {
+		fields["outputs"] = snapshot.outputs
+	}
+
+	if len(snapshot.drops) > 0 {
+		fields["drops"] = snapshot.drops
+	}
+
+	if len(snapshot.retries) > 0 {
+		fields["retries"] = snapshot.retries
+	}
+
+	if len(snapshot.errorRoutes) > 0 {
+		fields["error_routes"] = snapshot.errorRoutes
+	}
+
+	if snapshot.runTotalSeen {
+		fields["run_total_ms"] = snapshot.runTotalMs
+	}
+
+	if !runStarted.IsZero() {
+		fields["run_started_at_ms"] = runStarted.UnixMilli()
+	}
+
+	fields["snapshot_seq"] = snapshotSeq
+
+	return &monitorEvent{
+		Measurement: "monitor_snapshot",
+		Tags:        pm.mergeTags(nil),
+		Fields:      fields,
+		Timestamp:   time.Now().UnixNano(),
+	}
 }
 
 func (pm *pipelineMonitor) runInfoEvent() monitorEvent {

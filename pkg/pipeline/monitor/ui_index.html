@@ -177,6 +177,7 @@
       retries: {},
       errorRoutes: {},
       runTotal: null,
+      snapshotSeq: null,
     };
     const graphState = {
       dot: "",
@@ -235,6 +236,81 @@
       console.warn("Graphviz module loaded without graphviz export", hpccWasm);
     }
 
+    function ensureStepOrder(name) {
+      if (!name || state.stepOrder.includes(name)) {
+        return;
+      }
+
+      state.stepOrder.push(name);
+    }
+
+    function normalizeCountMap(value) {
+      if (!value || typeof value !== "object") {
+        return {};
+      }
+
+      const out = {};
+      Object.entries(value).forEach(([key, count]) => {
+        const num = Number(count || 0);
+        if (!Number.isNaN(num)) {
+          out[key] = num;
+        }
+      });
+
+      return out;
+    }
+
+    function applySnapshot(fields) {
+      if (!fields || typeof fields !== "object") {
+        return;
+      }
+
+      state.outputs = {};
+      if (fields.outputs && typeof fields.outputs === "object") {
+        Object.entries(fields.outputs).forEach(([name, stats]) => {
+          if (!stats || typeof stats !== "object") {
+            return;
+          }
+          state.outputs[name] = {
+            count: Number(stats.count || 0),
+            duration: Number(stats.duration_ms || 0),
+            transport: Number(stats.transport_ms || 0),
+          };
+          ensureStepOrder(name);
+        });
+      }
+
+      state.drops = normalizeCountMap(fields.drops);
+      Object.keys(state.drops).forEach(ensureStepOrder);
+
+      state.retries = normalizeCountMap(fields.retries);
+      Object.keys(state.retries).forEach(ensureStepOrder);
+
+      state.errorRoutes = normalizeCountMap(fields.error_routes);
+      Object.keys(state.errorRoutes).forEach(ensureStepOrder);
+
+      if (fields.run_total_ms !== undefined && fields.run_total_ms !== null) {
+        const totalMs = Number(fields.run_total_ms);
+        if (!Number.isNaN(totalMs)) {
+          state.runTotal = totalMs;
+        }
+      }
+
+      if (fields.run_started_at_ms !== undefined && fields.run_started_at_ms !== null) {
+        const startedAt = Number(fields.run_started_at_ms);
+        if (!Number.isNaN(startedAt)) {
+          state.run.started_at = startedAt;
+        }
+      }
+
+      if (fields.snapshot_seq !== undefined && fields.snapshot_seq !== null) {
+        const seq = Number(fields.snapshot_seq);
+        if (!Number.isNaN(seq)) {
+          state.snapshotSeq = seq;
+        }
+      }
+    }
+
     function handleEvent(evt) {
       if (!evt || !evt.measurement) return;
       const tags = evt.tags || {};
@@ -248,6 +324,17 @@
           pipeline_name: tags.pipeline_name || "",
           started_at: Date.now(),
         };
+      }
+
+      if (evt.measurement === "monitor_snapshot") {
+        applySnapshot(fields);
+        scheduleRender();
+        return;
+      }
+
+      const seq = Number(fields.seq);
+      if (state.snapshotSeq !== null && Number.isFinite(seq) && seq <= state.snapshotSeq) {
+        return;
       }
 
       switch (evt.measurement) {

@@ -21,7 +21,7 @@ This folder contains documentation for go-pipeline.
 - docs/plans/order.md: plan execution order and dependency tracking.
 
 ## Status (internal)
-Latest QA test plan update: 2026-01-02 (tests implemented).
+Latest QA test plan update: 2026-01-03 (tests implemented).
 Latest lint cleanup plan: 2025-12-29 (accepted).
 Latest examples plan: 2025-12-29 (accepted).
 Latest step options plan: 2025-12-29 (completed).
