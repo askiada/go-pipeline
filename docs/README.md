@@ -25,7 +25,7 @@ This folder contains documentation for go-pipeline.
 Latest diagnosis update: 2026-01-04 (repo diagnosis refreshed with feedback).
 Latest diagnosis refactor cleanup plan: 2026-01-04 (completed).
 Latest diagnosis simplification plan: 2026-01-04 (completed).
-Latest QA test plan update: 2026-01-04 (step options coverage expanded for one-to-many/sink and batch keep-open/concurrency).
+Latest QA test plan update: 2026-01-04 (pkg/pipeline coverage raised to 91.9% with new internal tests).
 Latest repo diagnosis remediation plan: 2025-12-29 (completed).
 Latest lint cleanup plan: 2025-12-29 (completed).
 Latest examples plan: 2025-12-29 (completed).

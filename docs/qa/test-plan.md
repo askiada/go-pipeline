@@ -23,6 +23,14 @@ Date: 2026-01-04
 - `pkg/pipeline/pipeline_test.go` (Implemented): pipeline composition (root, one-to-one/one-to-many, split/merge, from-chan, sinks), one-to-one/one-to-many/from-chan/sink concurrency, error/cancellation paths, run-time context requirements, deferred construction errors, pipeline defaults, and runtime behavior.
 - `pkg/pipeline/pipeline_root_step_test.go` (Implemented): root step creation, error handling, and cancellation behavior.
 - `pkg/pipeline/step_internal_test.go` (Implemented): step execution helpers with sequential and concurrent settings, including cancellation behavior.
+- `pkg/pipeline/retry_internal_test.go` (Implemented): retry helper decisions, delay/sleep behavior, and execute-with-retry error paths.
+- `pkg/pipeline/batch_helpers_internal_test.go` (Implemented): batch tracker timing/reset and batch output reporting/metrics branches.
+- `pkg/pipeline/batch_state_internal_test.go` (Implemented): batch state flush/handle-entry behavior, runBatch defaults/error paths, and Batch build/run error handling.
+- `pkg/pipeline/batch_chan_state_internal_test.go` (Implemented): batch-chan state flush/handle-entry error handling, runBatchChan defaults/error paths, and BatchChan build/run error handling.
+- `pkg/pipeline/drop_internal_test.go` (Implemented): error routing/reporting and drop policy send branches.
+- `pkg/pipeline/options_internal_test.go` (Implemented): step option clamping/skip behavior.
+- `pkg/pipeline/inflight_internal_test.go` (Implemented): in-flight limiter acquire/release edge cases.
+- `pkg/pipeline/hook_config_internal_test.go` (Implemented): hookConfig defaults and flag propagation.
 - `pkg/pipeline/errors_internal_test.go` (Implemented): error channel aggregation and merge behavior.
 - `pkg/pipeline/helpers_internal_test.go` (Implemented): internal test helpers for input/output channel creation.
 - `pkg/pipeline/helpers_test.go` (Implemented): external test helpers for input/output channel creation.
