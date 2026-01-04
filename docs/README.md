@@ -25,8 +25,9 @@ This folder contains documentation for go-pipeline.
 Latest diagnosis update: 2026-01-04 (repo diagnosis logged).
 Latest diagnosis refactor cleanup plan: 2026-01-04 (completed).
 Latest QA test plan update: 2026-01-04 (tests implemented).
-Latest lint cleanup plan: 2025-12-29 (accepted).
-Latest examples plan: 2025-12-29 (accepted).
+Latest repo diagnosis remediation plan: 2025-12-29 (completed).
+Latest lint cleanup plan: 2025-12-29 (completed).
+Latest examples plan: 2025-12-29 (completed).
 Latest step options plan: 2025-12-29 (completed).
 Latest benchmarks plan: 2025-12-30 (completed).
 Latest benchmarks update: 2026-01-04 (count=5 run posted after removing splitter worker goroutines).
