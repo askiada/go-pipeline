@@ -26,6 +26,8 @@ Latest diagnosis update: 2026-01-04 (repo diagnosis refreshed with feedback).
 Latest diagnosis refactor cleanup plan: 2026-01-04 (completed).
 Latest diagnosis simplification plan: 2026-01-04 (completed).
 Latest QA test plan update: 2026-01-04 (pkg/pipeline coverage raised to 91.9% with new internal tests).
+Latest test stability fix: 2026-01-04 (route error timeout isolation and batch-chan run error determinism).
+Latest coverage scope update: 2026-01-04 (exclude examples and model packages from coverage computation).
 Latest repo diagnosis remediation plan: 2025-12-29 (completed).
 Latest lint cleanup plan: 2025-12-29 (completed).
 Latest examples plan: 2025-12-29 (completed).

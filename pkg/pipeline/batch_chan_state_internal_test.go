@@ -381,7 +381,7 @@ func TestBatchChanRunErrorClosesErrorOutput(t *testing.T) {
 	require.NoError(t, err)
 
 	root := Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
-		return nil
+		return errors.New("root failed")
 	})
 	require.NotNil(t, root)
 
@@ -390,10 +390,7 @@ func TestBatchChanRunErrorClosesErrorOutput(t *testing.T) {
 
 	batch.ErrorOutput = make(chan model.StepError)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	runErr := pipe.Run(ctx)
+	runErr := pipe.Run(context.Background())
 	require.Error(t, runErr)
 
 	select {

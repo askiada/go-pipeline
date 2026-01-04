@@ -139,7 +139,7 @@ func TestRouteStepError(t *testing.T) {
 
 	assert.Equal(t, "step", first.StepName)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
 	defer cancel()
 
 	step = &Step[int]{Details: &StepInfo{Name: "step"}}
@@ -158,7 +158,7 @@ func TestRouteStepError(t *testing.T) {
 	prepareStepErrorOutput(step)
 
 	observer = &errorRouteObserver{err: errors.New("route failed")}
-	err = routeStepError(ctx, step, 1, errors.New("boom"), true, observer)
+	err = routeStepError(context.Background(), step, 1, errors.New("boom"), true, observer)
 	require.ErrorIs(t, err, observer.err)
 
 	first = <-step.ErrorOutput

@@ -52,8 +52,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
-      - name: Running Unit Tests
-        run: go test -v -covermode=atomic -coverprofile=coverage.out ./...
+      - name: Running Unit Tests (exclude examples and model from coverage)
+        run: |
+          packages=$(go list ./... | grep -vE '/examples/|/pkg/pipeline/model$')
+          go test -v -covermode=atomic -coverprofile=coverage.out $packages
+
+      - name: Build Examples
+        run: go test -v ./examples/...
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5

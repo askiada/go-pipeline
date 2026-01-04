@@ -124,6 +124,12 @@ make unit_test
 ```
 `make unit_test` runs `go test -race -timeout 30s ./...` and invokes Graphviz to render example diagrams. CI runs `go test -v ./...` without Graphviz.
 
+## Coverage
+```bash
+go test -covermode=atomic -coverprofile=coverage.out $(go list ./... | grep -vE '/examples/|/pkg/pipeline/model$')
+```
+Coverage excludes `examples/` and `pkg/pipeline/model`.
+
 ## Linting
 ```bash
 make lint
