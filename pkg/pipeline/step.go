@@ -30,12 +30,13 @@ func acquireStepInput[I any](
 	goIdx int,
 	inFlight *inFlightLimiter,
 	input <-chan I,
-) (I, bool, func(), error) {
+	measure bool,
+) (I, bool, func(), time.Duration, error) {
 	var entry I
 
 	err := inFlight.acquire(ctx)
 	if err != nil {
-		return entry, false, nil, fmt.Errorf("go routine %d: %w", goIdx, err)
+		return entry, false, nil, 0, fmt.Errorf("go routine %d: %w", goIdx, err)
 	}
 
 	released := false
@@ -49,41 +50,83 @@ func acquireStepInput[I any](
 		released = true
 	}
 
-	select {
-	case <-ctx.Done():
+	entry, ok, wait, err := receiveStepInput(ctx, goIdx, input, measure)
+	if err != nil {
 		release()
 
-		return entry, false, nil, fmt.Errorf("go routine %d: %w", goIdx, ctx.Err())
-	case entry, ok := <-input:
-		if !ok {
-			release()
-
-			return entry, false, nil, nil
-		}
-
-		return entry, true, release, nil
+		return entry, false, nil, wait, err
 	}
+
+	if !ok {
+		release()
+
+		return entry, false, nil, wait, nil
+	}
+
+	return entry, true, release, wait, nil
 }
 
 func noopRelease() {}
 
 //nolint:gocritic,ireturn // Keep the call sites compact for hot paths.
-func nextStepInput[I any](ctx context.Context, goIdx int, inFlight *inFlightLimiter, input <-chan I) (I, bool, func(), error) {
+func nextStepInput[I any](
+	ctx context.Context,
+	goIdx int,
+	inFlight *inFlightLimiter,
+	input <-chan I,
+	measure bool,
+) (I, bool, func(), time.Duration, error) {
 	if inFlight != nil {
-		return acquireStepInput(ctx, goIdx, inFlight, input)
+		return acquireStepInput(ctx, goIdx, inFlight, input, measure)
 	}
 
+	entry, ok, wait, err := receiveStepInput(ctx, goIdx, input, measure)
+	if err != nil {
+		return entry, false, nil, wait, err
+	}
+
+	if !ok {
+		return entry, false, nil, wait, nil
+	}
+
+	return entry, true, noopRelease, wait, nil
+}
+
+//nolint:gocritic,ireturn // Keep return values explicit for performance-sensitive call sites.
+func receiveStepInput[I any](
+	ctx context.Context,
+	goIdx int,
+	input <-chan I,
+	measure bool,
+) (I, bool, time.Duration, error) {
 	var entry I
+	var ok bool
+
+	if !measure {
+		select {
+		case <-ctx.Done():
+			return entry, false, 0, fmt.Errorf("go routine %d: %w", goIdx, ctx.Err())
+		case entry, ok = <-input:
+			if !ok {
+				return entry, false, 0, nil
+			}
+
+			return entry, true, 0, nil
+		}
+	}
+
+	start := time.Now()
 
 	select {
 	case <-ctx.Done():
-		return entry, false, nil, fmt.Errorf("go routine %d: %w", goIdx, ctx.Err())
-	case entry, ok := <-input:
+		return entry, false, time.Since(start), fmt.Errorf("go routine %d: %w", goIdx, ctx.Err())
+	case entry, ok = <-input:
+		wait := time.Since(start)
 		if !ok {
-			return entry, false, nil, nil
+			return entry, false, wait, nil
 		}
 
-		return entry, true, noopRelease, nil
+		return entry, true, wait, nil
 	}
 }
 
@@ -111,7 +154,7 @@ func sendStepOutput[I, O any](
 	input *Step[I],
 	output *Step[O],
 	value O,
-	start time.Time,
+	transportDuration time.Duration,
 	fnDuration time.Duration,
 	release func(),
 	timer *time.Timer,
@@ -138,9 +181,8 @@ func sendStepOutput[I, O any](
 	}
 
 	if cfg.outputMetrics {
-		elapsed := time.Since(start)
 		for _, opt := range cfg.metricsOpts {
-			err := opt.OnStepOutputMetrics(input.Details, output.Details, elapsed-fnDuration, fnDuration)
+			err := opt.OnStepOutputMetrics(input.Details, output.Details, transportDuration, fnDuration)
 			if err != nil {
 				return false, fmt.Errorf("unable to run before step function: %w", err)
 			}
@@ -156,7 +198,7 @@ func sendOneToManyOutputs[I, O any](
 	input *Step[I],
 	output *Step[O],
 	values []O,
-	start time.Time,
+	transportDuration time.Duration,
 	fnDuration time.Duration,
 	release func(),
 	timer *time.Timer,
@@ -196,9 +238,8 @@ func sendOneToManyOutputs[I, O any](
 	}
 
 	if cfg.outputMetrics {
-		end := time.Since(start)
 		for _, opt := range cfg.metricsOpts {
-			err := opt.OnStepOutputMetrics(input.Details, output.Details, end-fnDuration, fnDuration)
+			err := opt.OnStepOutputMetrics(input.Details, output.Details, transportDuration, fnDuration)
 			if err != nil {
 				return false, fmt.Errorf("unable to run before step function: %w", err)
 			}
@@ -210,7 +251,7 @@ func sendOneToManyOutputs[I, O any](
 
 type retryFn func(attempt int, duration time.Duration) error
 
-//nolint:gocognit,cyclop,gocyclo // error handling and option checks are centralised here.
+//nolint:gocognit // error handling and option checks are centralised here.
 func sequentialOneToOneFn[I any, O any](
 	ctx context.Context,
 	goIdx int,
@@ -239,12 +280,7 @@ func sequentialOneToOneFn[I any, O any](
 	}
 
 	for {
-		var start time.Time
-		if cfg.outputMetrics {
-			start = time.Now()
-		}
-
-		entry, ok, release, err := nextStepInput(ctx, goIdx, inFlight, input.Output)
+		entry, ok, release, inputWait, err := nextStepInput(ctx, goIdx, inFlight, input.Output, cfg.outputMetrics)
 		if err != nil {
 			return err
 		}
@@ -297,7 +333,7 @@ func sequentialOneToOneFn[I any, O any](
 			continue
 		}
 
-		_, err = sendStepOutput(ctx, goIdx, input, output, outcome, start, endFn, release, sendTimer, cfg)
+		_, err = sendStepOutput(ctx, goIdx, input, output, outcome, inputWait, endFn, release, sendTimer, cfg)
 		if err != nil {
 			return err
 		}
@@ -386,12 +422,7 @@ func sequentialOneToManyFn[I any, O any](
 	}
 
 	for {
-		var start time.Time
-		if cfg.outputMetrics {
-			start = time.Now()
-		}
-
-		entry, ok, release, err := nextStepInput(ctx, goIdx, inFlight, input.Output)
+		entry, ok, release, inputWait, err := nextStepInput(ctx, goIdx, inFlight, input.Output, cfg.outputMetrics)
 		if err != nil {
 			return err
 		}
@@ -438,7 +469,7 @@ func sequentialOneToManyFn[I any, O any](
 			return fmt.Errorf("go routine %d: %w", goIdx, err)
 		}
 
-		_, err = sendOneToManyOutputs(ctx, goIdx, input, output, outcome, start, endFn, release, sendTimer, cfg)
+		_, err = sendOneToManyOutputs(ctx, goIdx, input, output, outcome, inputWait, endFn, release, sendTimer, cfg)
 		if err != nil {
 			return err
 		}
@@ -598,7 +629,7 @@ func runStepFromChan[I, O any](
 	}
 
 	if output.Details.Concurrent == 1 {
-		return sequentialStepFromChanFn(ctx, 1, input, output, stepFn, 1, cfg)
+		return sequentialStepFromChanFn(ctx, 1, input, output, stepFn, cfg)
 	}
 
 	return concurrentStepFromChanFn(ctx, input, output, stepFn, cfg)
@@ -647,18 +678,11 @@ func sequentialStepFromChanFn[I any, O any](
 	input *Step[I],
 	output *Step[O],
 	stepFn StepFromChanFn[I, O],
-	conc int,
 	cfg hookConfig,
 ) error {
 	inputPlaceholder := make(chan I)
 	total := float64(0)
-
-	var start time.Time
-	if cfg.outputMetrics {
-		start = time.Now()
-	}
-
-	var end time.Duration
+	var waitTotal time.Duration
 
 	done := make(chan struct{}, 1)
 
@@ -666,21 +690,26 @@ func sequentialStepFromChanFn[I any, O any](
 		defer func() {
 			close(inputPlaceholder)
 
-			if cfg.outputMetrics {
-				end = time.Since(start)
-			}
-
 			done <- struct{}{}
 		}()
 
 	outer:
 		for {
+			var waitStart time.Time
+			if cfg.outputMetrics {
+				waitStart = time.Now()
+			}
+
 			select {
 			case <-ctx.Done():
 				break outer
 			case entry, ok := <-input.Output:
 				if !ok {
 					break outer
+				}
+
+				if cfg.outputMetrics {
+					waitTotal += time.Since(waitStart)
 				}
 
 				select {
@@ -712,8 +741,6 @@ func sequentialStepFromChanFn[I any, O any](
 		return nil
 	}
 
-	total = float64(conc) / total
-
 	<-done
 
 	for _, opt := range cfg.opts {
@@ -724,8 +751,8 @@ func sequentialStepFromChanFn[I any, O any](
 	}
 
 	if cfg.outputMetrics {
-		iterDuration := time.Duration(float64(end) / float64(total))
-		compDuration := time.Duration(float64(endStep) / float64(total))
+		iterDuration := time.Duration(float64(waitTotal) / total)
+		compDuration := time.Duration(float64(endStep) / total)
 
 		for _, opt := range cfg.metricsOpts {
 			err := opt.OnStepOutputMetrics(input.Details, output.Details, iterDuration, compDuration)
@@ -753,7 +780,7 @@ func concurrentStepFromChanFn[I any, O any](
 		localGoIdx := goIdx
 
 		errGrp.Go(func() error {
-			return sequentialStepFromChanFn(dCtx, localGoIdx, input, output, stepFn, output.Details.Concurrent, cfg)
+			return sequentialStepFromChanFn(dCtx, localGoIdx, input, output, stepFn, cfg)
 		})
 	}
 

@@ -29,6 +29,11 @@ func buildPipeline() (*pipeline.Pipeline, error) {
 Run `dot -Tpng pipeline.dot -O` if you want to render the output file as an
 image.
 
+Timing semantics:
+- `duration_ms` / AVGDuration: time spent inside the step's processing function per output event. For one-to-one/one-to-many/sink steps, this is the user function runtime; splitters/batchers report internal processing time; mergers emit no duration.
+- `transport_ms` / AVGTransportDuration: time spent waiting to receive input from the parent step (channel receive) per output event.
+- Channel-based steps (`FromChan`, `SinkFromChan`, `Batch`, `BatchChan`) report per-item averages across their loop; these include time spent waiting inside the user function when applicable.
+
 ## Live monitoring (Telegraf)
 For live monitoring with Telegraf (Influx line protocol), use the monitoring
 option:

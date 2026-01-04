@@ -143,7 +143,7 @@ func main() {
 		func(ctx context.Context, value int) (bool, error) {
 			return value%2 != 0, nil
 		},
-	}, pipeline.SplitterBufferSize[int](1))
+	}, pipeline.SplitterBufferSize[int](300))
 
 	evenInput, _ := split.Get()
 	oddInput, _ := split.Get()

@@ -72,6 +72,7 @@ type batchState[I any] struct {
 	maxWait    time.Duration
 	batch      []I
 	batchStart time.Time
+	waitTotal  time.Duration
 	timer      *time.Timer
 	timerC     <-chan time.Time
 	sendTimer  *time.Timer
@@ -131,23 +132,28 @@ func (bs *batchState[I]) flush(ctx context.Context) error {
 		return nil
 	}
 
-	var elapsed time.Duration
-
-	if bs.cfg.outputMetrics {
-		if bs.batchStart.IsZero() {
-			bs.batchStart = time.Now()
-		}
-
-		elapsed = time.Since(bs.batchStart)
-	}
-
 	batchToSend := bs.batch
 
 	bs.batch = nil
 	bs.batchStart = time.Time{}
+	waitTotal := bs.waitTotal
+	bs.waitTotal = 0
 	bs.clearTimer()
 
+	var sendDuration time.Duration
+	measure := bs.cfg.outputMetrics
+	var sendStart time.Time
+
+	if measure {
+		sendStart = time.Now()
+	}
+
 	dropped, err := sendOutputWithPolicy(ctx, bs.goIdx, bs.output, batchToSend, bs.sendTimer, bs.cfg.drop, bs.cfg.opts...)
+
+	if measure {
+		sendDuration = time.Since(sendStart)
+	}
+
 	if err != nil {
 		return err
 	}
@@ -164,8 +170,16 @@ func (bs *batchState[I]) flush(ctx context.Context) error {
 	}
 
 	if bs.cfg.outputMetrics {
+		avgWait := time.Duration(0)
+		avgCompute := time.Duration(0)
+
+		if len(batchToSend) > 0 {
+			avgWait = waitTotal / time.Duration(len(batchToSend))
+			avgCompute = sendDuration / time.Duration(len(batchToSend))
+		}
+
 		for _, opt := range bs.cfg.metricsOpts {
-			err := opt.OnStepOutputMetrics(bs.input.Details, bs.output.Details, elapsed, elapsed)
+			err := opt.OnStepOutputMetrics(bs.input.Details, bs.output.Details, avgWait, avgCompute)
 			if err != nil {
 				return fmt.Errorf("unable to run before step function: %w", err)
 			}
@@ -175,7 +189,7 @@ func (bs *batchState[I]) flush(ctx context.Context) error {
 	return nil
 }
 
-func (bs *batchState[I]) handleEntry(ctx context.Context, entry I) error {
+func (bs *batchState[I]) handleEntry(ctx context.Context, entry I, inputWait time.Duration) error {
 	if bs.maxWait > 0 && !bs.batchStart.IsZero() {
 		if time.Since(bs.batchStart) >= bs.maxWait {
 			err := bs.flush(ctx)
@@ -188,6 +202,10 @@ func (bs *batchState[I]) handleEntry(ctx context.Context, entry I) error {
 	if len(bs.batch) == 0 {
 		bs.batchStart = time.Now()
 		bs.resetTimer()
+	}
+
+	if bs.cfg.outputMetrics {
+		bs.waitTotal += inputWait
 	}
 
 	bs.batch = append(bs.batch, entry)
@@ -215,6 +233,11 @@ func sequentialBatchFn[I any](
 	state := newBatchState(goIdx, input, output, policy, cfg)
 
 	for {
+		var waitStart time.Time
+		if cfg.outputMetrics {
+			waitStart = time.Now()
+		}
+
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("go routine %d: %w", goIdx, ctx.Err())
@@ -228,7 +251,12 @@ func sequentialBatchFn[I any](
 				return state.flush(ctx)
 			}
 
-			err := state.handleEntry(ctx, entry)
+			var inputWait time.Duration
+			if cfg.outputMetrics {
+				inputWait = time.Since(waitStart)
+			}
+
+			err := state.handleEntry(ctx, entry, inputWait)
 			if err != nil {
 				return err
 			}

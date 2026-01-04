@@ -107,12 +107,7 @@ func sequentialSinkFn[I any](
 	}
 
 	for {
-		var start time.Time
-		if cfg.outputMetrics {
-			start = time.Now()
-		}
-
-		entry, ok, release, err := nextStepInput(ctx, goIdx, inFlight, input.Output)
+		entry, ok, release, inputWait, err := nextStepInput(ctx, goIdx, inFlight, input.Output, cfg.outputMetrics)
 		if err != nil {
 			return err
 		}
@@ -159,11 +154,6 @@ func sequentialSinkFn[I any](
 			return fmt.Errorf("go routine %d: %w", goIdx, err)
 		}
 
-		var end time.Duration
-		if cfg.outputMetrics {
-			end = time.Since(start)
-		}
-
 		release()
 
 		for _, opt := range cfg.opts {
@@ -175,7 +165,7 @@ func sequentialSinkFn[I any](
 
 		if cfg.outputMetrics {
 			for _, opt := range cfg.metricsOpts {
-				err := opt.OnSinkOutputMetrics(input.Details, step.Details, end-endFn, endFn)
+				err := opt.OnSinkOutputMetrics(input.Details, step.Details, inputWait, endFn)
 				if err != nil {
 					return fmt.Errorf("unable to run before step function: %w", err)
 				}
@@ -387,18 +377,11 @@ func sequentialSinkFromChanFn[I any](
 	input *Step[I],
 	step *Step[I],
 	stepFn func(ctx context.Context, input <-chan I) error,
-	conc int,
 	cfg hookConfig,
 ) error {
 	inputPlaceholder := make(chan I)
 	total := float64(0)
-
-	var start time.Time
-	if cfg.outputMetrics {
-		start = time.Now()
-	}
-
-	var end time.Duration
+	var waitTotal time.Duration
 
 	done := make(chan struct{}, 1)
 
@@ -406,21 +389,26 @@ func sequentialSinkFromChanFn[I any](
 		defer func() {
 			close(inputPlaceholder)
 
-			if cfg.outputMetrics {
-				end = time.Since(start)
-			}
-
 			done <- struct{}{}
 		}()
 
 	outer:
 		for {
+			var waitStart time.Time
+			if cfg.outputMetrics {
+				waitStart = time.Now()
+			}
+
 			select {
 			case <-ctx.Done():
 				break outer
 			case entry, ok := <-input.Output:
 				if !ok {
 					break outer
+				}
+
+				if cfg.outputMetrics {
+					waitTotal += time.Since(waitStart)
 				}
 
 				select {
@@ -452,8 +440,6 @@ func sequentialSinkFromChanFn[I any](
 		return nil
 	}
 
-	total = float64(conc) / total
-
 	<-done
 
 	for _, opt := range cfg.opts {
@@ -464,8 +450,8 @@ func sequentialSinkFromChanFn[I any](
 	}
 
 	if cfg.outputMetrics {
-		iterDuration := time.Duration(float64(end) / float64(total))
-		compDuration := time.Duration(float64(endStep) / float64(total))
+		iterDuration := time.Duration(float64(waitTotal) / total)
+		compDuration := time.Duration(float64(endStep) / total)
 
 		for _, opt := range cfg.metricsOpts {
 			err := opt.OnSinkOutputMetrics(input.Details, step.Details, iterDuration, compDuration)
@@ -492,7 +478,7 @@ func concurrentSinkFromChanFn[I any](
 		localGoIdx := goIdx
 
 		errGrp.Go(func() error {
-			return sequentialSinkFromChanFn(dCtx, localGoIdx, input, step, stepFn, step.Details.Concurrent, cfg)
+			return sequentialSinkFromChanFn(dCtx, localGoIdx, input, step, stepFn, cfg)
 		})
 	}
 
@@ -521,7 +507,7 @@ func runSinkFromChan[I any](
 	}
 
 	if step.Details.Concurrent == 1 {
-		return sequentialSinkFromChanFn(ctx, 1, input, step, stepFn, 1, cfg)
+		return sequentialSinkFromChanFn(ctx, 1, input, step, stepFn, cfg)
 	}
 
 	return concurrentSinkFromChanFn(ctx, input, step, stepFn, cfg)

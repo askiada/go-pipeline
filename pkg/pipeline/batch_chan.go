@@ -19,6 +19,9 @@ type batchChanState[I any] struct {
 	maxWait    time.Duration
 	batchCount int
 	batchStart time.Time
+	waitTotal  time.Duration
+	sendTotal  time.Duration
+	batchSend  time.Duration
 	timer      *time.Timer
 	timerC     <-chan time.Time
 	batchCh    chan I
@@ -81,11 +84,22 @@ func (bs *batchChanState[I]) startBatch(ctx context.Context) (bool, error) {
 	bs.batchStart = time.Now()
 	bs.resetTimer()
 
-	dropped, err := sendOutputWithPolicy(ctx, bs.goIdx, bs.output, bs.batchCh, bs.sendTimer, bs.cfg.drop, bs.cfg.opts...)
+	var dropped bool
+	var err error
+
+	if bs.cfg.outputMetrics {
+		sendStart := time.Now()
+		dropped, err = sendOutputWithPolicy(ctx, bs.goIdx, bs.output, bs.batchCh, bs.sendTimer, bs.cfg.drop, bs.cfg.opts...)
+		bs.batchSend = time.Since(sendStart)
+	} else {
+		dropped, err = sendOutputWithPolicy(ctx, bs.goIdx, bs.output, bs.batchCh, bs.sendTimer, bs.cfg.drop, bs.cfg.opts...)
+	}
+
 	if err != nil {
 		close(bs.batchCh)
 		bs.batchCh = nil
 		bs.batchStart = time.Time{}
+		bs.batchSend = 0
 		bs.clearTimer()
 
 		return dropped, err
@@ -95,6 +109,7 @@ func (bs *batchChanState[I]) startBatch(ctx context.Context) (bool, error) {
 		close(bs.batchCh)
 		bs.batchCh = nil
 		bs.batchStart = time.Time{}
+		bs.batchSend = 0
 		bs.clearTimer()
 
 		return true, nil
@@ -110,15 +125,16 @@ func (bs *batchChanState[I]) closeBatch() error {
 		return nil
 	}
 
-	var elapsed time.Duration
-	if bs.cfg.outputMetrics {
-		elapsed = time.Since(bs.batchStart)
-	}
-
 	close(bs.batchCh)
 	bs.batchCh = nil
+	batchCount := bs.batchCount
 	bs.batchCount = 0
 	bs.batchStart = time.Time{}
+	waitTotal := bs.waitTotal
+	sendTotal := bs.sendTotal + bs.batchSend
+	bs.waitTotal = 0
+	bs.sendTotal = 0
+	bs.batchSend = 0
 	bs.clearTimer()
 
 	for _, opt := range bs.cfg.opts {
@@ -129,8 +145,16 @@ func (bs *batchChanState[I]) closeBatch() error {
 	}
 
 	if bs.cfg.outputMetrics {
+		avgWait := time.Duration(0)
+		avgCompute := time.Duration(0)
+
+		if batchCount > 0 {
+			avgWait = waitTotal / time.Duration(batchCount)
+			avgCompute = sendTotal / time.Duration(batchCount)
+		}
+
 		for _, opt := range bs.cfg.metricsOpts {
-			err := opt.OnStepOutputMetrics(bs.input.Details, bs.output.Details, elapsed, elapsed)
+			err := opt.OnStepOutputMetrics(bs.input.Details, bs.output.Details, avgWait, avgCompute)
 			if err != nil {
 				return fmt.Errorf("unable to run before step function: %w", err)
 			}
@@ -140,7 +164,7 @@ func (bs *batchChanState[I]) closeBatch() error {
 	return nil
 }
 
-func (bs *batchChanState[I]) handleEntry(ctx context.Context, entry I) error {
+func (bs *batchChanState[I]) handleEntry(ctx context.Context, entry I, inputWait time.Duration) error {
 	if bs.maxWait > 0 && !bs.batchStart.IsZero() {
 		if time.Since(bs.batchStart) >= bs.maxWait {
 			err := bs.closeBatch()
@@ -159,10 +183,23 @@ func (bs *batchChanState[I]) handleEntry(ctx context.Context, entry I) error {
 		return nil
 	}
 
+	if bs.cfg.outputMetrics {
+		bs.waitTotal += inputWait
+	}
+
+	var sendStart time.Time
+	if bs.cfg.outputMetrics {
+		sendStart = time.Now()
+	}
+
 	select {
 	case <-ctx.Done():
 		return fmt.Errorf("go routine %d: %w", bs.goIdx, ctx.Err())
 	case bs.batchCh <- entry:
+	}
+
+	if bs.cfg.outputMetrics {
+		bs.sendTotal += time.Since(sendStart)
 	}
 
 	bs.batchCount++
@@ -190,6 +227,11 @@ func sequentialBatchChanFn[I any](
 	state := newBatchChanState(goIdx, input, output, policy, cfg)
 
 	for {
+		var waitStart time.Time
+		if cfg.outputMetrics {
+			waitStart = time.Now()
+		}
+
 		select {
 		case <-ctx.Done():
 			_ = state.closeBatch()
@@ -205,7 +247,12 @@ func sequentialBatchChanFn[I any](
 				return state.closeBatch()
 			}
 
-			err := state.handleEntry(ctx, entry)
+			var inputWait time.Duration
+			if cfg.outputMetrics {
+				inputWait = time.Since(waitStart)
+			}
+
+			err := state.handleEntry(ctx, entry, inputWait)
 			if err != nil {
 				return err
 			}

@@ -8,6 +8,7 @@ from a CDN.
 The UI HTML template is embedded from `pkg/pipeline/monitor/ui_index.html`.
 Opening the UI mid-run shows absolute totals thanks to snapshot counters.
 The UI sends a final snapshot on shutdown so totals reconcile even if the run finishes quickly.
+Avg duration reflects time spent inside the step function; avg transport reflects time waiting to receive input from the parent step.
 
 Prerequisites:
 - Telegraf running with a socket listener for line protocol (default `udp://127.0.0.1:8094`).

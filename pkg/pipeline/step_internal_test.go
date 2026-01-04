@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
@@ -137,6 +138,32 @@ func TestOneToOneCancelOutput(t *testing.T) {
 			assert.NotZero(t, <-got)
 		})
 	}
+}
+
+func TestNextStepInputWaitDuration(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	input := make(chan int)
+
+	const delay = 25 * time.Millisecond
+
+	go func() {
+		time.Sleep(delay)
+
+		input <- 1
+	}()
+
+	entry, ok, release, wait, err := nextStepInput(ctx, 1, nil, input, true)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, 1, entry)
+
+	if release != nil {
+		release()
+	}
+
+	assert.GreaterOrEqual(t, wait, 15*time.Millisecond)
 }
 
 func TestOneToOneError(t *testing.T) {

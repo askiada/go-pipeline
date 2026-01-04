@@ -50,6 +50,7 @@ Date: 2026-01-03
 - `pkg/pipeline/monitor/monitor_test.go` (Implemented): UI snapshot event reports absolute output/drop/retry/error totals plus run total and sequence marker.
 - `pkg/pipeline/monitor/monitor_test.go` (Implemented): UI snapshot events are prioritized when the UI stream buffer is full.
 - `pkg/pipeline/pipeline_test.go` (Implemented): base output hooks run without metrics options; timing hooks are exercised via metrics options.
+- `pkg/pipeline/step_internal_test.go` (Implemented): transport timing captures input receive wait time for per-step metrics.
 
 ## Planned tests
 - None defined yet.

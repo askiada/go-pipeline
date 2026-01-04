@@ -157,9 +157,9 @@ func runSplitter[I any](
 	cfg := pipe.hookConfig()
 
 	for {
-		var startIter time.Time
+		var waitStart time.Time
 		if cfg.outputMetrics {
-			startIter = time.Now()
+			waitStart = time.Now()
 		}
 
 		select {
@@ -170,6 +170,11 @@ func runSplitter[I any](
 		case entry, ok := <-input.Output:
 			if !ok {
 				return
+			}
+
+			var inputWait time.Duration
+			if cfg.outputMetrics {
+				inputWait = time.Since(waitStart)
 			}
 
 			var startFn time.Time
@@ -202,10 +207,9 @@ func runSplitter[I any](
 			}
 
 			endFn := time.Since(startFn)
-			endIter := time.Since(startIter) - endFn
 
 			for _, opt := range cfg.metricsOpts {
-				err := opt.OnSplitterOutputMetrics(input.Details, splitter.mainStep.Details, endIter, endFn)
+				err := opt.OnSplitterOutputMetrics(input.Details, splitter.mainStep.Details, inputWait, endFn)
 				if err != nil {
 					errC <- fmt.Errorf("unable to run before merger function: %w", err)
 				}

@@ -39,9 +39,9 @@ func runStepMerger[I any](ctx context.Context, pipe *Pipeline, errC chan error, 
 	cfg := pipe.hookConfig()
 
 	for {
-		var startIter time.Time
+		var waitStart time.Time
 		if cfg.outputMetrics {
-			startIter = time.Now()
+			waitStart = time.Now()
 		}
 
 		select {
@@ -52,6 +52,11 @@ func runStepMerger[I any](ctx context.Context, pipe *Pipeline, errC chan error, 
 		case entry, ok := <-step.Output:
 			if !ok {
 				return
+			}
+
+			var inputWait time.Duration
+			if cfg.outputMetrics {
+				inputWait = time.Since(waitStart)
 			}
 
 			select {
@@ -66,9 +71,8 @@ func runStepMerger[I any](ctx context.Context, pipe *Pipeline, errC chan error, 
 				}
 
 				if cfg.outputMetrics {
-					endIter := time.Since(startIter)
 					for _, opt := range cfg.metricsOpts {
-						err := opt.OnMergerOutputMetrics(step.Details, outputStep.Details, endIter)
+						err := opt.OnMergerOutputMetrics(step.Details, outputStep.Details, inputWait)
 						if err != nil {
 							errC <- fmt.Errorf("unable to run before merger function: %w", err)
 						}
