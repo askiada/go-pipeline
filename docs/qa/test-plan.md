@@ -39,10 +39,10 @@ Date: 2026-01-04
 - `pkg/pipeline/pipeline_test.go` (Implemented): retry option success paths for one-to-one and sink steps, retry metrics separation, and unsupported retry use on channel-based steps.
 - `pkg/pipeline/measure/metric_test.go` (Implemented): retry metrics average and count tracking.
 - `pkg/pipeline/pipeline_test.go` (Implemented): drain-on-return for `FromChan`/`SinkFromChan` and early cancellation on first error.
-- `pkg/pipeline/pipeline_test.go` (Implemented): batch (slice + channel) flushes on size and window timeout, and rejects missing batch policy.
-- `pkg/pipeline/pipeline_test.go` (Implemented): step timeout, rate limit, and max in-flight behavior, plus unsupported option errors for root, from-chan/sink-from-chan, and batch steps.
+- `pkg/pipeline/pipeline_test.go` (Implemented): batch (slice + channel) flushes on size and window timeout, honors keep-open/concurrency options, and rejects missing batch policy.
+- `pkg/pipeline/pipeline_test.go` (Implemented): step timeout, rate limit, and max in-flight behavior for one-to-one/one-to-many/sink steps, plus unsupported option errors for root, from-chan/sink-from-chan, and batch steps.
 - `pkg/pipeline/pipeline_test.go` (Implemented): dry-run skips runner execution and still allows a later real run.
-- `pkg/pipeline/pipeline_test.go` (Implemented): drop-on-full, drop-on-blocked, drop-on-error with error routing, and unsupported drop options for root/from-chan/sink-from-chan/batch steps.
+- `pkg/pipeline/pipeline_test.go` (Implemented): drop-on-full, drop-on-blocked, drop-on-error with error routing (one-to-one/one-to-many), and unsupported drop options for root/from-chan/sink-from-chan/sink/batch steps.
 - `pkg/pipeline/measure/metric_test.go` (Implemented): drop counters and routed error counts.
 - `pkg/pipeline/measure/pipeline_option_test.go` (Implemented): drop and error-route hooks populate metrics.
 - `pkg/pipeline/drawer/drawer_svg_test.go` (Implemented): drawer labels include drop counts and routed error counts.
