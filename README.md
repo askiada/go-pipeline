@@ -94,7 +94,7 @@ See `docs/concepts.md` and `docs/step-types.md` for the full mental model.
 - Performance guidance and benchmarks: `docs/performance.md`, `docs/benchmarks.md`
 
 ## Performance snapshot
-- Pipeline vs channels varies by step and concurrency; the latest diff table ranges about -24% to +57% (negative means pipeline faster).
+- Pipeline vs channels varies by step and concurrency; the latest diff table ranges about -23% to +54% (negative means pipeline faster).
 - Routing steps like SplitBy and SinkFromChan show higher overhead than simple map or sink steps.
 - As work per item grows, the diff often shrinks; see `docs/benchmarks.md` for the sweeps and diff table.
 - Benchmarks measure run time only; build time is excluded.

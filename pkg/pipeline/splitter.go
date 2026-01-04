@@ -224,7 +224,6 @@ func startSplitterWorkers[I any](
 	splitterBuffer []chan I,
 	errC chan error,
 	wgrp *sync.WaitGroup,
-	handle func(ctx context.Context, idx int, elem I) (bool, error),
 ) {
 	for i, buf := range splitterBuffer {
 		localBuf := buf
@@ -247,19 +246,104 @@ func startSplitterWorkers[I any](
 						return
 					}
 
-					ok, err := handle(ctx, localI, elem)
-					if err != nil {
-						errC <- err
-					}
-
-					if !ok {
-						continue
-					}
-
 					splitter.splittedSteps[localI].Output <- elem
 				}
 			}
 		}()
+	}
+}
+
+//nolint:cyclop,gocognit,gocyclo // Branch-heavy error handling stays localised here.
+func runSplitBy[I any](
+	ctx context.Context,
+	pipe *Pipeline,
+	splitter *Splitter[I],
+	input *Step[I],
+	splitterBuffer []chan I,
+	errC chan error,
+	wgrp *sync.WaitGroup,
+	fns []SplitFn[I],
+) {
+	defer func() {
+		for _, buf := range splitterBuffer {
+			close(buf)
+		}
+
+		wgrp.Wait()
+		close(errC)
+	}()
+
+	cfg := pipe.hookConfig()
+
+	for {
+		var waitStart time.Time
+		if cfg.outputMetrics {
+			waitStart = time.Now()
+		}
+
+		select {
+		case <-ctx.Done():
+			errC <- ctx.Err()
+
+			return
+		case entry, ok := <-input.Output:
+			if !ok {
+				return
+			}
+
+			var inputWait time.Duration
+			if cfg.outputMetrics {
+				inputWait = time.Since(waitStart)
+			}
+
+			var startFn time.Time
+			if cfg.outputMetrics {
+				startFn = time.Now()
+			}
+
+			for idx, fn := range fns {
+				ok, err := fn(ctx, entry)
+				if err != nil {
+					errC <- fmt.Errorf("unable to run splitter function: %w", err)
+
+					return
+				}
+
+				if !ok {
+					continue
+				}
+
+				buf := splitterBuffer[idx]
+
+				select {
+				case <-ctx.Done():
+					errC <- ctx.Err()
+
+					return
+				case buf <- entry:
+				}
+			}
+
+			for _, opt := range cfg.opts {
+				err := opt.OnSplitterOutput(input.Details, splitter.mainStep.Details)
+				if err != nil {
+					errC <- fmt.Errorf("unable to run before merger function: %w", err)
+				}
+			}
+
+			if !cfg.outputMetrics {
+				continue
+			}
+
+			endFn := time.Since(startFn)
+
+			for _, opt := range cfg.metricsOpts {
+				err := opt.OnSplitterOutputMetrics(input.Details, splitter.mainStep.Details, inputWait, endFn)
+				if err != nil {
+					errC <- fmt.Errorf("unable to run before merger function: %w", err)
+				}
+			}
+		}
 	}
 }
 
@@ -293,9 +377,7 @@ func Split[I any](pipe *Pipeline, name string, input *Step[I], total int, opts .
 	wgrp.Add(len(splitterBuffer))
 
 	pipe.addRunner(func(ctx context.Context) {
-		startSplitterWorkers(ctx, splitter, splitterBuffer, errC, wgrp, func(_ context.Context, _ int, _ I) (bool, error) {
-			return true, nil
-		})
+		startSplitterWorkers(ctx, splitter, splitterBuffer, errC, wgrp)
 
 		go func() {
 			runSplitter(ctx, pipe, splitter, input, splitterBuffer, errC, wgrp)
@@ -348,17 +430,10 @@ func SplitBy[I any](
 	wgrp.Add(len(splitterBuffer))
 
 	pipe.addRunner(func(ctx context.Context) {
-		startSplitterWorkers(ctx, splitter, splitterBuffer, errC, wgrp, func(ctx context.Context, idx int, elem I) (bool, error) {
-			ok, err := fns[idx](ctx, elem)
-			if err != nil {
-				return ok, fmt.Errorf("unable to run splitter function: %w", err)
-			}
-
-			return ok, nil
-		})
+		startSplitterWorkers(ctx, splitter, splitterBuffer, errC, wgrp)
 
 		go func() {
-			runSplitter(ctx, pipe, splitter, input, splitterBuffer, errC, wgrp)
+			runSplitBy(ctx, pipe, splitter, input, splitterBuffer, errC, wgrp, fns)
 		}()
 	})
 

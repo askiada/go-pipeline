@@ -26,7 +26,7 @@ Latest lint cleanup plan: 2025-12-29 (accepted).
 Latest examples plan: 2025-12-29 (accepted).
 Latest step options plan: 2025-12-29 (completed).
 Latest benchmarks plan: 2025-12-30 (completed).
-Latest benchmarks update: 2026-01-04 (added normal + work sweep coverage for basic steps; summary script now prints channel vs pipeline percent diff).
+Latest benchmarks update: 2026-01-04 (count=5 run posted after splitter worker cleanup).
 Latest dry-run plan: 2025-12-30 (completed).
 Latest drop policies plan: 2025-12-30 (completed).
 Latest live monitoring plan: 2026-01-01 (accepted).
