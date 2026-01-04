@@ -94,9 +94,10 @@ See `docs/concepts.md` and `docs/step-types.md` for the full mental model.
 - Performance guidance and benchmarks: `docs/performance.md`, `docs/benchmarks.md`
 
 ## Performance snapshot
-- Pipeline overhead is typically within ~0.8-1.8x of a direct channels baseline in the current benchmarks; loop-only baselines are much faster because they avoid channels entirely.
-- Measured overhead per item is about 1-3 μs plus roughly 1.3 μs per step at conc=1 in the published run.
-- As work per item increases, the overhead ratio shrinks; see `docs/benchmarks.md` for the work/step sweeps and sizing guidance.
+- Pipeline vs channels varies by step and concurrency; the latest diff table ranges about -24% to +57% (negative means pipeline faster).
+- Routing steps like SplitBy and SinkFromChan show higher overhead than simple map or sink steps.
+- As work per item grows, the diff often shrinks; see `docs/benchmarks.md` for the sweeps and diff table.
+- Benchmarks measure run time only; build time is excluded.
 
 ## Examples
 See `docs/examples.md` for a categorized index and `examples/README.md` for run
@@ -114,7 +115,7 @@ commands. Timing diagrams live in `examples/timing-diagrams.md`.
 - `docs/faq.md` answers common usage questions.
 - `docs/performance.md` and `docs/benchmarks.md` cover performance guidance.
 - `docs/examples.md` indexes runnable examples.
-- Benchmark summary script: `scripts/bench_overhead_summary.py` (see `docs/benchmarks.md`).
+- Benchmark summary script (channel vs pipeline percent diff): `scripts/bench_overhead_summary.py` (see `docs/benchmarks.md`).
 
 ## Testing
 ```bash

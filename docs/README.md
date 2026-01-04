@@ -26,7 +26,7 @@ Latest lint cleanup plan: 2025-12-29 (accepted).
 Latest examples plan: 2025-12-29 (accepted).
 Latest step options plan: 2025-12-29 (completed).
 Latest benchmarks plan: 2025-12-30 (completed).
-Latest benchmarks update: 2026-01-02 (run-only timing; overhead model refreshed with medians from 5 runs; composite stages capped at 12; channels baselines respect benchmark context cancellation).
+Latest benchmarks update: 2026-01-04 (added normal + work sweep coverage for basic steps; summary script now prints channel vs pipeline percent diff).
 Latest dry-run plan: 2025-12-30 (completed).
 Latest drop policies plan: 2025-12-30 (completed).
 Latest live monitoring plan: 2026-01-01 (accepted).

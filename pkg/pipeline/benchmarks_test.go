@@ -11,12 +11,10 @@ import (
 )
 
 const (
-	benchBatchSize       = 32
-	benchCompositeFanOut = 2
-	benchWorkIters       = 64
-	benchOverheadItems   = 4096
-	benchStepWorkers     = 1
-	benchStepWorkIters   = 0
+	benchWorkIters     = 64
+	benchOverheadItems = 4096
+	benchBatchSize     = 32
+	benchStepWorkers   = 1
 )
 
 type benchCase struct {
@@ -28,13 +26,11 @@ type benchCase struct {
 var benchCases = []benchCase{
 	{name: "items=1k/conc=1", items: 1024, workers: 1},
 	{name: "items=1k/conc=4", items: 1024, workers: 4},
-	{name: "items=16k/conc=4", items: 16384, workers: 4},
 }
 
 var (
-	benchWorkSweep            = []int{0, 4, 16, 64, 256, 1024, 4096}
-	benchStepCounts           = []int{1, 2, 4, 8, 16, 32, 64}
-	benchCompositeStageCounts = []int{1, 2, 4, 8, 12}
+	benchWorkFactors = []int{1, 2, 4, 8}
+	benchStepCounts  = []int{1, 2, 4, 8, 16}
 )
 
 var benchSink int64
@@ -48,26 +44,6 @@ func makeInputs(n int) []int {
 	return inputs
 }
 
-func simpleAdd1(v int) int {
-	return v + 1
-}
-
-func simpleMul2(v int) int {
-	return v * 2
-}
-
-func simpleAdd10(v int) int {
-	return v + 10
-}
-
-func maybeZero(v int) int {
-	if v%4 == 0 {
-		return 0
-	}
-
-	return v + 1
-}
-
 func realisticWork(v int) int {
 	x := uint64(v) + 0x9e3779b97f4a7c15
 	for range benchWorkIters {
@@ -79,72 +55,42 @@ func realisticWork(v int) int {
 	return int(x)
 }
 
-func realisticWorkAlt(v int) int {
-	return realisticWork(v + 1)
-}
-
-func workWithIters(v int, iters int) int {
-	x := uint64(v) + 0x9e3779b97f4a7c15
-	for range iters {
-		x ^= x << 7
-		x ^= x >> 9
-		x *= 0x9e3779b97f4a7c15
+func workWithFactor(factor int) func(int) int {
+	if factor < 1 {
+		factor = 1
 	}
 
-	return int(x)
-}
-
-func makeWorkFn(iters int) func(int) int {
 	return func(v int) int {
-		return workWithIters(v, iters)
+		out := v
+		for range factor {
+			out = realisticWork(out)
+		}
+
+		return out
 	}
 }
 
-type baselineFns struct {
-	serial   func([]int) int64
-	workers  func([]int, int) int64
-	channels func([]int, int) int64
-	pipeline func([]int, int) (int64, error)
-	// run-only benchmarks that exclude setup work from timing.
-	channelsRun func([]int, int) func(context.Context) int64
-	pipelineRun func([]int, int) (func(context.Context) (int64, error), error)
+type benchFns struct {
+	buildChannels func([]int, int) func(context.Context) int64
+	buildPipeline func([]int, int) (func(context.Context) (int64, error), error)
 }
 
-func runBenchCase(b *testing.B, tc benchCase, inputs []int, fns baselineFns) {
+type benchWorkFns struct {
+	buildChannels func([]int, int, func(int) int) func(context.Context) int64
+	buildPipeline func([]int, int, func(int) int) (func(context.Context) (int64, error), error)
+}
+
+func runBenchCase(b *testing.B, tc benchCase, inputs []int, fns benchFns) {
 	b.Helper()
-
-	b.Run(tc.name+"/loop-serial", func(b *testing.B) {
-		b.ReportAllocs()
-		b.ResetTimer()
-
-		for range b.N {
-			benchSink = fns.serial(inputs)
-		}
-	})
-
-	b.Run(tc.name+"/loop-workers", func(b *testing.B) {
-		b.ReportAllocs()
-		b.ResetTimer()
-
-		for range b.N {
-			benchSink = fns.workers(inputs, tc.workers)
-		}
-	})
 
 	b.Run(tc.name+"/channels", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 
 		for range b.N {
-			if fns.channelsRun == nil {
-				benchSink = fns.channels(inputs, tc.workers)
-
-				continue
-			}
-
 			b.StopTimer()
 
-			run := fns.channelsRun(inputs, tc.workers)
+			run := fns.buildChannels(inputs, tc.workers)
 
 			b.StartTimer()
 
@@ -159,20 +105,9 @@ func runBenchCase(b *testing.B, tc benchCase, inputs []int, fns baselineFns) {
 		b.ResetTimer()
 
 		for range b.N {
-			if fns.pipelineRun == nil {
-				sum, err := fns.pipeline(inputs, tc.workers)
-				if err != nil {
-					b.Fatal(err)
-				}
-
-				benchSink = sum
-
-				continue
-			}
-
 			b.StopTimer()
 
-			run, err := fns.pipelineRun(inputs, tc.workers)
+			run, err := fns.buildPipeline(inputs, tc.workers)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -180,137 +115,390 @@ func runBenchCase(b *testing.B, tc benchCase, inputs []int, fns baselineFns) {
 			b.StartTimer()
 
 			sum, err := run(b.Context())
-
-			b.StopTimer()
-
 			if err != nil {
 				b.Fatal(err)
 			}
+
+			b.StopTimer()
 
 			benchSink = sum
 		}
 	})
 }
 
-func BenchmarkOneToOne(b *testing.B) {
-	benchmarkOneToOne(b, simpleAdd1, false)
+func runWorkSweep(b *testing.B, inputs []int, workers int, fns benchWorkFns) {
+	b.Helper()
+
+	for _, factor := range benchWorkFactors {
+		workFn := workWithFactor(factor)
+		caseName := "factor=" + strconv.Itoa(factor)
+
+		b.Run(caseName+"/channels", func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			for range b.N {
+				b.StopTimer()
+
+				run := fns.buildChannels(inputs, workers, workFn)
+
+				b.StartTimer()
+
+				benchSink = run(b.Context())
+
+				b.StopTimer()
+			}
+		})
+
+		b.Run(caseName+"/pipeline", func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			for range b.N {
+				b.StopTimer()
+
+				run, err := fns.buildPipeline(inputs, workers, workFn)
+				if err != nil {
+					b.Fatal(err)
+				}
+
+				b.StartTimer()
+
+				sum, err := run(b.Context())
+				if err != nil {
+					b.Fatal(err)
+				}
+
+				b.StopTimer()
+
+				benchSink = sum
+			}
+		})
+	}
 }
 
-func BenchmarkOneToOneRealistic(b *testing.B) {
-	benchmarkOneToOne(b, realisticWork, false)
+func BenchmarkOneToOne(b *testing.B) {
+	fns := benchFns{
+		buildChannels: func(inputs []int, workers int) func(context.Context) int64 {
+			return buildChannelsOneToOne(inputs, workers, realisticWork)
+		},
+		buildPipeline: func(inputs []int, workers int) (func(context.Context) (int64, error), error) {
+			return buildPipelineOneToOne(inputs, workers, realisticWork)
+		},
+	}
+
+	for _, tc := range benchCases {
+		inputs := makeInputs(tc.items)
+		runBenchCase(b, tc, inputs, fns)
+	}
 }
 
 func BenchmarkOneToOneOrZero(b *testing.B) {
-	benchmarkOneToOne(b, maybeZero, true)
-}
+	fns := benchFns{
+		buildChannels: func(inputs []int, workers int) func(context.Context) int64 {
+			return buildChannelsOneToOneOrZero(inputs, workers, realisticWork)
+		},
+		buildPipeline: func(inputs []int, workers int) (func(context.Context) (int64, error), error) {
+			return buildPipelineOneToOneOrZero(inputs, workers, realisticWork)
+		},
+	}
 
-func BenchmarkTwoStage(b *testing.B) {
-	benchmarkTwoStage(b, simpleAdd1, simpleMul2)
-}
-
-func BenchmarkTwoStageRealistic(b *testing.B) {
-	benchmarkTwoStage(b, realisticWork, realisticWorkAlt)
-}
-
-func BenchmarkSplitMerge(b *testing.B) {
-	benchmarkSplitMerge(b, simpleAdd1, simpleAdd10)
-}
-
-func BenchmarkSplitMergeRealistic(b *testing.B) {
-	benchmarkSplitMerge(b, realisticWork, realisticWorkAlt)
-}
-
-func BenchmarkSplitBy(b *testing.B) {
-	benchmarkSplitBy(b, simpleAdd1, simpleAdd10)
+	for _, tc := range benchCases {
+		inputs := makeInputs(tc.items)
+		runBenchCase(b, tc, inputs, fns)
+	}
 }
 
 func BenchmarkOneToMany(b *testing.B) {
-	benchmarkOneToMany(b, simpleAdd1, simpleAdd10)
+	fns := benchFns{
+		buildChannels: func(inputs []int, workers int) func(context.Context) int64 {
+			return buildChannelsOneToMany(inputs, workers, realisticWork)
+		},
+		buildPipeline: func(inputs []int, workers int) (func(context.Context) (int64, error), error) {
+			return buildPipelineOneToMany(inputs, workers, realisticWork)
+		},
+	}
+
+	for _, tc := range benchCases {
+		inputs := makeInputs(tc.items)
+		runBenchCase(b, tc, inputs, fns)
+	}
 }
 
 func BenchmarkFromChan(b *testing.B) {
-	benchmarkFromChan(b, simpleAdd1)
+	fns := benchFns{
+		buildChannels: func(inputs []int, workers int) func(context.Context) int64 {
+			return buildChannelsFromChan(inputs, workers, realisticWork)
+		},
+		buildPipeline: func(inputs []int, workers int) (func(context.Context) (int64, error), error) {
+			return buildPipelineFromChan(inputs, workers, realisticWork)
+		},
+	}
+
+	for _, tc := range benchCases {
+		inputs := makeInputs(tc.items)
+		runBenchCase(b, tc, inputs, fns)
+	}
+}
+
+func BenchmarkSink(b *testing.B) {
+	fns := benchFns{
+		buildChannels: func(inputs []int, workers int) func(context.Context) int64 {
+			return buildChannelsSink(inputs, workers, realisticWork)
+		},
+		buildPipeline: func(inputs []int, workers int) (func(context.Context) (int64, error), error) {
+			return buildPipelineSink(inputs, workers, realisticWork)
+		},
+	}
+
+	for _, tc := range benchCases {
+		inputs := makeInputs(tc.items)
+		runBenchCase(b, tc, inputs, fns)
+	}
 }
 
 func BenchmarkSinkFromChan(b *testing.B) {
-	benchmarkSinkFromChan(b, simpleAdd1)
+	fns := benchFns{
+		buildChannels: func(inputs []int, workers int) func(context.Context) int64 {
+			return buildChannelsSinkFromChan(inputs, workers, realisticWork)
+		},
+		buildPipeline: func(inputs []int, workers int) (func(context.Context) (int64, error), error) {
+			return buildPipelineSinkFromChan(inputs, workers, realisticWork)
+		},
+	}
+
+	for _, tc := range benchCases {
+		inputs := makeInputs(tc.items)
+		runBenchCase(b, tc, inputs, fns)
+	}
 }
 
 func BenchmarkBatch(b *testing.B) {
-	benchmarkBatch(b, benchBatchSize, simpleAdd1)
+	fns := benchFns{
+		buildChannels: func(inputs []int, workers int) func(context.Context) int64 {
+			return buildChannelsBatch(inputs, workers, benchBatchSize, realisticWork)
+		},
+		buildPipeline: func(inputs []int, workers int) (func(context.Context) (int64, error), error) {
+			return buildPipelineBatch(inputs, workers, benchBatchSize, realisticWork)
+		},
+	}
+
+	for _, tc := range benchCases {
+		inputs := makeInputs(tc.items)
+		runBenchCase(b, tc, inputs, fns)
+	}
 }
 
 func BenchmarkBatchChan(b *testing.B) {
-	benchmarkBatchChan(b, benchBatchSize, simpleAdd1)
+	fns := benchFns{
+		buildChannels: func(inputs []int, workers int) func(context.Context) int64 {
+			return buildChannelsBatchChan(inputs, workers, benchBatchSize, realisticWork)
+		},
+		buildPipeline: func(inputs []int, workers int) (func(context.Context) (int64, error), error) {
+			return buildPipelineBatchChan(inputs, workers, benchBatchSize, realisticWork)
+		},
+	}
+
+	for _, tc := range benchCases {
+		inputs := makeInputs(tc.items)
+		runBenchCase(b, tc, inputs, fns)
+	}
+}
+
+func BenchmarkTwoStage(b *testing.B) {
+	fns := benchFns{
+		buildChannels: func(inputs []int, workers int) func(context.Context) int64 {
+			return buildChannelsTwoStage(inputs, workers, realisticWork, realisticWork)
+		},
+		buildPipeline: func(inputs []int, workers int) (func(context.Context) (int64, error), error) {
+			return buildPipelineTwoStage(inputs, workers, realisticWork, realisticWork)
+		},
+	}
+
+	for _, tc := range benchCases {
+		inputs := makeInputs(tc.items)
+		runBenchCase(b, tc, inputs, fns)
+	}
+}
+
+func BenchmarkSplitMerge(b *testing.B) {
+	fns := benchFns{
+		buildChannels: func(inputs []int, workers int) func(context.Context) int64 {
+			return buildChannelsSplitMerge(inputs, workers, realisticWork, realisticWork)
+		},
+		buildPipeline: func(inputs []int, workers int) (func(context.Context) (int64, error), error) {
+			return buildPipelineSplitMerge(inputs, workers, realisticWork, realisticWork)
+		},
+	}
+
+	for _, tc := range benchCases {
+		inputs := makeInputs(tc.items)
+		runBenchCase(b, tc, inputs, fns)
+	}
+}
+
+func BenchmarkSplitBy(b *testing.B) {
+	fns := benchFns{
+		buildChannels: func(inputs []int, workers int) func(context.Context) int64 {
+			return buildChannelsSplitBy(inputs, workers, realisticWork, realisticWork)
+		},
+		buildPipeline: func(inputs []int, workers int) (func(context.Context) (int64, error), error) {
+			return buildPipelineSplitBy(inputs, workers, realisticWork, realisticWork)
+		},
+	}
+
+	for _, tc := range benchCases {
+		inputs := makeInputs(tc.items)
+		runBenchCase(b, tc, inputs, fns)
+	}
 }
 
 func BenchmarkOverheadWorkSweep(b *testing.B) {
 	inputs := makeInputs(benchOverheadItems)
-
-	for _, iters := range benchWorkSweep {
-		workFn := makeWorkFn(iters)
-		caseName := "iters=" + strconv.Itoa(iters)
-
-		b.Run(caseName+"/loop-serial", func(b *testing.B) {
-			b.ReportAllocs()
-			b.ResetTimer()
-
-			for range b.N {
-				benchSink = runLoopSerial(inputs, func(v int) int64 {
-					return int64(workFn(v))
-				})
-			}
-		})
-
-		b.Run(caseName+"/channels", func(b *testing.B) {
-			b.ReportAllocs()
-			b.ResetTimer()
-
-			for range b.N {
-				benchSink = runChannelsOneToOne(inputs, benchStepWorkers, workFn, false)
-			}
-		})
-
-		b.Run(caseName+"/pipeline", func(b *testing.B) {
-			b.ReportAllocs()
-			b.ResetTimer()
-
-			for range b.N {
-				sum, err := runPipelineOneToOne(inputs, benchStepWorkers, workFn, false)
-				if err != nil {
-					b.Fatal(err)
-				}
-
-				benchSink = sum
-			}
-		})
+	fns := benchWorkFns{
+		buildChannels: func(inputs []int, workers int, workFn func(int) int) func(context.Context) int64 {
+			return buildChannelsOneToOne(inputs, workers, workFn)
+		},
+		buildPipeline: func(inputs []int, workers int, workFn func(int) int) (func(context.Context) (int64, error), error) {
+			return buildPipelineOneToOne(inputs, workers, workFn)
+		},
 	}
+
+	runWorkSweep(b, inputs, benchStepWorkers, fns)
 }
 
-func BenchmarkOverheadStepScaling(b *testing.B) {
+func BenchmarkOneToOneOrZeroWorkSweep(b *testing.B) {
 	inputs := makeInputs(benchOverheadItems)
-	workFn := makeWorkFn(benchStepWorkIters)
+	fns := benchWorkFns{
+		buildChannels: func(inputs []int, workers int, workFn func(int) int) func(context.Context) int64 {
+			return buildChannelsOneToOneOrZero(inputs, workers, workFn)
+		},
+		buildPipeline: func(inputs []int, workers int, workFn func(int) int) (func(context.Context) (int64, error), error) {
+			return buildPipelineOneToOneOrZero(inputs, workers, workFn)
+		},
+	}
+
+	runWorkSweep(b, inputs, benchStepWorkers, fns)
+}
+
+func BenchmarkOneToManyWorkSweep(b *testing.B) {
+	inputs := makeInputs(benchOverheadItems)
+	fns := benchWorkFns{
+		buildChannels: func(inputs []int, workers int, workFn func(int) int) func(context.Context) int64 {
+			return buildChannelsOneToMany(inputs, workers, workFn)
+		},
+		buildPipeline: func(inputs []int, workers int, workFn func(int) int) (func(context.Context) (int64, error), error) {
+			return buildPipelineOneToMany(inputs, workers, workFn)
+		},
+	}
+
+	runWorkSweep(b, inputs, benchStepWorkers, fns)
+}
+
+func BenchmarkFromChanWorkSweep(b *testing.B) {
+	inputs := makeInputs(benchOverheadItems)
+	fns := benchWorkFns{
+		buildChannels: func(inputs []int, workers int, workFn func(int) int) func(context.Context) int64 {
+			return buildChannelsFromChan(inputs, workers, workFn)
+		},
+		buildPipeline: func(inputs []int, workers int, workFn func(int) int) (func(context.Context) (int64, error), error) {
+			return buildPipelineFromChan(inputs, workers, workFn)
+		},
+	}
+
+	runWorkSweep(b, inputs, benchStepWorkers, fns)
+}
+
+func BenchmarkSinkWorkSweep(b *testing.B) {
+	inputs := makeInputs(benchOverheadItems)
+	fns := benchWorkFns{
+		buildChannels: func(inputs []int, workers int, workFn func(int) int) func(context.Context) int64 {
+			return buildChannelsSink(inputs, workers, workFn)
+		},
+		buildPipeline: func(inputs []int, workers int, workFn func(int) int) (func(context.Context) (int64, error), error) {
+			return buildPipelineSink(inputs, workers, workFn)
+		},
+	}
+
+	runWorkSweep(b, inputs, benchStepWorkers, fns)
+}
+
+func BenchmarkSinkFromChanWorkSweep(b *testing.B) {
+	inputs := makeInputs(benchOverheadItems)
+	fns := benchWorkFns{
+		buildChannels: func(inputs []int, workers int, workFn func(int) int) func(context.Context) int64 {
+			return buildChannelsSinkFromChan(inputs, workers, workFn)
+		},
+		buildPipeline: func(inputs []int, workers int, workFn func(int) int) (func(context.Context) (int64, error), error) {
+			return buildPipelineSinkFromChan(inputs, workers, workFn)
+		},
+	}
+
+	runWorkSweep(b, inputs, benchStepWorkers, fns)
+}
+
+func BenchmarkBatchWorkSweep(b *testing.B) {
+	inputs := makeInputs(benchOverheadItems)
+	fns := benchWorkFns{
+		buildChannels: func(inputs []int, workers int, workFn func(int) int) func(context.Context) int64 {
+			return buildChannelsBatch(inputs, workers, benchBatchSize, workFn)
+		},
+		buildPipeline: func(inputs []int, workers int, workFn func(int) int) (func(context.Context) (int64, error), error) {
+			return buildPipelineBatch(inputs, workers, benchBatchSize, workFn)
+		},
+	}
+
+	runWorkSweep(b, inputs, benchStepWorkers, fns)
+}
+
+func BenchmarkBatchChanWorkSweep(b *testing.B) {
+	inputs := makeInputs(benchOverheadItems)
+	fns := benchWorkFns{
+		buildChannels: func(inputs []int, workers int, workFn func(int) int) func(context.Context) int64 {
+			return buildChannelsBatchChan(inputs, workers, benchBatchSize, workFn)
+		},
+		buildPipeline: func(inputs []int, workers int, workFn func(int) int) (func(context.Context) (int64, error), error) {
+			return buildPipelineBatchChan(inputs, workers, benchBatchSize, workFn)
+		},
+	}
+
+	runWorkSweep(b, inputs, benchStepWorkers, fns)
+}
+
+func BenchmarkSplitByWorkSweep(b *testing.B) {
+	inputs := makeInputs(benchOverheadItems)
+	fns := benchWorkFns{
+		buildChannels: func(inputs []int, workers int, workFn func(int) int) func(context.Context) int64 {
+			return buildChannelsSplitBy(inputs, workers, workFn, workFn)
+		},
+		buildPipeline: func(inputs []int, workers int, workFn func(int) int) (func(context.Context) (int64, error), error) {
+			return buildPipelineSplitBy(inputs, workers, workFn, workFn)
+		},
+	}
+
+	runWorkSweep(b, inputs, benchStepWorkers, fns)
+}
+
+func BenchmarkOverheadStepSweep(b *testing.B) {
+	inputs := makeInputs(benchOverheadItems)
 
 	for _, steps := range benchStepCounts {
 		caseName := "steps=" + strconv.Itoa(steps)
 
-		b.Run(caseName+"/loop-serial", func(b *testing.B) {
-			b.ReportAllocs()
-			b.ResetTimer()
-
-			for range b.N {
-				benchSink = runLoopMultiStage(inputs, steps, func(v int) int64 {
-					return int64(workFn(v))
-				})
-			}
-		})
-
 		b.Run(caseName+"/channels", func(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
 			for range b.N {
-				benchSink = runChannelsMultiStage(b.Context(), inputs, steps, benchStepWorkers, workFn)
+				b.StopTimer()
+
+				run := buildChannelsMultiStage(inputs, steps, benchStepWorkers, realisticWork)
+
+				b.StartTimer()
+
+				benchSink = run(b.Context())
+
+				b.StopTimer()
 			}
 		})
 
@@ -319,463 +507,25 @@ func BenchmarkOverheadStepScaling(b *testing.B) {
 			b.ResetTimer()
 
 			for range b.N {
-				sum, err := runPipelineMultiStage(inputs, steps, benchStepWorkers, workFn)
+				b.StopTimer()
+
+				run, err := buildPipelineMultiStage(inputs, steps, benchStepWorkers, realisticWork)
 				if err != nil {
 					b.Fatal(err)
 				}
 
-				benchSink = sum
-			}
-		})
-	}
-}
+				b.StartTimer()
 
-func BenchmarkOverheadCompositeOneToMany(b *testing.B) {
-	oneToManyFn := func(v int) []int {
-		return []int{simpleAdd1(v), simpleAdd10(v)}
-	}
-
-	stage := func(values []int) []int {
-		out := make([]int, 0, len(values)*benchCompositeFanOut)
-
-		for _, v := range values {
-			out = append(out, oneToManyFn(v)...)
-		}
-
-		return out
-	}
-
-	for _, stages := range benchCompositeStageCounts {
-		inputs := makeInputs(compositeInputCount(benchOverheadItems, stages, benchCompositeFanOut))
-		caseName := "stages=" + strconv.Itoa(stages)
-
-		b.Run(caseName+"/loop-serial", func(b *testing.B) {
-			b.ReportAllocs()
-			b.ResetTimer()
-
-			for range b.N {
-				benchSink = runLoopCompositeStages(inputs, stages, stage)
-			}
-		})
-
-		b.Run(caseName+"/channels", func(b *testing.B) {
-			b.ReportAllocs()
-			b.ResetTimer()
-
-			for range b.N {
-				benchSink = runChannelsCompositeOneToMany(b.Context(), inputs, stages, benchStepWorkers, oneToManyFn)
-			}
-		})
-
-		b.Run(caseName+"/pipeline", func(b *testing.B) {
-			b.ReportAllocs()
-			b.ResetTimer()
-
-			for range b.N {
-				sum, err := runPipelineCompositeOneToMany(inputs, stages, benchStepWorkers, oneToManyFn)
+				sum, err := run(b.Context())
 				if err != nil {
 					b.Fatal(err)
 				}
 
-				benchSink = sum
-			}
-		})
-	}
-}
-
-func BenchmarkOverheadCompositeBatch(b *testing.B) {
-	inputs := makeInputs(benchOverheadItems)
-	stage := compositeBatchStage(benchBatchSize)
-
-	for _, stages := range benchCompositeStageCounts {
-		caseName := "stages=" + strconv.Itoa(stages)
-
-		b.Run(caseName+"/loop-serial", func(b *testing.B) {
-			b.ReportAllocs()
-			b.ResetTimer()
-
-			for range b.N {
-				benchSink = runLoopCompositeStages(inputs, stages, stage)
-			}
-		})
-
-		b.Run(caseName+"/channels", func(b *testing.B) {
-			b.ReportAllocs()
-			b.ResetTimer()
-
-			for range b.N {
-				benchSink = runChannelsCompositeBatch(b.Context(), inputs, stages, benchStepWorkers, benchBatchSize)
-			}
-		})
-
-		b.Run(caseName+"/pipeline", func(b *testing.B) {
-			b.ReportAllocs()
-			b.ResetTimer()
-
-			for range b.N {
-				sum, err := runPipelineCompositeBatch(inputs, stages, benchStepWorkers, benchBatchSize)
-				if err != nil {
-					b.Fatal(err)
-				}
+				b.StopTimer()
 
 				benchSink = sum
 			}
 		})
-	}
-}
-
-func BenchmarkOverheadCompositeBatchChan(b *testing.B) {
-	inputs := makeInputs(benchOverheadItems)
-	stage := compositeBatchStage(benchBatchSize)
-
-	for _, stages := range benchCompositeStageCounts {
-		caseName := "stages=" + strconv.Itoa(stages)
-
-		b.Run(caseName+"/loop-serial", func(b *testing.B) {
-			b.ReportAllocs()
-			b.ResetTimer()
-
-			for range b.N {
-				benchSink = runLoopCompositeStages(inputs, stages, stage)
-			}
-		})
-
-		b.Run(caseName+"/channels", func(b *testing.B) {
-			b.ReportAllocs()
-			b.ResetTimer()
-
-			for range b.N {
-				benchSink = runChannelsCompositeBatchChan(b.Context(), inputs, stages, benchStepWorkers, benchBatchSize)
-			}
-		})
-
-		b.Run(caseName+"/pipeline", func(b *testing.B) {
-			b.ReportAllocs()
-			b.ResetTimer()
-
-			for range b.N {
-				sum, err := runPipelineCompositeBatchChan(inputs, stages, benchStepWorkers, benchBatchSize)
-				if err != nil {
-					b.Fatal(err)
-				}
-
-				benchSink = sum
-			}
-		})
-	}
-}
-
-func benchmarkOneToOne(b *testing.B, fn func(int) int, dropZero bool) {
-	b.Helper()
-
-	fns := baselineFns{
-		serial: func(inputs []int) int64 {
-			return runLoopSerial(inputs, func(v int) int64 {
-				res := fn(v)
-
-				return int64(res)
-			})
-		},
-		workers: func(inputs []int, workers int) int64 {
-			return runLoopWorkers(inputs, workers, func(v int) int64 {
-				res := fn(v)
-
-				return int64(res)
-			})
-		},
-		channels: func(inputs []int, workers int) int64 {
-			return runChannelsOneToOne(inputs, workers, fn, dropZero)
-		},
-		pipeline: func(inputs []int, workers int) (int64, error) {
-			return runPipelineOneToOne(inputs, workers, fn, dropZero)
-		},
-		channelsRun: func(inputs []int, workers int) func(context.Context) int64 {
-			return buildChannelsOneToOne(inputs, workers, fn, dropZero)
-		},
-		pipelineRun: func(inputs []int, workers int) (func(context.Context) (int64, error), error) {
-			return buildPipelineOneToOne(inputs, workers, fn, dropZero)
-		},
-	}
-
-	for _, tc := range benchCases {
-		inputs := makeInputs(tc.items)
-		runBenchCase(b, tc, inputs, fns)
-	}
-}
-
-func benchmarkTwoStage(b *testing.B, stage1 func(int) int, stage2 func(int) int) {
-	b.Helper()
-
-	fns := baselineFns{
-		serial: func(inputs []int) int64 {
-			return runLoopSerial(inputs, func(v int) int64 {
-				return int64(stage2(stage1(v)))
-			})
-		},
-		workers: func(inputs []int, workers int) int64 {
-			return runLoopWorkers(inputs, workers, func(v int) int64 {
-				return int64(stage2(stage1(v)))
-			})
-		},
-		channels: func(inputs []int, workers int) int64 {
-			return runChannelsTwoStage(inputs, workers, stage1, stage2)
-		},
-		pipeline: func(inputs []int, workers int) (int64, error) {
-			return runPipelineTwoStage(inputs, workers, stage1, stage2)
-		},
-		channelsRun: func(inputs []int, workers int) func(context.Context) int64 {
-			return buildChannelsTwoStage(inputs, workers, stage1, stage2)
-		},
-		pipelineRun: func(inputs []int, workers int) (func(context.Context) (int64, error), error) {
-			return buildPipelineTwoStage(inputs, workers, stage1, stage2)
-		},
-	}
-
-	for _, tc := range benchCases {
-		inputs := makeInputs(tc.items)
-		runBenchCase(b, tc, inputs, fns)
-	}
-}
-
-func benchmarkSplitMerge(b *testing.B, leftFn func(int) int, rightFn func(int) int) {
-	b.Helper()
-
-	fns := baselineFns{
-		serial: func(inputs []int) int64 {
-			return runLoopSerial(inputs, func(v int) int64 {
-				return int64(leftFn(v) + rightFn(v))
-			})
-		},
-		workers: func(inputs []int, workers int) int64 {
-			return runLoopWorkers(inputs, workers, func(v int) int64 {
-				return int64(leftFn(v) + rightFn(v))
-			})
-		},
-		channels: func(inputs []int, workers int) int64 {
-			return runChannelsSplitMerge(inputs, workers, leftFn, rightFn)
-		},
-		pipeline: func(inputs []int, workers int) (int64, error) {
-			return runPipelineSplitMerge(inputs, workers, leftFn, rightFn)
-		},
-		channelsRun: func(inputs []int, workers int) func(context.Context) int64 {
-			return buildChannelsSplitMerge(inputs, workers, leftFn, rightFn)
-		},
-		pipelineRun: func(inputs []int, workers int) (func(context.Context) (int64, error), error) {
-			return buildPipelineSplitMerge(inputs, workers, leftFn, rightFn)
-		},
-	}
-
-	for _, tc := range benchCases {
-		inputs := makeInputs(tc.items)
-		runBenchCase(b, tc, inputs, fns)
-	}
-}
-
-func benchmarkSplitBy(b *testing.B, leftFn func(int) int, rightFn func(int) int) {
-	b.Helper()
-
-	fns := baselineFns{
-		serial: func(inputs []int) int64 {
-			return runLoopSerial(inputs, func(v int) int64 {
-				if v%2 == 0 {
-					return int64(leftFn(v))
-				}
-
-				return int64(rightFn(v))
-			})
-		},
-		workers: func(inputs []int, workers int) int64 {
-			return runLoopWorkers(inputs, workers, func(v int) int64 {
-				if v%2 == 0 {
-					return int64(leftFn(v))
-				}
-
-				return int64(rightFn(v))
-			})
-		},
-		channels: func(inputs []int, workers int) int64 {
-			return runChannelsSplitBy(inputs, workers, leftFn, rightFn)
-		},
-		pipeline: func(inputs []int, workers int) (int64, error) {
-			return runPipelineSplitBy(inputs, workers, leftFn, rightFn)
-		},
-		channelsRun: func(inputs []int, workers int) func(context.Context) int64 {
-			return buildChannelsSplitBy(inputs, workers, leftFn, rightFn)
-		},
-		pipelineRun: func(inputs []int, workers int) (func(context.Context) (int64, error), error) {
-			return buildPipelineSplitBy(inputs, workers, leftFn, rightFn)
-		},
-	}
-
-	for _, tc := range benchCases {
-		inputs := makeInputs(tc.items)
-		runBenchCase(b, tc, inputs, fns)
-	}
-}
-
-func benchmarkOneToMany(b *testing.B, leftFn func(int) int, rightFn func(int) int) {
-	b.Helper()
-
-	oneToManyFn := func(v int) []int {
-		return []int{leftFn(v), rightFn(v)}
-	}
-
-	fns := baselineFns{
-		serial: func(inputs []int) int64 {
-			return runLoopSerial(inputs, func(v int) int64 {
-				return sumOutputs(oneToManyFn(v))
-			})
-		},
-		workers: func(inputs []int, workers int) int64 {
-			return runLoopWorkers(inputs, workers, func(v int) int64 {
-				return sumOutputs(oneToManyFn(v))
-			})
-		},
-		channels: func(inputs []int, workers int) int64 {
-			return runChannelsOneToMany(inputs, workers, oneToManyFn)
-		},
-		pipeline: func(inputs []int, workers int) (int64, error) {
-			return runPipelineOneToMany(inputs, workers, oneToManyFn)
-		},
-		channelsRun: func(inputs []int, workers int) func(context.Context) int64 {
-			return buildChannelsOneToMany(inputs, workers, oneToManyFn)
-		},
-		pipelineRun: func(inputs []int, workers int) (func(context.Context) (int64, error), error) {
-			return buildPipelineOneToMany(inputs, workers, oneToManyFn)
-		},
-	}
-
-	for _, tc := range benchCases {
-		inputs := makeInputs(tc.items)
-		runBenchCase(b, tc, inputs, fns)
-	}
-}
-
-func benchmarkFromChan(b *testing.B, fn func(int) int) {
-	b.Helper()
-
-	fns := baselineFns{
-		serial: func(inputs []int) int64 {
-			return runLoopSerial(inputs, func(v int) int64 {
-				return int64(fn(v))
-			})
-		},
-		workers: func(inputs []int, workers int) int64 {
-			return runLoopWorkers(inputs, workers, func(v int) int64 {
-				return int64(fn(v))
-			})
-		},
-		channels: func(inputs []int, workers int) int64 {
-			return runChannelsFromChan(inputs, workers, fn)
-		},
-		pipeline: func(inputs []int, workers int) (int64, error) {
-			return runPipelineFromChan(inputs, workers, fn)
-		},
-		channelsRun: func(inputs []int, workers int) func(context.Context) int64 {
-			return buildChannelsFromChan(inputs, workers, fn)
-		},
-		pipelineRun: func(inputs []int, workers int) (func(context.Context) (int64, error), error) {
-			return buildPipelineFromChan(inputs, workers, fn)
-		},
-	}
-
-	for _, tc := range benchCases {
-		inputs := makeInputs(tc.items)
-		runBenchCase(b, tc, inputs, fns)
-	}
-}
-
-func benchmarkSinkFromChan(b *testing.B, fn func(int) int) {
-	b.Helper()
-
-	fns := baselineFns{
-		serial: func(inputs []int) int64 {
-			return runLoopSerial(inputs, func(v int) int64 {
-				return int64(fn(v))
-			})
-		},
-		workers: func(inputs []int, workers int) int64 {
-			return runLoopWorkers(inputs, workers, func(v int) int64 {
-				return int64(fn(v))
-			})
-		},
-		channels: func(inputs []int, workers int) int64 {
-			return runChannelsSinkFromChan(inputs, workers, fn)
-		},
-		pipeline: func(inputs []int, workers int) (int64, error) {
-			return runPipelineSinkFromChan(inputs, workers, fn)
-		},
-		channelsRun: func(inputs []int, workers int) func(context.Context) int64 {
-			return buildChannelsSinkFromChan(inputs, workers, fn)
-		},
-		pipelineRun: func(inputs []int, workers int) (func(context.Context) (int64, error), error) {
-			return buildPipelineSinkFromChan(inputs, workers, fn)
-		},
-	}
-
-	for _, tc := range benchCases {
-		inputs := makeInputs(tc.items)
-		runBenchCase(b, tc, inputs, fns)
-	}
-}
-
-func benchmarkBatch(b *testing.B, batchSize int, fn func(int) int) {
-	b.Helper()
-
-	fns := baselineFns{
-		serial: func(inputs []int) int64 {
-			return runLoopSerialBatch(inputs, batchSize, fn)
-		},
-		workers: func(inputs []int, workers int) int64 {
-			return runLoopWorkersBatch(inputs, workers, batchSize, fn)
-		},
-		channels: func(inputs []int, workers int) int64 {
-			return runChannelsBatch(inputs, workers, batchSize, fn)
-		},
-		pipeline: func(inputs []int, workers int) (int64, error) {
-			return runPipelineBatch(inputs, workers, batchSize, fn)
-		},
-		channelsRun: func(inputs []int, workers int) func(context.Context) int64 {
-			return buildChannelsBatch(inputs, workers, batchSize, fn)
-		},
-		pipelineRun: func(inputs []int, workers int) (func(context.Context) (int64, error), error) {
-			return buildPipelineBatch(inputs, workers, batchSize, fn)
-		},
-	}
-
-	for _, tc := range benchCases {
-		inputs := makeInputs(tc.items)
-		runBenchCase(b, tc, inputs, fns)
-	}
-}
-
-func benchmarkBatchChan(b *testing.B, batchSize int, fn func(int) int) {
-	b.Helper()
-
-	fns := baselineFns{
-		serial: func(inputs []int) int64 {
-			return runLoopSerialBatchChan(inputs, batchSize, fn)
-		},
-		workers: func(inputs []int, workers int) int64 {
-			return runLoopWorkersBatchChan(inputs, workers, batchSize, fn)
-		},
-		channels: func(inputs []int, workers int) int64 {
-			return runChannelsBatchChan(inputs, workers, batchSize, fn)
-		},
-		pipeline: func(inputs []int, workers int) (int64, error) {
-			return runPipelineBatchChan(inputs, workers, batchSize, fn)
-		},
-		channelsRun: func(inputs []int, workers int) func(context.Context) int64 {
-			return buildChannelsBatchChan(inputs, workers, batchSize, fn)
-		},
-		pipelineRun: func(inputs []int, workers int) (func(context.Context) (int64, error), error) {
-			return buildPipelineBatchChan(inputs, workers, batchSize, fn)
-		},
-	}
-
-	for _, tc := range benchCases {
-		inputs := makeInputs(tc.items)
-		runBenchCase(b, tc, inputs, fns)
 	}
 }
 
@@ -787,31 +537,11 @@ func normalizeWorkers(workers int) int {
 	return workers
 }
 
-func compositeInputCount(items int, stages int, fanOut int) int {
-	if items < 1 {
-		return 1
-	}
-
-	if stages < 1 || fanOut < 2 {
-		return items
-	}
-
-	inputs := items
-	for range stages {
-		inputs /= fanOut
-		if inputs < 1 {
-			return 1
-		}
-	}
-
-	return inputs
-}
-
 func stepOptions[O any](workers int) []pipeline.StepOption[O] {
 	return []pipeline.StepOption[O]{pipeline.StepConcurrency[O](normalizeWorkers(workers))}
 }
 
-func sendWithContext[T any](ctx context.Context, ch chan<- T, value T) bool {
+func sendInt(ctx context.Context, ch chan<- int, value int) bool {
 	select {
 	case <-ctx.Done():
 		return false
@@ -820,282 +550,71 @@ func sendWithContext[T any](ctx context.Context, ch chan<- T, value T) bool {
 	}
 }
 
-//nolint:ireturn // Benchmark helpers return generic values directly.
-func recvWithContext[T any](ctx context.Context, ch <-chan T) (T, bool) {
+func recvInt(ctx context.Context, ch <-chan int) (int, bool) {
 	select {
 	case <-ctx.Done():
-		var zero T
-
-		return zero, false
+		return 0, false
 	case value, ok := <-ch:
 		return value, ok
 	}
 }
 
-func runLoopSerial(inputs []int, perItem func(int) int64) int64 {
-	var sum int64
-
-	for _, v := range inputs {
-		sum += perItem(v)
-	}
-
-	return sum
-}
-
-func runLoopWorkers(inputs []int, workers int, perItem func(int) int64) int64 {
-	workers = normalizeWorkers(workers)
-	if workers == 1 {
-		return runLoopSerial(inputs, perItem)
-	}
-
-	var idx atomic.Int64
-	sums := make([]int64, workers)
-	n := int64(len(inputs))
-
-	var wg sync.WaitGroup
-	wg.Add(workers)
-
-	for w := range workers {
-		worker := w
-
-		go func() {
-			defer wg.Done()
-
-			var local int64
-
-			for {
-				i := idx.Add(1) - 1
-				if i >= n {
-					break
-				}
-
-				local += perItem(inputs[int(i)])
-			}
-
-			sums[worker] = local
-		}()
-	}
-
-	wg.Wait()
-
-	var sum int64
-	for _, value := range sums {
-		sum += value
-	}
-
-	return sum
-}
-
-func runLoopMultiStage(inputs []int, steps int, perItem func(int) int64) int64 {
-	var sum int64
-
-	for _, v := range inputs {
-		value := v
-		for range steps {
-			value = int(perItem(value))
-		}
-
-		sum += int64(value)
-	}
-
-	return sum
-}
-
-func runLoopCompositeStages(inputs []int, stages int, stage func([]int) []int) int64 {
-	values := inputs
-
-	for range stages {
-		values = stage(values)
-	}
-
-	var sum int64
-
-	for _, v := range values {
-		sum += int64(v)
-	}
-
-	return sum
-}
-
-func sumOutputs(outputs []int) int64 {
-	var sum int64
-
-	for _, v := range outputs {
-		sum += int64(v)
-	}
-
-	return sum
-}
-
-func compositeBatchStage(batchSize int) func([]int) []int {
-	return func(values []int) []int {
-		out := make([]int, 0, len(values))
-		batch := make([]int, 0, batchSize)
-
-		flush := func() {
-			if len(batch) == 0 {
-				return
-			}
-
-			out = append(out, batch...)
-			batch = batch[:0]
-		}
-
-		for _, v := range values {
-			batch = append(batch, v)
-			if len(batch) >= batchSize {
-				flush()
-			}
-		}
-
-		flush()
-
-		return out
+func sendInts(ctx context.Context, ch chan<- []int, value []int) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case ch <- value:
+		return true
 	}
 }
 
-func runLoopSerialBatch(inputs []int, batchSize int, fn func(int) int) int64 {
-	batch := make([]int, 0, batchSize)
-	var sum int64
-
-	flush := func() {
-		for _, v := range batch {
-			sum += int64(fn(v))
-		}
-
-		batch = nil
+func recvInts(ctx context.Context, ch <-chan []int) ([]int, bool) {
+	select {
+	case <-ctx.Done():
+		return nil, false
+	case value, ok := <-ch:
+		return value, ok
 	}
-
-	for _, v := range inputs {
-		batch = append(batch, v)
-		if len(batch) >= batchSize {
-			flush()
-		}
-	}
-
-	if len(batch) > 0 {
-		flush()
-	}
-
-	return sum
 }
 
-func runLoopWorkersBatch(inputs []int, workers int, batchSize int, fn func(int) int) int64 {
-	workers = normalizeWorkers(workers)
-	if workers == 1 {
-		return runLoopSerialBatch(inputs, batchSize, fn)
+func sendChanInt(ctx context.Context, ch chan<- chan int, value chan int) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case ch <- value:
+		return true
 	}
-
-	var idx atomic.Int64
-	sums := make([]int64, workers)
-	n := int64(len(inputs))
-
-	var wg sync.WaitGroup
-	wg.Add(workers)
-
-	for w := range workers {
-		worker := w
-
-		go func() {
-			defer wg.Done()
-
-			batch := make([]int, 0, batchSize)
-			var local int64
-
-			flush := func() {
-				for _, v := range batch {
-					local += int64(fn(v))
-				}
-
-				batch = nil
-			}
-
-			for {
-				i := idx.Add(1) - 1
-				if i >= n {
-					break
-				}
-
-				batch = append(batch, inputs[int(i)])
-				if len(batch) >= batchSize {
-					flush()
-				}
-			}
-
-			if len(batch) > 0 {
-				flush()
-			}
-
-			sums[worker] = local
-		}()
-	}
-
-	wg.Wait()
-
-	var sum int64
-	for _, value := range sums {
-		sum += value
-	}
-
-	return sum
 }
 
-func runLoopSerialBatchChan(inputs []int, batchSize int, fn func(int) int) int64 {
-	batch := make([]int, 0, batchSize)
-	var sum int64
-
-	flush := func() {
-		for _, v := range batch {
-			sum += int64(fn(v))
-		}
-
-		batch = nil
+func recvChanInt(ctx context.Context, ch <-chan chan int) (chan int, bool) {
+	select {
+	case <-ctx.Done():
+		return nil, false
+	case value, ok := <-ch:
+		return value, ok
 	}
-
-	for _, v := range inputs {
-		batch = append(batch, v)
-		if len(batch) >= batchSize {
-			flush()
-		}
-	}
-
-	if len(batch) > 0 {
-		flush()
-	}
-
-	return sum
 }
 
-func runLoopWorkersBatchChan(inputs []int, workers int, batchSize int, fn func(int) int) int64 {
-	return runLoopWorkersBatch(inputs, workers, batchSize, fn)
-}
-
-//nolint:gocognit // Benchmark wiring trades clarity for direct channel plumbing.
-func buildChannelsOneToOne(inputs []int, workers int, fn func(int) int, dropZero bool) func(context.Context) int64 {
+func buildChannelsOneToOne(inputs []int, workers int, fn func(int) int) func(context.Context) int64 {
 	workers = normalizeWorkers(workers)
 	in := make(chan int)
 	out := make(chan int)
 
-	var wg sync.WaitGroup
-	wg.Add(workers)
-
 	return func(ctx context.Context) int64 {
+		var wg sync.WaitGroup
+		wg.Add(workers)
+
 		for range workers {
 			go func() {
 				defer wg.Done()
 
 				for {
-					v, ok := recvWithContext(ctx, in)
+					v, ok := recvInt(ctx, in)
 					if !ok {
 						return
 					}
 
-					res := fn(v)
-					if dropZero && res == 0 {
-						continue
-					}
-
-					if !sendWithContext(ctx, out, res) {
+					if !sendInt(ctx, out, fn(v)) {
 						return
 					}
 				}
@@ -1111,7 +630,7 @@ func buildChannelsOneToOne(inputs []int, workers int, fn func(int) int, dropZero
 			defer close(in)
 
 			for _, v := range inputs {
-				if !sendWithContext(ctx, in, v) {
+				if !sendInt(ctx, in, v) {
 					return
 				}
 			}
@@ -1120,7 +639,7 @@ func buildChannelsOneToOne(inputs []int, workers int, fn func(int) int, dropZero
 		var sum int64
 
 		for {
-			v, ok := recvWithContext(ctx, out)
+			v, ok := recvInt(ctx, out)
 			if !ok {
 				break
 			}
@@ -1132,35 +651,480 @@ func buildChannelsOneToOne(inputs []int, workers int, fn func(int) int, dropZero
 	}
 }
 
-func runChannelsOneToOne(inputs []int, workers int, fn func(int) int, dropZero bool) int64 {
-	return buildChannelsOneToOne(inputs, workers, fn, dropZero)(context.Background())
+//nolint:gocognit // Benchmark wiring keeps channel plumbing together.
+func buildChannelsOneToOneOrZero(inputs []int, workers int, fn func(int) int) func(context.Context) int64 {
+	workers = normalizeWorkers(workers)
+	in := make(chan int)
+	out := make(chan int)
+
+	return func(ctx context.Context) int64 {
+		var wg sync.WaitGroup
+		wg.Add(workers)
+
+		for range workers {
+			go func() {
+				defer wg.Done()
+
+				for {
+					v, ok := recvInt(ctx, in)
+					if !ok {
+						return
+					}
+
+					if v%2 == 0 {
+						continue
+					}
+
+					if !sendInt(ctx, out, fn(v)) {
+						return
+					}
+				}
+			}()
+		}
+
+		go func() {
+			wg.Wait()
+			close(out)
+		}()
+
+		go func() {
+			defer close(in)
+
+			for _, v := range inputs {
+				if !sendInt(ctx, in, v) {
+					return
+				}
+			}
+		}()
+
+		var sum int64
+
+		for {
+			v, ok := recvInt(ctx, out)
+			if !ok {
+				break
+			}
+
+			sum += int64(v)
+		}
+
+		return sum
+	}
 }
 
-//nolint:gocognit // Benchmark wiring trades clarity for direct channel plumbing.
-func buildChannelsTwoStage(inputs []int, workers int, stage1 func(int) int, stage2 func(int) int) func(context.Context) int64 {
+//nolint:gocognit // Benchmark wiring keeps channel plumbing together.
+func buildChannelsOneToMany(inputs []int, workers int, fn func(int) int) func(context.Context) int64 {
+	workers = normalizeWorkers(workers)
+	in := make(chan int)
+	out := make(chan int)
+
+	return func(ctx context.Context) int64 {
+		var wg sync.WaitGroup
+		wg.Add(workers)
+
+		for range workers {
+			go func() {
+				defer wg.Done()
+
+				for {
+					v, ok := recvInt(ctx, in)
+					if !ok {
+						return
+					}
+
+					outVal := fn(v)
+					if !sendInt(ctx, out, outVal) {
+						return
+					}
+
+					if !sendInt(ctx, out, outVal+1) {
+						return
+					}
+				}
+			}()
+		}
+
+		go func() {
+			wg.Wait()
+			close(out)
+		}()
+
+		go func() {
+			defer close(in)
+
+			for _, v := range inputs {
+				if !sendInt(ctx, in, v) {
+					return
+				}
+			}
+		}()
+
+		var sum int64
+
+		for {
+			v, ok := recvInt(ctx, out)
+			if !ok {
+				break
+			}
+
+			sum += int64(v)
+		}
+
+		return sum
+	}
+}
+
+func buildChannelsFromChan(inputs []int, workers int, fn func(int) int) func(context.Context) int64 {
+	workers = normalizeWorkers(workers)
+	in := make(chan int)
+	out := make(chan int)
+
+	return func(ctx context.Context) int64 {
+		var wg sync.WaitGroup
+		wg.Add(workers)
+
+		for range workers {
+			go func() {
+				defer wg.Done()
+
+				for {
+					v, ok := recvInt(ctx, in)
+					if !ok {
+						return
+					}
+
+					if !sendInt(ctx, out, fn(v)) {
+						return
+					}
+				}
+			}()
+		}
+
+		go func() {
+			wg.Wait()
+			close(out)
+		}()
+
+		go func() {
+			defer close(in)
+
+			for _, v := range inputs {
+				if !sendInt(ctx, in, v) {
+					return
+				}
+			}
+		}()
+
+		var sum int64
+
+		for {
+			v, ok := recvInt(ctx, out)
+			if !ok {
+				break
+			}
+
+			sum += int64(v)
+		}
+
+		return sum
+	}
+}
+
+func buildChannelsSink(inputs []int, workers int, fn func(int) int) func(context.Context) int64 {
+	workers = normalizeWorkers(workers)
+	in := make(chan int)
+
+	return func(ctx context.Context) int64 {
+		var sum int64
+		var wg sync.WaitGroup
+		wg.Add(workers)
+
+		for range workers {
+			go func() {
+				defer wg.Done()
+
+				for {
+					v, ok := recvInt(ctx, in)
+					if !ok {
+						return
+					}
+
+					atomic.AddInt64(&sum, int64(fn(v)))
+				}
+			}()
+		}
+
+		go func() {
+			defer close(in)
+
+			for _, v := range inputs {
+				if !sendInt(ctx, in, v) {
+					return
+				}
+			}
+		}()
+
+		wg.Wait()
+
+		return atomic.LoadInt64(&sum)
+	}
+}
+
+func buildChannelsSinkFromChan(inputs []int, workers int, fn func(int) int) func(context.Context) int64 {
+	workers = normalizeWorkers(workers)
+	in := make(chan int)
+
+	return func(ctx context.Context) int64 {
+		var sum int64
+		var wg sync.WaitGroup
+		wg.Add(workers)
+
+		for range workers {
+			go func() {
+				defer wg.Done()
+
+				for {
+					v, ok := recvInt(ctx, in)
+					if !ok {
+						return
+					}
+
+					atomic.AddInt64(&sum, int64(fn(v)))
+				}
+			}()
+		}
+
+		go func() {
+			defer close(in)
+
+			for _, v := range inputs {
+				if !sendInt(ctx, in, v) {
+					return
+				}
+			}
+		}()
+
+		wg.Wait()
+
+		return atomic.LoadInt64(&sum)
+	}
+}
+
+//nolint:gocognit // Benchmark wiring keeps channel plumbing together.
+func buildChannelsBatch(inputs []int, workers int, batchSize int, fn func(int) int) func(context.Context) int64 {
+	workers = normalizeWorkers(workers)
+
+	if batchSize < 1 {
+		batchSize = 1
+	}
+
+	in := make(chan int)
+	out := make(chan []int)
+
+	return func(ctx context.Context) int64 {
+		var wg sync.WaitGroup
+		wg.Add(workers)
+
+		for range workers {
+			go func() {
+				defer wg.Done()
+
+				batch := make([]int, 0, batchSize)
+
+				flush := func() bool {
+					if len(batch) == 0 {
+						return true
+					}
+
+					if !sendInts(ctx, out, batch) {
+						return false
+					}
+
+					batch = make([]int, 0, batchSize)
+
+					return true
+				}
+
+				for {
+					v, ok := recvInt(ctx, in)
+					if !ok {
+						flush()
+
+						return
+					}
+
+					batch = append(batch, v)
+					if len(batch) >= batchSize {
+						if !flush() {
+							return
+						}
+					}
+				}
+			}()
+		}
+
+		go func() {
+			wg.Wait()
+			close(out)
+		}()
+
+		go func() {
+			defer close(in)
+
+			for _, v := range inputs {
+				if !sendInt(ctx, in, v) {
+					return
+				}
+			}
+		}()
+
+		var sum int64
+
+		for {
+			batch, ok := recvInts(ctx, out)
+			if !ok {
+				break
+			}
+
+			for _, v := range batch {
+				sum += int64(fn(v))
+			}
+		}
+
+		return sum
+	}
+}
+
+//nolint:gocognit,gocyclo // Benchmark wiring keeps channel plumbing together.
+func buildChannelsBatchChan(inputs []int, workers int, batchSize int, fn func(int) int) func(context.Context) int64 {
+	workers = normalizeWorkers(workers)
+
+	if batchSize < 1 {
+		batchSize = 1
+	}
+
+	in := make(chan int)
+	out := make(chan chan int)
+
+	return func(ctx context.Context) int64 {
+		var wg sync.WaitGroup
+		wg.Add(workers)
+
+		for range workers {
+			go func() {
+				defer wg.Done()
+
+				var batchCh chan int
+				batchCount := 0
+
+				closeBatch := func() {
+					if batchCh == nil {
+						return
+					}
+
+					close(batchCh)
+					batchCh = nil
+					batchCount = 0
+				}
+
+				for {
+					v, ok := recvInt(ctx, in)
+					if !ok {
+						closeBatch()
+
+						return
+					}
+
+					if batchCh == nil {
+						batchCh = make(chan int)
+						if !sendChanInt(ctx, out, batchCh) {
+							closeBatch()
+
+							return
+						}
+					}
+
+					if !sendInt(ctx, batchCh, v) {
+						closeBatch()
+
+						return
+					}
+
+					batchCount++
+					if batchCount >= batchSize {
+						closeBatch()
+					}
+				}
+			}()
+		}
+
+		go func() {
+			wg.Wait()
+			close(out)
+		}()
+
+		go func() {
+			defer close(in)
+
+			for _, v := range inputs {
+				if !sendInt(ctx, in, v) {
+					return
+				}
+			}
+		}()
+
+		var sum int64
+
+		for {
+			batchCh, ok := recvChanInt(ctx, out)
+			if !ok {
+				break
+			}
+
+			for {
+				v, ok := recvInt(ctx, batchCh)
+				if !ok {
+					break
+				}
+
+				sum += int64(fn(v))
+			}
+		}
+
+		return sum
+	}
+}
+
+//nolint:gocognit // Benchmark wiring keeps channel plumbing together.
+func buildChannelsTwoStage(
+	inputs []int,
+	workers int,
+	stage1 func(int) int,
+	stage2 func(int) int,
+) func(context.Context) int64 {
 	workers = normalizeWorkers(workers)
 	in := make(chan int)
 	mid := make(chan int)
 	out := make(chan int)
 
-	var wg1 sync.WaitGroup
-	wg1.Add(workers)
-
-	var wg2 sync.WaitGroup
-	wg2.Add(workers)
-
 	return func(ctx context.Context) int64 {
+		var wg1 sync.WaitGroup
+		wg1.Add(workers)
+
+		var wg2 sync.WaitGroup
+		wg2.Add(workers)
+
 		for range workers {
 			go func() {
 				defer wg1.Done()
 
 				for {
-					v, ok := recvWithContext(ctx, in)
+					v, ok := recvInt(ctx, in)
 					if !ok {
 						return
 					}
 
-					if !sendWithContext(ctx, mid, stage1(v)) {
+					if !sendInt(ctx, mid, stage1(v)) {
 						return
 					}
 				}
@@ -1177,12 +1141,12 @@ func buildChannelsTwoStage(inputs []int, workers int, stage1 func(int) int, stag
 				defer wg2.Done()
 
 				for {
-					v, ok := recvWithContext(ctx, mid)
+					v, ok := recvInt(ctx, mid)
 					if !ok {
 						return
 					}
 
-					if !sendWithContext(ctx, out, stage2(v)) {
+					if !sendInt(ctx, out, stage2(v)) {
 						return
 					}
 				}
@@ -1198,7 +1162,7 @@ func buildChannelsTwoStage(inputs []int, workers int, stage1 func(int) int, stag
 			defer close(in)
 
 			for _, v := range inputs {
-				if !sendWithContext(ctx, in, v) {
+				if !sendInt(ctx, in, v) {
 					return
 				}
 			}
@@ -1207,7 +1171,7 @@ func buildChannelsTwoStage(inputs []int, workers int, stage1 func(int) int, stag
 		var sum int64
 
 		for {
-			v, ok := recvWithContext(ctx, out)
+			v, ok := recvInt(ctx, out)
 			if !ok {
 				break
 			}
@@ -1219,71 +1183,13 @@ func buildChannelsTwoStage(inputs []int, workers int, stage1 func(int) int, stag
 	}
 }
 
-func runChannelsTwoStage(inputs []int, workers int, stage1 func(int) int, stage2 func(int) int) int64 {
-	return buildChannelsTwoStage(inputs, workers, stage1, stage2)(context.Background())
-}
-
-func runChannelsMultiStage(ctx context.Context, inputs []int, steps int, workers int, fn func(int) int) int64 {
-	workers = normalizeWorkers(workers)
-	first := make(chan int)
-	in := first
-
-	for range steps {
-		out := make(chan int)
-		var wg sync.WaitGroup
-		wg.Add(workers)
-
-		for range workers {
-			go func(in <-chan int, out chan<- int) {
-				defer wg.Done()
-
-				for {
-					v, ok := recvWithContext(ctx, in)
-					if !ok {
-						return
-					}
-
-					if !sendWithContext(ctx, out, fn(v)) {
-						return
-					}
-				}
-			}(in, out)
-		}
-
-		go func(out chan int) {
-			wg.Wait()
-			close(out)
-		}(out)
-
-		in = out
-	}
-
-	go func() {
-		defer close(first)
-
-		for _, v := range inputs {
-			if !sendWithContext(ctx, first, v) {
-				return
-			}
-		}
-	}()
-
-	var sum int64
-
-	for {
-		v, ok := recvWithContext(ctx, in)
-		if !ok {
-			break
-		}
-
-		sum += int64(v)
-	}
-
-	return sum
-}
-
-//nolint:gocognit,gocyclo // Benchmark wiring trades clarity for direct channel plumbing.
-func buildChannelsSplitMerge(inputs []int, workers int, leftFn func(int) int, rightFn func(int) int) func(context.Context) int64 {
+//nolint:gocognit,gocyclo // Benchmark wiring keeps channel plumbing together.
+func buildChannelsSplitMerge(
+	inputs []int,
+	workers int,
+	leftFn func(int) int,
+	rightFn func(int) int,
+) func(context.Context) int64 {
 	workers = normalizeWorkers(workers)
 	in := make(chan int)
 	left := make(chan int)
@@ -1292,25 +1198,25 @@ func buildChannelsSplitMerge(inputs []int, workers int, leftFn func(int) int, ri
 	rightOut := make(chan int)
 	out := make(chan int)
 
-	var wgLeft sync.WaitGroup
-	wgLeft.Add(workers)
-
-	var wgRight sync.WaitGroup
-	wgRight.Add(workers)
-
 	return func(ctx context.Context) int64 {
+		var wgLeft sync.WaitGroup
+		wgLeft.Add(workers)
+
+		var wgRight sync.WaitGroup
+		wgRight.Add(workers)
+
 		go func() {
 			for {
-				v, ok := recvWithContext(ctx, in)
+				v, ok := recvInt(ctx, in)
 				if !ok {
 					break
 				}
 
-				if !sendWithContext(ctx, left, v) {
+				if !sendInt(ctx, left, v) {
 					break
 				}
 
-				if !sendWithContext(ctx, right, v) {
+				if !sendInt(ctx, right, v) {
 					break
 				}
 			}
@@ -1324,12 +1230,12 @@ func buildChannelsSplitMerge(inputs []int, workers int, leftFn func(int) int, ri
 				defer wgLeft.Done()
 
 				for {
-					v, ok := recvWithContext(ctx, left)
+					v, ok := recvInt(ctx, left)
 					if !ok {
 						return
 					}
 
-					if !sendWithContext(ctx, leftOut, leftFn(v)) {
+					if !sendInt(ctx, leftOut, leftFn(v)) {
 						return
 					}
 				}
@@ -1346,12 +1252,12 @@ func buildChannelsSplitMerge(inputs []int, workers int, leftFn func(int) int, ri
 				defer wgRight.Done()
 
 				for {
-					v, ok := recvWithContext(ctx, right)
+					v, ok := recvInt(ctx, right)
 					if !ok {
 						return
 					}
 
-					if !sendWithContext(ctx, rightOut, rightFn(v)) {
+					if !sendInt(ctx, rightOut, rightFn(v)) {
 						return
 					}
 				}
@@ -1371,12 +1277,12 @@ func buildChannelsSplitMerge(inputs []int, workers int, leftFn func(int) int, ri
 				defer wg.Done()
 
 				for {
-					v, ok := recvWithContext(ctx, leftOut)
+					v, ok := recvInt(ctx, leftOut)
 					if !ok {
 						return
 					}
 
-					if !sendWithContext(ctx, out, v) {
+					if !sendInt(ctx, out, v) {
 						return
 					}
 				}
@@ -1386,12 +1292,12 @@ func buildChannelsSplitMerge(inputs []int, workers int, leftFn func(int) int, ri
 				defer wg.Done()
 
 				for {
-					v, ok := recvWithContext(ctx, rightOut)
+					v, ok := recvInt(ctx, rightOut)
 					if !ok {
 						return
 					}
 
-					if !sendWithContext(ctx, out, v) {
+					if !sendInt(ctx, out, v) {
 						return
 					}
 				}
@@ -1405,7 +1311,7 @@ func buildChannelsSplitMerge(inputs []int, workers int, leftFn func(int) int, ri
 			defer close(in)
 
 			for _, v := range inputs {
-				if !sendWithContext(ctx, in, v) {
+				if !sendInt(ctx, in, v) {
 					return
 				}
 			}
@@ -1414,7 +1320,7 @@ func buildChannelsSplitMerge(inputs []int, workers int, leftFn func(int) int, ri
 		var sum int64
 
 		for {
-			v, ok := recvWithContext(ctx, out)
+			v, ok := recvInt(ctx, out)
 			if !ok {
 				break
 			}
@@ -1426,12 +1332,13 @@ func buildChannelsSplitMerge(inputs []int, workers int, leftFn func(int) int, ri
 	}
 }
 
-func runChannelsSplitMerge(inputs []int, workers int, leftFn func(int) int, rightFn func(int) int) int64 {
-	return buildChannelsSplitMerge(inputs, workers, leftFn, rightFn)(context.Background())
-}
-
-//nolint:gocognit,gocyclo // benchmark plumbing keeps channel wiring together.
-func buildChannelsSplitBy(inputs []int, workers int, leftFn func(int) int, rightFn func(int) int) func(context.Context) int64 {
+//nolint:gocognit,gocyclo // Benchmark wiring keeps channel plumbing together.
+func buildChannelsSplitBy(
+	inputs []int,
+	workers int,
+	leftFn func(int) int,
+	rightFn func(int) int,
+) func(context.Context) int64 {
 	workers = normalizeWorkers(workers)
 	in := make(chan int)
 	left := make(chan int)
@@ -1440,28 +1347,30 @@ func buildChannelsSplitBy(inputs []int, workers int, leftFn func(int) int, right
 	rightOut := make(chan int)
 	out := make(chan int)
 
-	var wgLeft sync.WaitGroup
-	wgLeft.Add(workers)
-
-	var wgRight sync.WaitGroup
-	wgRight.Add(workers)
-
 	return func(ctx context.Context) int64 {
+		var wgLeft sync.WaitGroup
+		wgLeft.Add(workers)
+
+		var wgRight sync.WaitGroup
+		wgRight.Add(workers)
+
 		go func() {
 			for {
-				v, ok := recvWithContext(ctx, in)
+				v, ok := recvInt(ctx, in)
 				if !ok {
 					break
 				}
 
 				if v%2 == 0 {
-					if !sendWithContext(ctx, left, v) {
+					if !sendInt(ctx, left, v) {
 						break
 					}
-				} else {
-					if !sendWithContext(ctx, right, v) {
-						break
-					}
+
+					continue
+				}
+
+				if !sendInt(ctx, right, v) {
+					break
 				}
 			}
 
@@ -1474,12 +1383,12 @@ func buildChannelsSplitBy(inputs []int, workers int, leftFn func(int) int, right
 				defer wgLeft.Done()
 
 				for {
-					v, ok := recvWithContext(ctx, left)
+					v, ok := recvInt(ctx, left)
 					if !ok {
 						return
 					}
 
-					if !sendWithContext(ctx, leftOut, leftFn(v)) {
+					if !sendInt(ctx, leftOut, leftFn(v)) {
 						return
 					}
 				}
@@ -1496,12 +1405,12 @@ func buildChannelsSplitBy(inputs []int, workers int, leftFn func(int) int, right
 				defer wgRight.Done()
 
 				for {
-					v, ok := recvWithContext(ctx, right)
+					v, ok := recvInt(ctx, right)
 					if !ok {
 						return
 					}
 
-					if !sendWithContext(ctx, rightOut, rightFn(v)) {
+					if !sendInt(ctx, rightOut, rightFn(v)) {
 						return
 					}
 				}
@@ -1521,12 +1430,12 @@ func buildChannelsSplitBy(inputs []int, workers int, leftFn func(int) int, right
 				defer wg.Done()
 
 				for {
-					v, ok := recvWithContext(ctx, leftOut)
+					v, ok := recvInt(ctx, leftOut)
 					if !ok {
 						return
 					}
 
-					if !sendWithContext(ctx, out, v) {
+					if !sendInt(ctx, out, v) {
 						return
 					}
 				}
@@ -1536,12 +1445,12 @@ func buildChannelsSplitBy(inputs []int, workers int, leftFn func(int) int, right
 				defer wg.Done()
 
 				for {
-					v, ok := recvWithContext(ctx, rightOut)
+					v, ok := recvInt(ctx, rightOut)
 					if !ok {
 						return
 					}
 
-					if !sendWithContext(ctx, out, v) {
+					if !sendInt(ctx, out, v) {
 						return
 					}
 				}
@@ -1555,7 +1464,7 @@ func buildChannelsSplitBy(inputs []int, workers int, leftFn func(int) int, right
 			defer close(in)
 
 			for _, v := range inputs {
-				if !sendWithContext(ctx, in, v) {
+				if !sendInt(ctx, in, v) {
 					return
 				}
 			}
@@ -1564,7 +1473,7 @@ func buildChannelsSplitBy(inputs []int, workers int, leftFn func(int) int, right
 		var sum int64
 
 		for {
-			v, ok := recvWithContext(ctx, out)
+			v, ok := recvInt(ctx, out)
 			if !ok {
 				break
 			}
@@ -1576,326 +1485,66 @@ func buildChannelsSplitBy(inputs []int, workers int, leftFn func(int) int, right
 	}
 }
 
-func runChannelsSplitBy(inputs []int, workers int, leftFn func(int) int, rightFn func(int) int) int64 {
-	return buildChannelsSplitBy(inputs, workers, leftFn, rightFn)(context.Background())
-}
-
-//nolint:gocognit // Benchmark wiring trades clarity for direct channel plumbing.
-func runChannelsCompositeOneToMany(ctx context.Context, inputs []int, stages int, workers int, fn func(int) []int) int64 {
+//nolint:gocognit // Benchmark wiring keeps channel plumbing together.
+func buildChannelsMultiStage(
+	inputs []int,
+	steps int,
+	workers int,
+	fn func(int) int,
+) func(context.Context) int64 {
 	workers = normalizeWorkers(workers)
 	first := make(chan int)
 	in := first
+	stages := make([]struct {
+		in  <-chan int
+		out chan int
+	}, 0, steps)
 
-	for range stages {
+	for range steps {
 		out := make(chan int)
-		var wg sync.WaitGroup
-		wg.Add(workers)
-
-		for range workers {
-			go func(in <-chan int, out chan<- int) {
-				defer wg.Done()
-
-				for {
-					v, ok := recvWithContext(ctx, in)
-					if !ok {
-						return
-					}
-
-					for _, outV := range fn(v) {
-						if !sendWithContext(ctx, out, outV) {
-							return
-						}
-					}
-				}
-			}(in, out)
-		}
-
-		go func(out chan int) {
-			wg.Wait()
-			close(out)
-		}(out)
-
+		stages = append(stages, struct {
+			in  <-chan int
+			out chan int
+		}{
+			in:  in,
+			out: out,
+		})
 		in = out
 	}
 
-	go func() {
-		defer close(first)
+	return func(ctx context.Context) int64 {
+		for _, stage := range stages {
+			var wg sync.WaitGroup
+			wg.Add(workers)
 
-		for _, v := range inputs {
-			if !sendWithContext(ctx, first, v) {
-				return
-			}
-		}
-	}()
+			for range workers {
+				go func(in <-chan int, out chan<- int) {
+					defer wg.Done()
 
-	var sum int64
-
-	for {
-		v, ok := recvWithContext(ctx, in)
-		if !ok {
-			break
-		}
-
-		sum += int64(v)
-	}
-
-	return sum
-}
-
-//nolint:gocognit // Benchmark wiring trades clarity for direct channel plumbing.
-func runChannelsCompositeBatch(ctx context.Context, inputs []int, stages int, workers int, batchSize int) int64 {
-	workers = normalizeWorkers(workers)
-	first := make(chan int)
-	in := first
-
-	for range stages {
-		out := make(chan int)
-		var wg sync.WaitGroup
-		wg.Add(workers)
-
-		for range workers {
-			go func(in <-chan int, out chan<- int) {
-				defer wg.Done()
-
-				batch := make([]int, 0, batchSize)
-				flush := func() bool {
-					for _, v := range batch {
-						if !sendWithContext(ctx, out, v) {
-							return false
+					for {
+						v, ok := recvInt(ctx, in)
+						if !ok {
+							return
 						}
-					}
 
-					batch = batch[:0]
-
-					return true
-				}
-
-				for {
-					v, ok := recvWithContext(ctx, in)
-					if !ok {
-						break
-					}
-
-					batch = append(batch, v)
-					if len(batch) >= batchSize {
-						if !flush() {
+						if !sendInt(ctx, out, fn(v)) {
 							return
 						}
 					}
-				}
-
-				if len(batch) > 0 {
-					_ = flush()
-				}
-			}(in, out)
-		}
-
-		go func(out chan int) {
-			wg.Wait()
-			close(out)
-		}(out)
-
-		in = out
-	}
-
-	go func() {
-		defer close(first)
-
-		for _, v := range inputs {
-			if !sendWithContext(ctx, first, v) {
-				return
+				}(stage.in, stage.out)
 			}
-		}
-	}()
 
-	var sum int64
-
-	for {
-		v, ok := recvWithContext(ctx, in)
-		if !ok {
-			break
-		}
-
-		sum += int64(v)
-	}
-
-	return sum
-}
-
-func runChannelsCompositeBatchChan(ctx context.Context, inputs []int, stages int, workers int, batchSize int) int64 {
-	workers = normalizeWorkers(workers)
-	first := make(chan int)
-	var in <-chan int = first
-
-	for range stages {
-		in = runChannelsCompositeBatchChanStage(ctx, in, workers, batchSize)
-	}
-
-	go func() {
-		defer close(first)
-
-		for _, v := range inputs {
-			if !sendWithContext(ctx, first, v) {
-				return
-			}
-		}
-	}()
-
-	var sum int64
-
-	for {
-		v, ok := recvWithContext(ctx, in)
-		if !ok {
-			break
-		}
-
-		sum += int64(v)
-	}
-
-	return sum
-}
-
-func runChannelsCompositeBatchChanStage(ctx context.Context, in <-chan int, workers int, batchSize int) <-chan int {
-	out := make(chan int)
-	batches := make(chan chan int)
-
-	var wg sync.WaitGroup
-	wg.Add(workers)
-
-	for range workers {
-		go runChannelsCompositeBatchChanWorker(ctx, in, batches, batchSize, &wg)
-	}
-
-	go func() {
-		wg.Wait()
-		close(batches)
-	}()
-
-	go func(out chan<- int, batches <-chan chan int) {
-		for {
-			select {
-			case <-ctx.Done():
+			go func(out chan int) {
+				wg.Wait()
 				close(out)
-
-				return
-			case batch, ok := <-batches:
-				if !ok {
-					close(out)
-
-					return
-				}
-
-				for {
-					v, ok := recvWithContext(ctx, batch)
-					if !ok {
-						break
-					}
-
-					if !sendWithContext(ctx, out, v) {
-						close(out)
-
-						return
-					}
-				}
-			}
-		}
-	}(out, batches)
-
-	return out
-}
-
-func runChannelsCompositeBatchChanWorker(
-	ctx context.Context,
-	in <-chan int,
-	batches chan<- chan int,
-	batchSize int,
-	wg *sync.WaitGroup,
-) {
-	defer wg.Done()
-
-	var batchCh chan int
-	batchCount := 0
-
-	flush := func() {
-		if batchCh == nil {
-			return
-		}
-
-		close(batchCh)
-		batchCh = nil
-		batchCount = 0
-	}
-
-	for {
-		v, ok := recvWithContext(ctx, in)
-		if !ok {
-			break
-		}
-
-		if batchCh == nil {
-			batchCh = make(chan int)
-			if !sendWithContext(ctx, batches, batchCh) {
-				flush()
-
-				return
-			}
-		}
-
-		if !sendWithContext(ctx, batchCh, v) {
-			flush()
-
-			return
-		}
-
-		batchCount += 1
-
-		if batchCount >= batchSize {
-			flush()
-		}
-	}
-
-	flush()
-}
-
-//nolint:gocognit // Benchmark wiring trades clarity for direct channel plumbing.
-func buildChannelsOneToMany(inputs []int, workers int, fn func(int) []int) func(context.Context) int64 {
-	workers = normalizeWorkers(workers)
-	in := make(chan int)
-	out := make(chan int)
-
-	var wg sync.WaitGroup
-	wg.Add(workers)
-
-	return func(ctx context.Context) int64 {
-		for range workers {
-			go func() {
-				defer wg.Done()
-
-				for {
-					v, ok := recvWithContext(ctx, in)
-					if !ok {
-						return
-					}
-
-					for _, outValue := range fn(v) {
-						if !sendWithContext(ctx, out, outValue) {
-							return
-						}
-					}
-				}
-			}()
+			}(stage.out)
 		}
 
 		go func() {
-			wg.Wait()
-			close(out)
-		}()
-
-		go func() {
-			defer close(in)
+			defer close(first)
 
 			for _, v := range inputs {
-				if !sendWithContext(ctx, in, v) {
+				if !sendInt(ctx, first, v) {
 					return
 				}
 			}
@@ -1904,7 +1553,7 @@ func buildChannelsOneToMany(inputs []int, workers int, fn func(int) []int) func(
 		var sum int64
 
 		for {
-			v, ok := recvWithContext(ctx, out)
+			v, ok := recvInt(ctx, in)
 			if !ok {
 				break
 			}
@@ -1916,258 +1565,7 @@ func buildChannelsOneToMany(inputs []int, workers int, fn func(int) []int) func(
 	}
 }
 
-func runChannelsOneToMany(inputs []int, workers int, fn func(int) []int) int64 {
-	return buildChannelsOneToMany(inputs, workers, fn)(context.Background())
-}
-
-func buildChannelsFromChan(inputs []int, workers int, fn func(int) int) func(context.Context) int64 {
-	return buildChannelsOneToOne(inputs, workers, fn, false)
-}
-
-func runChannelsFromChan(inputs []int, workers int, fn func(int) int) int64 {
-	return buildChannelsFromChan(inputs, workers, fn)(context.Background())
-}
-
-func buildChannelsSinkFromChan(inputs []int, workers int, fn func(int) int) func(context.Context) int64 {
-	workers = normalizeWorkers(workers)
-	in := make(chan int)
-	sums := make([]int64, workers)
-
-	var wg sync.WaitGroup
-	wg.Add(workers)
-
-	return func(ctx context.Context) int64 {
-		for w := range workers {
-			worker := w
-
-			go func() {
-				defer wg.Done()
-
-				var local int64
-
-				for {
-					v, ok := recvWithContext(ctx, in)
-					if !ok {
-						break
-					}
-
-					local += int64(fn(v))
-				}
-
-				sums[worker] = local
-			}()
-		}
-
-		go func() {
-			defer close(in)
-
-			for _, v := range inputs {
-				if !sendWithContext(ctx, in, v) {
-					return
-				}
-			}
-		}()
-
-		wg.Wait()
-
-		var sum int64
-		for _, value := range sums {
-			sum += value
-		}
-
-		return sum
-	}
-}
-
-func runChannelsSinkFromChan(inputs []int, workers int, fn func(int) int) int64 {
-	return buildChannelsSinkFromChan(inputs, workers, fn)(context.Background())
-}
-
-//nolint:gocognit // Benchmark wiring trades clarity for direct channel plumbing.
-func buildChannelsBatch(inputs []int, workers int, batchSize int, fn func(int) int) func(context.Context) int64 {
-	workers = normalizeWorkers(workers)
-	in := make(chan int)
-	out := make(chan []int)
-
-	var wg sync.WaitGroup
-	wg.Add(workers)
-
-	return func(ctx context.Context) int64 {
-		for range workers {
-			go func() {
-				defer wg.Done()
-
-				batch := make([]int, 0, batchSize)
-
-				flush := func() bool {
-					if len(batch) == 0 {
-						return true
-					}
-
-					if !sendWithContext(ctx, out, batch) {
-						return false
-					}
-
-					batch = nil
-
-					return true
-				}
-
-				for {
-					v, ok := recvWithContext(ctx, in)
-					if !ok {
-						break
-					}
-
-					batch = append(batch, v)
-					if len(batch) >= batchSize {
-						if !flush() {
-							return
-						}
-					}
-				}
-
-				_ = flush()
-			}()
-		}
-
-		go func() {
-			wg.Wait()
-			close(out)
-		}()
-
-		go func() {
-			defer close(in)
-
-			for _, v := range inputs {
-				if !sendWithContext(ctx, in, v) {
-					return
-				}
-			}
-		}()
-
-		var sum int64
-
-		for {
-			batch, ok := recvWithContext(ctx, out)
-			if !ok {
-				break
-			}
-
-			for _, v := range batch {
-				sum += int64(fn(v))
-			}
-		}
-
-		return sum
-	}
-}
-
-func runChannelsBatch(inputs []int, workers int, batchSize int, fn func(int) int) int64 {
-	return buildChannelsBatch(inputs, workers, batchSize, fn)(context.Background())
-}
-
-//nolint:gocognit // Benchmark wiring trades clarity for direct channel plumbing.
-func buildChannelsBatchChan(inputs []int, workers int, batchSize int, fn func(int) int) func(context.Context) int64 {
-	workers = normalizeWorkers(workers)
-	in := make(chan int)
-	out := make(chan chan int)
-
-	var wg sync.WaitGroup
-	wg.Add(workers)
-
-	return func(ctx context.Context) int64 {
-		for range workers {
-			go func() {
-				defer wg.Done()
-
-				var batchCh chan int
-				batchCount := 0
-
-				flush := func() {
-					if batchCh == nil {
-						return
-					}
-
-					close(batchCh)
-					batchCh = nil
-					batchCount = 0
-				}
-
-				for {
-					v, ok := recvWithContext(ctx, in)
-					if !ok {
-						break
-					}
-
-					if batchCh == nil {
-						batchCh = make(chan int)
-						if !sendWithContext(ctx, out, batchCh) {
-							flush()
-
-							return
-						}
-					}
-
-					if !sendWithContext(ctx, batchCh, v) {
-						flush()
-
-						return
-					}
-
-					batchCount++
-
-					if batchCount >= batchSize {
-						flush()
-					}
-				}
-
-				flush()
-			}()
-		}
-
-		go func() {
-			wg.Wait()
-			close(out)
-		}()
-
-		go func() {
-			defer close(in)
-
-			for _, v := range inputs {
-				if !sendWithContext(ctx, in, v) {
-					return
-				}
-			}
-		}()
-
-		var sum int64
-
-		for {
-			batch, ok := recvWithContext(ctx, out)
-			if !ok {
-				break
-			}
-
-			for {
-				v, ok := recvWithContext(ctx, batch)
-				if !ok {
-					break
-				}
-
-				sum += int64(fn(v))
-			}
-		}
-
-		return sum
-	}
-}
-
-func runChannelsBatchChan(inputs []int, workers int, batchSize int, fn func(int) int) int64 {
-	return buildChannelsBatchChan(inputs, workers, batchSize, fn)(context.Background())
-}
-
-func buildPipelineOneToOne(inputs []int, workers int, fn func(int) int, dropZero bool) (func(context.Context) (int64, error), error) {
+func buildPipelineOneToOne(inputs []int, workers int, fn func(int) int) (func(context.Context) (int64, error), error) {
 	pipe, err := pipeline.New()
 	if err != nil {
 		return nil, err
@@ -2184,34 +1582,26 @@ func buildPipelineOneToOne(inputs []int, workers int, fn func(int) int, dropZero
 		return nil, pipe.Err()
 	}
 
-	var step *pipeline.Step[int]
-	if dropZero {
-		step = pipeline.OneToOneOrZero(pipe, "one", root, func(ctx context.Context, in int) (int, error) {
-			return fn(in), nil
-		}, stepOptions[int](workers)...)
-	} else {
-		step = pipeline.OneToOne(pipe, "one", root, func(ctx context.Context, in int) (int, error) {
-			return fn(in), nil
-		}, stepOptions[int](workers)...)
-	}
-
+	step := pipeline.OneToOne(pipe, "one", root, func(ctx context.Context, in int) (int, error) {
+		return fn(in), nil
+	}, stepOptions[int](workers)...)
 	if step == nil {
 		return nil, pipe.Err()
 	}
 
 	var sum int64
+
 	sink := pipeline.Sink(pipe, "sink", step, func(ctx context.Context, in int) error {
 		sum += int64(in)
 
 		return nil
 	})
-
 	if sink == nil {
 		return nil, pipe.Err()
 	}
 
 	return func(ctx context.Context) (int64, error) {
-		err = pipe.Run(ctx)
+		err := pipe.Run(ctx)
 		if err != nil {
 			return 0, err
 		}
@@ -2220,13 +1610,337 @@ func buildPipelineOneToOne(inputs []int, workers int, fn func(int) int, dropZero
 	}, nil
 }
 
-func runPipelineOneToOne(inputs []int, workers int, fn func(int) int, dropZero bool) (int64, error) {
-	run, err := buildPipelineOneToOne(inputs, workers, fn, dropZero)
+func buildPipelineOneToOneOrZero(inputs []int, workers int, fn func(int) int) (func(context.Context) (int64, error), error) {
+	pipe, err := pipeline.New()
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
-	return run(context.Background())
+	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+		for _, v := range inputs {
+			out <- v
+		}
+
+		return nil
+	})
+	if root == nil {
+		return nil, pipe.Err()
+	}
+
+	step := pipeline.OneToOneOrZero(pipe, "one-or-zero", root, func(ctx context.Context, in int) (int, error) {
+		if in%2 == 0 {
+			return 0, nil
+		}
+
+		return fn(in), nil
+	}, stepOptions[int](workers)...)
+	if step == nil {
+		return nil, pipe.Err()
+	}
+
+	var sum int64
+
+	sink := pipeline.Sink(pipe, "sink", step, func(ctx context.Context, in int) error {
+		sum += int64(in)
+
+		return nil
+	})
+	if sink == nil {
+		return nil, pipe.Err()
+	}
+
+	return func(ctx context.Context) (int64, error) {
+		err := pipe.Run(ctx)
+		if err != nil {
+			return 0, err
+		}
+
+		return sum, nil
+	}, nil
+}
+
+func buildPipelineOneToMany(inputs []int, workers int, fn func(int) int) (func(context.Context) (int64, error), error) {
+	pipe, err := pipeline.New()
+	if err != nil {
+		return nil, err
+	}
+
+	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+		for _, v := range inputs {
+			out <- v
+		}
+
+		return nil
+	})
+	if root == nil {
+		return nil, pipe.Err()
+	}
+
+	step := pipeline.OneToMany(pipe, "one-to-many", root, func(ctx context.Context, in int) ([]int, error) {
+		outVal := fn(in)
+
+		return []int{outVal, outVal + 1}, nil
+	}, stepOptions[int](workers)...)
+	if step == nil {
+		return nil, pipe.Err()
+	}
+
+	var sum int64
+
+	sink := pipeline.Sink(pipe, "sink", step, func(ctx context.Context, in int) error {
+		sum += int64(in)
+
+		return nil
+	})
+	if sink == nil {
+		return nil, pipe.Err()
+	}
+
+	return func(ctx context.Context) (int64, error) {
+		err := pipe.Run(ctx)
+		if err != nil {
+			return 0, err
+		}
+
+		return sum, nil
+	}, nil
+}
+
+func buildPipelineFromChan(inputs []int, workers int, fn func(int) int) (func(context.Context) (int64, error), error) {
+	pipe, err := pipeline.New()
+	if err != nil {
+		return nil, err
+	}
+
+	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+		for _, v := range inputs {
+			out <- v
+		}
+
+		return nil
+	})
+	if root == nil {
+		return nil, pipe.Err()
+	}
+
+	step := pipeline.FromChan(pipe, "from", root, func(ctx context.Context, input <-chan int, output chan int) error {
+		for v := range input {
+			output <- fn(v)
+		}
+
+		return nil
+	}, stepOptions[int](workers)...)
+	if step == nil {
+		return nil, pipe.Err()
+	}
+
+	var sum int64
+
+	sink := pipeline.Sink(pipe, "sink", step, func(ctx context.Context, in int) error {
+		sum += int64(in)
+
+		return nil
+	})
+	if sink == nil {
+		return nil, pipe.Err()
+	}
+
+	return func(ctx context.Context) (int64, error) {
+		err := pipe.Run(ctx)
+		if err != nil {
+			return 0, err
+		}
+
+		return sum, nil
+	}, nil
+}
+
+func buildPipelineSink(inputs []int, workers int, fn func(int) int) (func(context.Context) (int64, error), error) {
+	pipe, err := pipeline.New()
+	if err != nil {
+		return nil, err
+	}
+
+	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+		for _, v := range inputs {
+			out <- v
+		}
+
+		return nil
+	})
+	if root == nil {
+		return nil, pipe.Err()
+	}
+
+	var sum int64
+
+	sink := pipeline.Sink(pipe, "sink", root, func(ctx context.Context, in int) error {
+		atomic.AddInt64(&sum, int64(fn(in)))
+
+		return nil
+	}, stepOptions[int](workers)...)
+	if sink == nil {
+		return nil, pipe.Err()
+	}
+
+	return func(ctx context.Context) (int64, error) {
+		err := pipe.Run(ctx)
+		if err != nil {
+			return 0, err
+		}
+
+		return atomic.LoadInt64(&sum), nil
+	}, nil
+}
+
+func buildPipelineSinkFromChan(inputs []int, workers int, fn func(int) int) (func(context.Context) (int64, error), error) {
+	pipe, err := pipeline.New()
+	if err != nil {
+		return nil, err
+	}
+
+	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+		for _, v := range inputs {
+			out <- v
+		}
+
+		return nil
+	})
+	if root == nil {
+		return nil, pipe.Err()
+	}
+
+	var sum int64
+
+	sink := pipeline.SinkFromChan(pipe, "sink", root, func(ctx context.Context, input <-chan int) error {
+		for v := range input {
+			atomic.AddInt64(&sum, int64(fn(v)))
+		}
+
+		return nil
+	}, stepOptions[int](workers)...)
+	if sink == nil {
+		return nil, pipe.Err()
+	}
+
+	return func(ctx context.Context) (int64, error) {
+		err := pipe.Run(ctx)
+		if err != nil {
+			return 0, err
+		}
+
+		return atomic.LoadInt64(&sum), nil
+	}, nil
+}
+
+func buildPipelineBatch(
+	inputs []int,
+	workers int,
+	batchSize int,
+	fn func(int) int,
+) (func(context.Context) (int64, error), error) {
+	pipe, err := pipeline.New()
+	if err != nil {
+		return nil, err
+	}
+
+	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+		for _, v := range inputs {
+			out <- v
+		}
+
+		return nil
+	})
+	if root == nil {
+		return nil, pipe.Err()
+	}
+
+	policy := pipeline.BatchPolicy{
+		MaxSize: batchSize,
+		MaxWait: 0,
+	}
+
+	step := pipeline.Batch(pipe, "batch", root, policy, stepOptions[[]int](workers)...)
+	if step == nil {
+		return nil, pipe.Err()
+	}
+
+	var sum int64
+
+	sink := pipeline.Sink(pipe, "sink", step, func(ctx context.Context, in []int) error {
+		for _, v := range in {
+			sum += int64(fn(v))
+		}
+
+		return nil
+	})
+	if sink == nil {
+		return nil, pipe.Err()
+	}
+
+	return func(ctx context.Context) (int64, error) {
+		err := pipe.Run(ctx)
+		if err != nil {
+			return 0, err
+		}
+
+		return sum, nil
+	}, nil
+}
+
+func buildPipelineBatchChan(
+	inputs []int,
+	workers int,
+	batchSize int,
+	fn func(int) int,
+) (func(context.Context) (int64, error), error) {
+	pipe, err := pipeline.New()
+	if err != nil {
+		return nil, err
+	}
+
+	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+		for _, v := range inputs {
+			out <- v
+		}
+
+		return nil
+	})
+	if root == nil {
+		return nil, pipe.Err()
+	}
+
+	policy := pipeline.BatchPolicy{
+		MaxSize: batchSize,
+		MaxWait: 0,
+	}
+
+	step := pipeline.BatchChan(pipe, "batch", root, policy, stepOptions[<-chan int](workers)...)
+	if step == nil {
+		return nil, pipe.Err()
+	}
+
+	var sum int64
+
+	sink := pipeline.Sink(pipe, "sink", step, func(ctx context.Context, in <-chan int) error {
+		for v := range in {
+			sum += int64(fn(v))
+		}
+
+		return nil
+	})
+	if sink == nil {
+		return nil, pipe.Err()
+	}
+
+	return func(ctx context.Context) (int64, error) {
+		err := pipe.Run(ctx)
+		if err != nil {
+			return 0, err
+		}
+
+		return sum, nil
+	}, nil
 }
 
 func buildPipelineTwoStage(
@@ -2266,33 +1980,24 @@ func buildPipelineTwoStage(
 	}
 
 	var sum int64
+
 	sink := pipeline.Sink(pipe, "sink", step2, func(ctx context.Context, in int) error {
 		sum += int64(in)
 
 		return nil
 	})
-
 	if sink == nil {
 		return nil, pipe.Err()
 	}
 
 	return func(ctx context.Context) (int64, error) {
-		err = pipe.Run(ctx)
+		err := pipe.Run(ctx)
 		if err != nil {
 			return 0, err
 		}
 
 		return sum, nil
 	}, nil
-}
-
-func runPipelineTwoStage(inputs []int, workers int, stage1 func(int) int, stage2 func(int) int) (int64, error) {
-	run, err := buildPipelineTwoStage(inputs, workers, stage1, stage2)
-	if err != nil {
-		return 0, err
-	}
-
-	return run(context.Background())
 }
 
 func buildPipelineSplitMerge(
@@ -2345,33 +2050,24 @@ func buildPipelineSplitMerge(
 	}
 
 	var sum int64
+
 	sink := pipeline.Sink(pipe, "sink", merged, func(ctx context.Context, in int) error {
 		sum += int64(in)
 
 		return nil
 	})
-
 	if sink == nil {
 		return nil, pipe.Err()
 	}
 
 	return func(ctx context.Context) (int64, error) {
-		err = pipe.Run(ctx)
+		err := pipe.Run(ctx)
 		if err != nil {
 			return 0, err
 		}
 
 		return sum, nil
 	}, nil
-}
-
-func runPipelineSplitMerge(inputs []int, workers int, leftFn func(int) int, rightFn func(int) int) (int64, error) {
-	run, err := buildPipelineSplitMerge(inputs, workers, leftFn, rightFn)
-	if err != nil {
-		return 0, err
-	}
-
-	return run(context.Background())
 }
 
 func buildPipelineSplitBy(
@@ -2396,7 +2092,7 @@ func buildPipelineSplitBy(
 		return nil, pipe.Err()
 	}
 
-	splitFns := []pipeline.SplitFn[int]{
+	routes := []pipeline.SplitFn[int]{
 		func(ctx context.Context, input int) (bool, error) {
 			return input%2 == 0, nil
 		},
@@ -2405,7 +2101,7 @@ func buildPipelineSplitBy(
 		},
 	}
 
-	splitter := pipeline.SplitBy(pipe, "split", root, splitFns)
+	splitter := pipeline.SplitBy(pipe, "split", root, routes)
 	if splitter == nil {
 		return nil, pipe.Err()
 	}
@@ -2433,18 +2129,18 @@ func buildPipelineSplitBy(
 	}
 
 	var sum int64
+
 	sink := pipeline.Sink(pipe, "sink", merged, func(ctx context.Context, in int) error {
 		sum += int64(in)
 
 		return nil
 	})
-
 	if sink == nil {
 		return nil, pipe.Err()
 	}
 
 	return func(ctx context.Context) (int64, error) {
-		err = pipe.Run(ctx)
+		err := pipe.Run(ctx)
 		if err != nil {
 			return 0, err
 		}
@@ -2453,16 +2149,12 @@ func buildPipelineSplitBy(
 	}, nil
 }
 
-func runPipelineSplitBy(inputs []int, workers int, leftFn func(int) int, rightFn func(int) int) (int64, error) {
-	run, err := buildPipelineSplitBy(inputs, workers, leftFn, rightFn)
-	if err != nil {
-		return 0, err
-	}
-
-	return run(context.Background())
-}
-
-func buildPipelineOneToMany(inputs []int, workers int, fn func(int) []int) (func(context.Context) (int64, error), error) {
+func buildPipelineMultiStage(
+	inputs []int,
+	steps int,
+	workers int,
+	fn func(int) int,
+) (func(context.Context) (int64, error), error) {
 	pipe, err := pipeline.New()
 	if err != nil {
 		return nil, err
@@ -2477,455 +2169,6 @@ func buildPipelineOneToMany(inputs []int, workers int, fn func(int) []int) (func
 	})
 	if root == nil {
 		return nil, pipe.Err()
-	}
-
-	step := pipeline.OneToMany(pipe, "many", root, func(ctx context.Context, in int) ([]int, error) {
-		return fn(in), nil
-	}, stepOptions[int](workers)...)
-	if step == nil {
-		return nil, pipe.Err()
-	}
-
-	var sum int64
-	sink := pipeline.Sink(pipe, "sink", step, func(ctx context.Context, in int) error {
-		sum += int64(in)
-
-		return nil
-	})
-
-	if sink == nil {
-		return nil, pipe.Err()
-	}
-
-	return func(ctx context.Context) (int64, error) {
-		err = pipe.Run(ctx)
-		if err != nil {
-			return 0, err
-		}
-
-		return sum, nil
-	}, nil
-}
-
-func runPipelineOneToMany(inputs []int, workers int, fn func(int) []int) (int64, error) {
-	run, err := buildPipelineOneToMany(inputs, workers, fn)
-	if err != nil {
-		return 0, err
-	}
-
-	return run(context.Background())
-}
-
-func buildPipelineFromChan(inputs []int, workers int, fn func(int) int) (func(context.Context) (int64, error), error) {
-	pipe, err := pipeline.New()
-	if err != nil {
-		return nil, err
-	}
-
-	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
-		for _, v := range inputs {
-			out <- v
-		}
-
-		return nil
-	})
-	if root == nil {
-		return nil, pipe.Err()
-	}
-
-	step := pipeline.FromChan(pipe, "from-chan", root, func(ctx context.Context, input <-chan int, output chan int) error {
-		for v := range input {
-			output <- fn(v)
-		}
-
-		return nil
-	}, stepOptions[int](workers)...)
-	if step == nil {
-		return nil, pipe.Err()
-	}
-
-	var sum int64
-	sink := pipeline.Sink(pipe, "sink", step, func(ctx context.Context, in int) error {
-		sum += int64(in)
-
-		return nil
-	})
-
-	if sink == nil {
-		return nil, pipe.Err()
-	}
-
-	return func(ctx context.Context) (int64, error) {
-		err = pipe.Run(ctx)
-		if err != nil {
-			return 0, err
-		}
-
-		return sum, nil
-	}, nil
-}
-
-func runPipelineFromChan(inputs []int, workers int, fn func(int) int) (int64, error) {
-	run, err := buildPipelineFromChan(inputs, workers, fn)
-	if err != nil {
-		return 0, err
-	}
-
-	return run(context.Background())
-}
-
-func buildPipelineSinkFromChan(inputs []int, workers int, fn func(int) int) (func(context.Context) (int64, error), error) {
-	pipe, err := pipeline.New()
-	if err != nil {
-		return nil, err
-	}
-
-	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
-		for _, v := range inputs {
-			out <- v
-		}
-
-		return nil
-	})
-	if root == nil {
-		return nil, pipe.Err()
-	}
-
-	var sum atomic.Int64
-	sink := pipeline.SinkFromChan(pipe, "sink", root, func(ctx context.Context, input <-chan int) error {
-		for v := range input {
-			sum.Add(int64(fn(v)))
-		}
-
-		return nil
-	}, stepOptions[int](workers)...)
-
-	if sink == nil {
-		return nil, pipe.Err()
-	}
-
-	return func(ctx context.Context) (int64, error) {
-		err = pipe.Run(ctx)
-		if err != nil {
-			return 0, err
-		}
-
-		return sum.Load(), nil
-	}, nil
-}
-
-func runPipelineSinkFromChan(inputs []int, workers int, fn func(int) int) (int64, error) {
-	run, err := buildPipelineSinkFromChan(inputs, workers, fn)
-	if err != nil {
-		return 0, err
-	}
-
-	return run(context.Background())
-}
-
-func buildPipelineBatch(inputs []int, workers int, batchSize int, fn func(int) int) (func(context.Context) (int64, error), error) {
-	pipe, err := pipeline.New()
-	if err != nil {
-		return nil, err
-	}
-
-	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
-		for _, v := range inputs {
-			out <- v
-		}
-
-		return nil
-	})
-	if root == nil {
-		return nil, pipe.Err()
-	}
-
-	batch := pipeline.Batch(pipe, "batch", root, pipeline.BatchPolicy{MaxSize: batchSize}, stepOptions[[]int](workers)...)
-	if batch == nil {
-		return nil, pipe.Err()
-	}
-
-	var sum int64
-	sink := pipeline.Sink(pipe, "sink", batch, func(ctx context.Context, batch []int) error {
-		for _, v := range batch {
-			sum += int64(fn(v))
-		}
-
-		return nil
-	})
-
-	if sink == nil {
-		return nil, pipe.Err()
-	}
-
-	return func(ctx context.Context) (int64, error) {
-		err = pipe.Run(ctx)
-		if err != nil {
-			return 0, err
-		}
-
-		return sum, nil
-	}, nil
-}
-
-func runPipelineBatch(inputs []int, workers int, batchSize int, fn func(int) int) (int64, error) {
-	run, err := buildPipelineBatch(inputs, workers, batchSize, fn)
-	if err != nil {
-		return 0, err
-	}
-
-	return run(context.Background())
-}
-
-func buildPipelineBatchChan(inputs []int, workers int, batchSize int, fn func(int) int) (func(context.Context) (int64, error), error) {
-	pipe, err := pipeline.New()
-	if err != nil {
-		return nil, err
-	}
-
-	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
-		for _, v := range inputs {
-			out <- v
-		}
-
-		return nil
-	})
-	if root == nil {
-		return nil, pipe.Err()
-	}
-
-	batch := pipeline.BatchChan(pipe, "batch", root, pipeline.BatchPolicy{MaxSize: batchSize}, stepOptions[<-chan int](workers)...)
-	if batch == nil {
-		return nil, pipe.Err()
-	}
-
-	var sum int64
-	sink := pipeline.Sink(pipe, "sink", batch, func(ctx context.Context, batch <-chan int) error {
-		for v := range batch {
-			sum += int64(fn(v))
-		}
-
-		return nil
-	})
-
-	if sink == nil {
-		return nil, pipe.Err()
-	}
-
-	return func(ctx context.Context) (int64, error) {
-		err = pipe.Run(ctx)
-		if err != nil {
-			return 0, err
-		}
-
-		return sum, nil
-	}, nil
-}
-
-func runPipelineBatchChan(inputs []int, workers int, batchSize int, fn func(int) int) (int64, error) {
-	run, err := buildPipelineBatchChan(inputs, workers, batchSize, fn)
-	if err != nil {
-		return 0, err
-	}
-
-	return run(context.Background())
-}
-
-func runPipelineCompositeOneToMany(inputs []int, stages int, workers int, fn func(int) []int) (int64, error) {
-	pipe, err := pipeline.New()
-	if err != nil {
-		return 0, err
-	}
-
-	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
-		for _, v := range inputs {
-			out <- v
-		}
-
-		return nil
-	})
-	if root == nil {
-		return 0, pipe.Err()
-	}
-
-	prev := root
-
-	for i := range stages {
-		stageName := "many-" + strconv.Itoa(i+1)
-
-		many := pipeline.OneToMany(pipe, stageName, prev, func(ctx context.Context, in int) ([]int, error) {
-			return fn(in), nil
-		}, stepOptions[int](workers)...)
-		if many == nil {
-			return 0, pipe.Err()
-		}
-
-		prev = many
-	}
-
-	var sum int64
-	sink := pipeline.Sink(pipe, "sink", prev, func(ctx context.Context, in int) error {
-		sum += int64(in)
-
-		return nil
-	})
-
-	if sink == nil {
-		return 0, pipe.Err()
-	}
-
-	err = pipe.Run(context.Background())
-	if err != nil {
-		return 0, err
-	}
-
-	return sum, nil
-}
-
-func runPipelineCompositeBatch(inputs []int, stages int, workers int, batchSize int) (int64, error) {
-	pipe, err := pipeline.New()
-	if err != nil {
-		return 0, err
-	}
-
-	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
-		for _, v := range inputs {
-			out <- v
-		}
-
-		return nil
-	})
-	if root == nil {
-		return 0, pipe.Err()
-	}
-
-	prev := root
-
-	for i := range stages {
-		stageName := "batch-" + strconv.Itoa(i+1)
-
-		batch := pipeline.Batch(pipe, stageName, prev, pipeline.BatchPolicy{MaxSize: batchSize}, stepOptions[[]int](workers)...)
-		if batch == nil {
-			return 0, pipe.Err()
-		}
-
-		unbatch := pipeline.OneToMany(pipe, stageName+"-unbatch", batch, func(ctx context.Context, payload []int) ([]int, error) {
-			return payload, nil
-		}, stepOptions[int](workers)...)
-		if unbatch == nil {
-			return 0, pipe.Err()
-		}
-
-		prev = unbatch
-	}
-
-	var sum int64
-	sink := pipeline.Sink(pipe, "sink", prev, func(ctx context.Context, in int) error {
-		sum += int64(in)
-
-		return nil
-	})
-
-	if sink == nil {
-		return 0, pipe.Err()
-	}
-
-	err = pipe.Run(context.Background())
-	if err != nil {
-		return 0, err
-	}
-
-	return sum, nil
-}
-
-func runPipelineCompositeBatchChan(inputs []int, stages int, workers int, batchSize int) (int64, error) {
-	pipe, err := pipeline.New()
-	if err != nil {
-		return 0, err
-	}
-
-	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
-		for _, v := range inputs {
-			out <- v
-		}
-
-		return nil
-	})
-	if root == nil {
-		return 0, pipe.Err()
-	}
-
-	prev := root
-
-	for i := range stages {
-		stageName := "batch-chan-" + strconv.Itoa(i+1)
-
-		batch := pipeline.BatchChan(
-			pipe,
-			stageName,
-			prev,
-			pipeline.BatchPolicy{MaxSize: batchSize},
-			stepOptions[<-chan int](workers)...,
-		)
-		if batch == nil {
-			return 0, pipe.Err()
-		}
-
-		flatten := pipeline.FromChan(
-			pipe,
-			stageName+"-flatten",
-			batch,
-			func(ctx context.Context, input <-chan <-chan int, output chan int) error {
-				for ch := range input {
-					for v := range ch {
-						output <- v
-					}
-				}
-
-				return nil
-			},
-			stepOptions[int](workers)...)
-		if flatten == nil {
-			return 0, pipe.Err()
-		}
-
-		prev = flatten
-	}
-
-	var sum int64
-	sink := pipeline.Sink(pipe, "sink", prev, func(ctx context.Context, in int) error {
-		sum += int64(in)
-
-		return nil
-	})
-
-	if sink == nil {
-		return 0, pipe.Err()
-	}
-
-	err = pipe.Run(context.Background())
-	if err != nil {
-		return 0, err
-	}
-
-	return sum, nil
-}
-
-func runPipelineMultiStage(inputs []int, steps int, workers int, fn func(int) int) (int64, error) {
-	pipe, err := pipeline.New()
-	if err != nil {
-		return 0, err
-	}
-
-	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
-		for _, v := range inputs {
-			out <- v
-		}
-
-		return nil
-	})
-	if root == nil {
-		return 0, pipe.Err()
 	}
 
 	prev := root
@@ -2937,27 +2180,29 @@ func runPipelineMultiStage(inputs []int, steps int, workers int, fn func(int) in
 		}, stepOptions[int](workers)...)
 
 		if step == nil {
-			return 0, pipe.Err()
+			return nil, pipe.Err()
 		}
 
 		prev = step
 	}
 
 	var sum int64
+
 	sink := pipeline.Sink(pipe, "sink", prev, func(ctx context.Context, in int) error {
 		sum += int64(in)
 
 		return nil
 	})
-
 	if sink == nil {
-		return 0, pipe.Err()
+		return nil, pipe.Err()
 	}
 
-	err = pipe.Run(context.Background())
-	if err != nil {
-		return 0, err
-	}
+	return func(ctx context.Context) (int64, error) {
+		err := pipe.Run(ctx)
+		if err != nil {
+			return 0, err
+		}
 
-	return sum, nil
+		return sum, nil
+	}, nil
 }
