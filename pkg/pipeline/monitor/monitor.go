@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
-	"net/http"
 	"os"
 	"sort"
 	"strconv"
@@ -61,16 +60,7 @@ type pipelineMonitor struct {
 	baseTagMap   map[string]string
 	runOpts      model.RunOptions
 	runOptsSet   bool
-	uiOnce       sync.Once
-	uiMu         sync.Mutex
-	uiHub        *uiHub
-	uiServer     *http.Server
-	uiAddr       string
-	uiErr        error
-	uiMeta       []monitorEvent
-	uiSeq        int64
-	uiTotals     uiTotals
-	uiRunStarted time.Time
+	ui           uiState
 }
 
 // PipelineMonitorOption is the pipeline option returned by PipelineMonitor.
@@ -145,13 +135,7 @@ func (pm *pipelineMonitor) SetRunOptions(opts model.RunOptions) {
 	}
 
 	if pm.cfg.EnableUI {
-		pm.uiMu.Lock()
-
-		if pm.uiRunStarted.IsZero() {
-			pm.uiRunStarted = time.Now()
-		}
-
-		pm.uiMu.Unlock()
+		pm.ui.markRunStarted(time.Now())
 	}
 
 	if pm.cfg.EnableUI {

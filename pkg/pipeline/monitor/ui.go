@@ -56,6 +56,192 @@ type uiTotalsSnapshot struct {
 	runTotalSeen bool
 }
 
+type uiState struct {
+	mu         sync.Mutex
+	once       sync.Once
+	hub        *uiHub
+	server     *http.Server
+	addr       string
+	err        error
+	meta       []monitorEvent
+	seq        int64
+	totals     uiTotals
+	runStarted time.Time
+}
+
+func (s *uiState) markRunStarted(now time.Time) {
+	if s == nil {
+		return
+	}
+
+	s.mu.Lock()
+
+	if s.runStarted.IsZero() {
+		s.runStarted = now
+	}
+
+	s.mu.Unlock()
+}
+
+func (s *uiState) recordEvent(
+	measurement string,
+	tags map[string]string,
+	fields map[string]any,
+	ts time.Time,
+) (monitorEvent, *uiHub, bool) {
+	if s == nil {
+		return monitorEvent{}, nil, false
+	}
+
+	eventFields := copyFields(fields)
+	if eventFields == nil {
+		eventFields = make(map[string]any, 1)
+	}
+
+	s.mu.Lock()
+
+	s.seq++
+	eventFields["seq"] = s.seq
+	s.totals.apply(measurement, tags, fields)
+	hub := s.hub
+
+	storeMeta := hub == nil && isMetaMeasurement(measurement)
+	if storeMeta {
+		s.meta = append(s.meta, monitorEvent{
+			Measurement: measurement,
+			Tags:        tags,
+			Fields:      eventFields,
+			Timestamp:   ts.UnixNano(),
+		})
+	}
+
+	s.mu.Unlock()
+
+	if storeMeta || hub == nil {
+		return monitorEvent{}, nil, false
+	}
+
+	return monitorEvent{
+		Measurement: measurement,
+		Tags:        tags,
+		Fields:      eventFields,
+		Timestamp:   ts.UnixNano(),
+	}, hub, true
+}
+
+func (s *uiState) startOnce(fn func()) {
+	if s == nil {
+		return
+	}
+
+	s.once.Do(fn)
+}
+
+func (s *uiState) setServer(hub *uiHub, server *http.Server, addr string) {
+	if s == nil {
+		return
+	}
+
+	s.mu.Lock()
+	s.hub = hub
+	s.server = server
+	s.addr = addr
+	s.mu.Unlock()
+}
+
+func (s *uiState) clearServer() (*http.Server, *uiHub) {
+	if s == nil {
+		return nil, nil
+	}
+
+	s.mu.Lock()
+	server := s.server
+	hub := s.hub
+	s.server = nil
+	s.hub = nil
+	s.mu.Unlock()
+
+	return server, hub
+}
+
+func (s *uiState) hubValue() *uiHub {
+	if s == nil {
+		return nil
+	}
+
+	s.mu.Lock()
+	hub := s.hub
+	s.mu.Unlock()
+
+	return hub
+}
+
+func (s *uiState) addrValue() string {
+	if s == nil {
+		return ""
+	}
+
+	s.mu.Lock()
+	addr := s.addr
+	s.mu.Unlock()
+
+	return addr
+}
+
+func (s *uiState) metaSnapshot() []monitorEvent {
+	if s == nil {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(s.meta) == 0 {
+		return nil
+	}
+
+	meta := make([]monitorEvent, len(s.meta))
+	copy(meta, s.meta)
+
+	return meta
+}
+
+func (s *uiState) snapshot() (uiTotalsSnapshot, int64, time.Time) {
+	if s == nil {
+		return uiTotalsSnapshot{}, 0, time.Time{}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.totals.snapshot(), s.seq, s.runStarted
+}
+
+func (s *uiState) setErr(err error) {
+	if s == nil || err == nil {
+		return
+	}
+
+	s.mu.Lock()
+
+	if s.err == nil {
+		s.err = err
+	}
+
+	s.mu.Unlock()
+}
+
+func (s *uiState) errValue() error {
+	if s == nil {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.err
+}
+
 func newUIHub(buffer int) *uiHub {
 	if buffer < 1 {
 		buffer = defaultBufferSize
@@ -268,39 +454,8 @@ func (pm *pipelineMonitor) emitUI(
 		return
 	}
 
-	pm.uiMu.Lock()
-	pm.uiSeq++
-	seq := pm.uiSeq
-	pm.uiTotals.apply(measurement, tags, fields)
-	hub := pm.uiHub
-	storeMeta := hub == nil && isMetaMeasurement(measurement)
-
-	pm.uiMu.Unlock()
-
-	eventFields := copyFields(fields)
-	if eventFields == nil {
-		eventFields = make(map[string]any, 1)
-	}
-
-	eventFields["seq"] = seq
-
-	event := monitorEvent{
-		Measurement: measurement,
-		Tags:        pm.mergeTags(tags),
-		Fields:      eventFields,
-		Timestamp:   ts.UnixNano(),
-	}
-
-	if storeMeta {
-		pm.uiMu.Lock()
-		pm.uiMeta = append(pm.uiMeta, event)
-
-		pm.uiMu.Unlock()
-
-		return
-	}
-
-	if hub == nil {
+	event, hub, publish := pm.ui.recordEvent(measurement, pm.mergeTags(tags), fields, ts)
+	if !publish {
 		return
 	}
 
@@ -381,7 +536,7 @@ func isMetaMeasurement(measurement string) bool {
 }
 
 func (pm *pipelineMonitor) startUI() {
-	pm.uiOnce.Do(func() {
+	pm.ui.startOnce(func() {
 		if pm == nil || !pm.cfg.EnableUI {
 			return
 		}
@@ -402,11 +557,7 @@ func (pm *pipelineMonitor) startUI() {
 			ReadHeaderTimeout: uiReadHeaderTimeout,
 		}
 
-		pm.uiMu.Lock()
-		pm.uiHub = hub
-		pm.uiServer = server
-		pm.uiAddr = listener.Addr().String()
-		pm.uiMu.Unlock()
+		pm.ui.setServer(hub, server, listener.Addr().String())
 
 		go func() {
 			err := server.Serve(listener)
@@ -418,12 +569,7 @@ func (pm *pipelineMonitor) startUI() {
 }
 
 func (pm *pipelineMonitor) stopUI() error {
-	pm.uiMu.Lock()
-	server := pm.uiServer
-	hub := pm.uiHub
-	pm.uiServer = nil
-	pm.uiHub = nil
-	pm.uiMu.Unlock()
+	server, hub := pm.ui.clearServer()
 
 	if hub != nil {
 		snapshot := pm.uiSnapshotEvent()
@@ -461,9 +607,7 @@ func (pm *pipelineMonitor) serveEvents(writer http.ResponseWriter, request *http
 		return
 	}
 
-	pm.uiMu.Lock()
-	hub := pm.uiHub
-	pm.uiMu.Unlock()
+	hub := pm.ui.hubValue()
 
 	if hub == nil {
 		http.NotFound(writer, request)
@@ -544,17 +688,11 @@ func (pm *pipelineMonitor) drainEvents(
 }
 
 func (pm *pipelineMonitor) metaSnapshot() []monitorEvent {
-	pm.uiMu.Lock()
-	defer pm.uiMu.Unlock()
-
-	if len(pm.uiMeta) == 0 {
+	if pm == nil {
 		return nil
 	}
 
-	meta := make([]monitorEvent, len(pm.uiMeta))
-	copy(meta, pm.uiMeta)
-
-	return meta
+	return pm.ui.metaSnapshot()
 }
 
 func (pm *pipelineMonitor) uiSnapshotEvent() *monitorEvent {
@@ -562,11 +700,7 @@ func (pm *pipelineMonitor) uiSnapshotEvent() *monitorEvent {
 		return nil
 	}
 
-	pm.uiMu.Lock()
-	snapshot := pm.uiTotals.snapshot()
-	snapshotSeq := pm.uiSeq
-	runStarted := pm.uiRunStarted
-	pm.uiMu.Unlock()
+	snapshot, snapshotSeq, runStarted := pm.ui.snapshot()
 
 	fields := make(map[string]any)
 	if len(snapshot.outputs) > 0 {
@@ -634,30 +768,23 @@ func (pm *pipelineMonitor) UIAddr() string {
 		pm.startUI()
 	}
 
-	pm.uiMu.Lock()
-	defer pm.uiMu.Unlock()
-
-	return pm.uiAddr
+	return pm.ui.addrValue()
 }
 
 func (pm *pipelineMonitor) setUIErr(err error) {
-	if err == nil {
+	if pm == nil {
 		return
 	}
 
-	pm.uiMu.Lock()
-	defer pm.uiMu.Unlock()
-
-	if pm.uiErr == nil {
-		pm.uiErr = err
-	}
+	pm.ui.setErr(err)
 }
 
 func (pm *pipelineMonitor) uiError() error {
-	pm.uiMu.Lock()
-	defer pm.uiMu.Unlock()
+	if pm == nil {
+		return nil
+	}
 
-	return pm.uiErr
+	return pm.ui.errValue()
 }
 
 //go:embed ui_index.html

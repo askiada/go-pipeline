@@ -1,6 +1,6 @@
 # QA Test Plan
 
-Date: 2026-01-03
+Date: 2026-01-04
 
 ## Scope
 - Core pipeline runtime (`pkg/pipeline`)
@@ -14,7 +14,7 @@ Date: 2026-01-03
 
 ## Test execution
 - Local: `make unit_test` (runs `go test -race -timeout 30s ./...` and Graphviz rendering).
-- CI: `.github/workflows/go.yml` runs `golangci-lint` and `go test -v ./...` on Go 1.24.
+- CI: `.github/workflows/go.yml` runs `golangci-lint` and `go test -v ./...` on Go 1.25.
 
 ## Data requirements
 - None. Tests create in-memory channels and use synthetic inputs, including UI snapshot counters.

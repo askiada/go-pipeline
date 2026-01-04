@@ -103,20 +103,7 @@ func newBatchState[I any](
 }
 
 func (bs *batchState[I]) resetTimer() {
-	if bs.maxWait <= 0 {
-		return
-	}
-
-	if bs.timer == nil {
-		bs.timer = time.NewTimer(bs.maxWait)
-		bs.timerC = bs.timer.C
-
-		return
-	}
-
-	stopBatchTimer(bs.timer)
-	bs.timer.Reset(bs.maxWait)
-	bs.timerC = bs.timer.C
+	bs.timer, bs.timerC = resetBatchTimer(bs.timer, bs.maxWait)
 }
 
 func (bs *batchState[I]) clearTimer() {
@@ -162,31 +149,7 @@ func (bs *batchState[I]) flush(ctx context.Context) error {
 		return nil
 	}
 
-	for _, opt := range bs.cfg.opts {
-		err := opt.OnStepOutput(bs.input.Details, bs.output.Details)
-		if err != nil {
-			return fmt.Errorf("unable to run before step function: %w", err)
-		}
-	}
-
-	if bs.cfg.outputMetrics {
-		avgWait := time.Duration(0)
-		avgCompute := time.Duration(0)
-
-		if len(batchToSend) > 0 {
-			avgWait = waitTotal / time.Duration(len(batchToSend))
-			avgCompute = sendDuration / time.Duration(len(batchToSend))
-		}
-
-		for _, opt := range bs.cfg.metricsOpts {
-			err := opt.OnStepOutputMetrics(bs.input.Details, bs.output.Details, avgWait, avgCompute)
-			if err != nil {
-				return fmt.Errorf("unable to run before step function: %w", err)
-			}
-		}
-	}
-
-	return nil
+	return reportBatchOutput(bs.cfg, bs.input, bs.output, len(batchToSend), waitTotal, sendDuration)
 }
 
 func (bs *batchState[I]) handleEntry(ctx context.Context, entry I, inputWait time.Duration) error {

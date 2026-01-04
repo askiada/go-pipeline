@@ -139,6 +139,74 @@ func waitRateLimit(ctx context.Context, goIdx int, limiter *rateLimiter) error {
 	return nil
 }
 
+type stepProcessor[I any] func(ctx context.Context, entry I, inputWait time.Duration, release func()) error
+
+func runSequentialStepLoop[I any](
+	ctx context.Context,
+	goIdx int,
+	input *Step[I],
+	limiter *rateLimiter,
+	inFlight *inFlightLimiter,
+	measure bool,
+	process stepProcessor[I],
+) error {
+	for {
+		entry, ok, release, inputWait, err := nextStepInput(ctx, goIdx, inFlight, input.Output, measure)
+		if err != nil {
+			return err
+		}
+
+		if !ok {
+			return nil
+		}
+
+		err = waitRateLimit(ctx, goIdx, limiter)
+		if err != nil {
+			if release != nil {
+				release()
+			}
+
+			return err
+		}
+
+		err = process(ctx, entry, inputWait, release)
+		if release != nil {
+			release()
+		}
+
+		if err != nil {
+			return err
+		}
+	}
+}
+
+func handleStepError[I any, O any](
+	ctx context.Context,
+	goIdx int,
+	step *Step[O],
+	entry I,
+	err error,
+	cfg hookConfig,
+) (bool, error) {
+	routeErr := routeStepError(ctx, step, entry, err, cfg.errorRoute, cfg.opts...)
+	if routeErr != nil {
+		return false, routeErr
+	}
+
+	if step.DropOnError {
+		if cfg.drop {
+			dropErr := reportStepDrop(cfg.opts, step.Details, model.StepDropError)
+			if dropErr != nil {
+				return false, dropErr
+			}
+		}
+
+		return true, nil
+	}
+
+	return false, fmt.Errorf("go routine %d: %w", goIdx, err)
+}
+
 //nolint:gocritic // Unnamed returns keep the timeout helper compact at call sites.
 func stepItemContext(ctx context.Context, timeout time.Duration) (context.Context, func()) {
 	if timeout <= 0 {
@@ -251,7 +319,6 @@ func sendOneToManyOutputs[I, O any](
 
 type retryFn func(attempt int, duration time.Duration) error
 
-//nolint:gocognit // error handling and option checks are centralised here.
 func sequentialOneToOneFn[I any, O any](
 	ctx context.Context,
 	goIdx int,
@@ -279,23 +346,12 @@ func sequentialOneToOneFn[I any, O any](
 		}
 	}
 
-	for {
-		entry, ok, release, inputWait, err := nextStepInput(ctx, goIdx, inFlight, input.Output, cfg.outputMetrics)
-		if err != nil {
-			return err
-		}
-
-		if !ok {
-			return nil
-		}
-
-		err = waitRateLimit(ctx, goIdx, limiter)
-		if err != nil {
-			release()
-
-			return err
-		}
-
+	return runSequentialStepLoop(ctx, goIdx, input, limiter, inFlight, cfg.outputMetrics, func(
+		ctx context.Context,
+		entry I,
+		inputWait time.Duration,
+		release func(),
+	) error {
 		itemCtx, cancel := stepItemContext(ctx, timeout)
 
 		outcome, endFn, err := executeWithRetry(itemCtx, output.RetryPolicy, func() (O, error) {
@@ -304,40 +360,36 @@ func sequentialOneToOneFn[I any, O any](
 
 		cancel() // cancel timeout context. Noop if no timeout set.
 
-		//nolint:nestif // keep drop/error routing logic together.
 		if err != nil {
-			release()
-
-			routeErr := routeStepError(ctx, output, entry, err, cfg.errorRoute, cfg.opts...)
-			if routeErr != nil {
-				return routeErr
+			if release != nil {
+				release()
 			}
 
-			if output.DropOnError {
-				if cfg.drop {
-					err = reportStepDrop(cfg.opts, output.Details, model.StepDropError)
-					if err != nil {
-						return err
-					}
-				}
-
-				continue
+			dropped, handleErr := handleStepError(ctx, goIdx, output, entry, err, cfg)
+			if handleErr != nil {
+				return handleErr
 			}
 
-			return fmt.Errorf("go routine %d: %w", goIdx, err)
+			if dropped {
+				return nil
+			}
 		}
 
 		if ignoreZero && reflect.ValueOf(outcome).IsZero() {
-			release()
+			if release != nil {
+				release()
+			}
 
-			continue
+			return nil
 		}
 
 		_, err = sendStepOutput(ctx, goIdx, input, output, outcome, inputWait, endFn, release, sendTimer, cfg)
 		if err != nil {
 			return err
 		}
-	}
+
+		return nil
+	})
 }
 
 func concurrentOneToOneFn[I any, O any](
@@ -421,23 +473,12 @@ func sequentialOneToManyFn[I any, O any](
 		}
 	}
 
-	for {
-		entry, ok, release, inputWait, err := nextStepInput(ctx, goIdx, inFlight, input.Output, cfg.outputMetrics)
-		if err != nil {
-			return err
-		}
-
-		if !ok {
-			return nil
-		}
-
-		err = waitRateLimit(ctx, goIdx, limiter)
-		if err != nil {
-			release()
-
-			return err
-		}
-
+	return runSequentialStepLoop(ctx, goIdx, input, limiter, inFlight, cfg.outputMetrics, func(
+		ctx context.Context,
+		entry I,
+		inputWait time.Duration,
+		release func(),
+	) error {
 		itemCtx, cancel := stepItemContext(ctx, timeout)
 
 		outcome, endFn, err := executeWithRetry(itemCtx, output.RetryPolicy, func() ([]O, error) {
@@ -446,34 +487,28 @@ func sequentialOneToManyFn[I any, O any](
 
 		cancel()
 
-		//nolint:nestif // keep drop/error routing logic together.
 		if err != nil {
-			release()
-
-			routeErr := routeStepError(ctx, output, entry, err, cfg.errorRoute, cfg.opts...)
-			if routeErr != nil {
-				return routeErr
+			if release != nil {
+				release()
 			}
 
-			if output.DropOnError {
-				if cfg.drop {
-					err = reportStepDrop(cfg.opts, output.Details, model.StepDropError)
-					if err != nil {
-						return err
-					}
-				}
-
-				continue
+			dropped, handleErr := handleStepError(ctx, goIdx, output, entry, err, cfg)
+			if handleErr != nil {
+				return handleErr
 			}
 
-			return fmt.Errorf("go routine %d: %w", goIdx, err)
+			if dropped {
+				return nil
+			}
 		}
 
 		_, err = sendOneToManyOutputs(ctx, goIdx, input, output, outcome, inputWait, endFn, release, sendTimer, cfg)
 		if err != nil {
 			return err
 		}
-	}
+
+		return nil
+	})
 }
 
 func concurrentOneToManyFn[I any, O any](

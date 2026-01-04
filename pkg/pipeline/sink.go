@@ -86,7 +86,6 @@ func validateSinkFromChanOptions[I any](step *Step[I]) error {
 	return nil
 }
 
-//nolint:gocognit,cyclop,gocyclo // complex error handling and option checks are localised here.
 func sequentialSinkFn[I any](
 	ctx context.Context,
 	goIdx int,
@@ -106,23 +105,12 @@ func sequentialSinkFn[I any](
 		}
 	}
 
-	for {
-		entry, ok, release, inputWait, err := nextStepInput(ctx, goIdx, inFlight, input.Output, cfg.outputMetrics)
-		if err != nil {
-			return err
-		}
-
-		if !ok {
-			return nil
-		}
-
-		err = waitRateLimit(ctx, goIdx, limiter)
-		if err != nil {
-			release()
-
-			return err
-		}
-
+	return runSequentialStepLoop(ctx, goIdx, input, limiter, inFlight, cfg.outputMetrics, func(
+		ctx context.Context,
+		entry I,
+		inputWait time.Duration,
+		release func(),
+	) error {
 		itemCtx, cancel := stepItemContext(ctx, timeout)
 
 		_, endFn, err := executeWithRetry(itemCtx, step.RetryPolicy, func() (struct{}, error) {
@@ -131,30 +119,24 @@ func sequentialSinkFn[I any](
 
 		cancel()
 
-		//nolint:nestif // keep error handling together for clarity.
 		if err != nil {
-			release()
-
-			routeErr := routeStepError(ctx, step, entry, err, cfg.errorRoute, cfg.opts...)
-			if routeErr != nil {
-				return routeErr
+			if release != nil {
+				release()
 			}
 
-			if step.DropOnError {
-				if cfg.drop {
-					err = reportStepDrop(cfg.opts, step.Details, model.StepDropError)
-					if err != nil {
-						return err
-					}
-				}
-
-				continue
+			dropped, handleErr := handleStepError(ctx, goIdx, step, entry, err, cfg)
+			if handleErr != nil {
+				return handleErr
 			}
 
-			return fmt.Errorf("go routine %d: %w", goIdx, err)
+			if dropped {
+				return nil
+			}
 		}
 
-		release()
+		if release != nil {
+			release()
+		}
 
 		for _, opt := range cfg.opts {
 			err := opt.OnSinkOutput(input.Details, step.Details)
@@ -171,7 +153,9 @@ func sequentialSinkFn[I any](
 				}
 			}
 		}
-	}
+
+		return nil
+	})
 }
 
 func concurrentSinkFn[I any](

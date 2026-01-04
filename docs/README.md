@@ -15,13 +15,16 @@ This folder contains documentation for go-pipeline.
 - docs/examples.md: example index and usage map.
 
 ## Internal docs (not published)
+- docs/diagnoses.md: running repository diagnosis log.
 - docs/qa/test-plan.md: QA data requirements and scenarios.
 - docs/live-monitoring/: local Telegraf/InfluxDB docker stack for monitoring.
 - docs/plans/: accepted, draft, completed, and archived plans (internal only).
 - docs/plans/order.md: plan execution order and dependency tracking.
 
 ## Status (internal)
-Latest QA test plan update: 2026-01-03 (tests implemented).
+Latest diagnosis update: 2026-01-04 (repo diagnosis logged).
+Latest diagnosis refactor cleanup plan: 2026-01-04 (completed).
+Latest QA test plan update: 2026-01-04 (tests implemented).
 Latest lint cleanup plan: 2025-12-29 (accepted).
 Latest examples plan: 2025-12-29 (accepted).
 Latest step options plan: 2025-12-29 (completed).

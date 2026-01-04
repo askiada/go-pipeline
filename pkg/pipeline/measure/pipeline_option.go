@@ -9,8 +9,6 @@ import (
 
 type pipelineMeasure struct {
 	Measure
-
-	steps map[string]Metric
 }
 
 // New creates a new pipeline measure.
@@ -174,5 +172,5 @@ func (pm *pipelineMeasure) AfterSinkMetrics(step *pipeline.StepInfo, totalDurati
 
 // PipelineMeasure returns a pipeline option that records metrics.
 func PipelineMeasure(measure Measure) model.PipelineOption { //nolint:ireturn // it must implement the interface
-	return &pipelineMeasure{measure, map[string]Metric{}}
+	return &pipelineMeasure{Measure: measure}
 }
