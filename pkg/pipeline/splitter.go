@@ -73,6 +73,8 @@ func prepareSplitter[I any](pipe *Pipeline, name string, input *Step[I], total i
 		splitter.bufferSize = 1
 	}
 
+	splitter.mainStep.Details.BufferSize = splitter.bufferSize
+
 	inputConcurrent := 1
 	if input.Details != nil && input.Details.Concurrent > 0 {
 		inputConcurrent = input.Details.Concurrent
@@ -86,8 +88,9 @@ func prepareSplitter[I any](pipe *Pipeline, name string, input *Step[I], total i
 				Type:       model.SplitterStepType,
 				Name:       name,
 				Concurrent: 1,
+				BufferSize: splitter.bufferSize,
 			},
-			Output: make(chan I),
+			Output: make(chan I, splitter.bufferSize),
 		}
 		splitter.splittedSteps[idx] = &step
 	}
@@ -141,16 +144,13 @@ func runSplitter[I any](
 	pipe *Pipeline,
 	splitter *Splitter[I],
 	input *Step[I],
-	splitterBuffer []chan I,
 	errC chan error,
-	wgrp *sync.WaitGroup,
 ) {
 	defer func() {
-		for _, buf := range splitterBuffer {
-			close(buf)
+		for _, step := range splitter.splittedSteps {
+			close(step.Output)
 		}
 
-		wgrp.Wait()
 		close(errC)
 	}()
 
@@ -182,16 +182,13 @@ func runSplitter[I any](
 				startFn = time.Now()
 			}
 
-			for _, buf := range splitterBuffer {
-				localEntry := entry
-				localBuf := buf
-
+			for _, step := range splitter.splittedSteps {
 				select {
 				case <-ctx.Done():
 					errC <- ctx.Err()
 
 					return
-				case localBuf <- localEntry:
+				case step.Output <- entry:
 				}
 			}
 
@@ -218,58 +215,20 @@ func runSplitter[I any](
 	}
 }
 
-func startSplitterWorkers[I any](
-	ctx context.Context,
-	splitter *Splitter[I],
-	splitterBuffer []chan I,
-	errC chan error,
-	wgrp *sync.WaitGroup,
-) {
-	for i, buf := range splitterBuffer {
-		localBuf := buf
-		localI := i
-
-		go func() {
-			defer func() {
-				close(splitter.splittedSteps[localI].Output)
-				wgrp.Done()
-			}()
-
-			for {
-				select {
-				case <-ctx.Done():
-					errC <- ctx.Err()
-
-					return
-				case elem, ok := <-localBuf:
-					if !ok {
-						return
-					}
-
-					splitter.splittedSteps[localI].Output <- elem
-				}
-			}
-		}()
-	}
-}
-
 //nolint:cyclop,gocognit,gocyclo // Branch-heavy error handling stays localised here.
 func runSplitBy[I any](
 	ctx context.Context,
 	pipe *Pipeline,
 	splitter *Splitter[I],
 	input *Step[I],
-	splitterBuffer []chan I,
 	errC chan error,
-	wgrp *sync.WaitGroup,
 	fns []SplitFn[I],
 ) {
 	defer func() {
-		for _, buf := range splitterBuffer {
-			close(buf)
+		for _, step := range splitter.splittedSteps {
+			close(step.Output)
 		}
 
-		wgrp.Wait()
 		close(errC)
 	}()
 
@@ -313,14 +272,12 @@ func runSplitBy[I any](
 					continue
 				}
 
-				buf := splitterBuffer[idx]
-
 				select {
 				case <-ctx.Done():
 					errC <- ctx.Err()
 
 					return
-				case buf <- entry:
+				case splitter.splittedSteps[idx].Output <- entry:
 				}
 			}
 
@@ -367,20 +324,9 @@ func Split[I any](pipe *Pipeline, name string, input *Step[I], total int, opts .
 		return nil
 	}
 
-	splitterBuffer := make([]chan I, total)
-
-	for i := range splitterBuffer {
-		splitterBuffer[i] = make(chan I, splitter.bufferSize)
-	}
-
-	wgrp := &sync.WaitGroup{}
-	wgrp.Add(len(splitterBuffer))
-
 	pipe.addRunner(func(ctx context.Context) {
-		startSplitterWorkers(ctx, splitter, splitterBuffer, errC, wgrp)
-
 		go func() {
-			runSplitter(ctx, pipe, splitter, input, splitterBuffer, errC, wgrp)
+			runSplitter(ctx, pipe, splitter, input, errC)
 		}()
 	})
 
@@ -420,20 +366,9 @@ func SplitBy[I any](
 		return nil
 	}
 
-	splitterBuffer := make([]chan I, total)
-
-	for i := range splitterBuffer {
-		splitterBuffer[i] = make(chan I, splitter.bufferSize)
-	}
-
-	wgrp := &sync.WaitGroup{}
-	wgrp.Add(len(splitterBuffer))
-
 	pipe.addRunner(func(ctx context.Context) {
-		startSplitterWorkers(ctx, splitter, splitterBuffer, errC, wgrp)
-
 		go func() {
-			runSplitBy(ctx, pipe, splitter, input, splitterBuffer, errC, wgrp, fns)
+			runSplitBy(ctx, pipe, splitter, input, errC, fns)
 		}()
 	})
 
