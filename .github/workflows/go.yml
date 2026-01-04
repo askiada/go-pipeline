@@ -53,4 +53,11 @@ jobs:
             ${{ runner.os }}-go-
 
       - name: Running Unit Tests
-        run: go test -v ./...
+        run: go test -v -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage.out
+          flags: unittests
+          fail_ci_if_error: true

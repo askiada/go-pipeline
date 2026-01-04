@@ -3,6 +3,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/askiada/go-pipeline/v2.svg)](https://pkg.go.dev/github.com/askiada/go-pipeline/v2)
 [![Go Report Card](https://goreportcard.com/badge/github.com/askiada/go-pipeline)](https://goreportcard.com/report/github.com/askiada/go-pipeline)
 [![CI](https://github.com/askiada/go-pipeline/actions/workflows/go.yml/badge.svg)](https://github.com/askiada/go-pipeline/actions/workflows/go.yml)
+[![codecov](https://codecov.io/gh/askiada/go-pipeline/branch/main/graph/badge.svg)](https://codecov.io/gh/askiada/go-pipeline)
 
 go-pipeline is a Go library for building data-processing pipelines with composable steps, splitters, mergers, and sinks.
 
