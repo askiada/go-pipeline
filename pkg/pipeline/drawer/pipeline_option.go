@@ -153,7 +153,9 @@ func (pd *pipelineDrawer) SetRunOptions(opts model.RunOptions) {
 
 // PipelineDrawer returns a pipeline option that draws a graph with the Drawer.
 // When a Measure is provided, it adds metrics after a real run (not dry-run).
-func PipelineDrawer(drw Drawer, msr measure.Measure) model.PipelineOption { //nolint:ireturn // it must implement the interface
+//
+//nolint:ireturn // Public API returns the option interface.
+func PipelineDrawer(drw Drawer, msr measure.Measure) model.PipelineOption {
 	return &pipelineDrawer{
 		Drawer:    drw,
 		m:         msr,

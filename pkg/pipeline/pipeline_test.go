@@ -3,6 +3,8 @@ package pipeline_test
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -39,6 +41,16 @@ func (o *metricsOffObserver) OnStepOutput(_, _ *model.StepInfo) error {
 	o.count.Add(1)
 
 	return nil
+}
+
+func dotOutputPath(t *testing.T, name string) string {
+	t.Helper()
+
+	if dir := os.Getenv("PIPELINE_DOT_OUTPUT_DIR"); dir != "" {
+		return filepath.Join(dir, name)
+	}
+
+	return filepath.Join(t.TempDir(), name)
 }
 
 type errorRouteOption struct {
@@ -2982,7 +2994,7 @@ func TestCompletePipeline(t *testing.T) {
 	m := measure.NewDefaultMeasure()
 	pipe, err := pipeline.New(
 		pipeline.PipelineDefaults{},
-		drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph.dot"), m),
+		drawer.PipelineDrawer(drawer.NewSVGDrawer(dotOutputPath(t, "mygraph.dot")), m),
 		measure.PipelineMeasure(m),
 	)
 	require.NoError(t, err)
@@ -3000,7 +3012,7 @@ func TestSimplePipeline(t *testing.T) {
 	m := measure.NewDefaultMeasure()
 	pipe, err := pipeline.New(
 		pipeline.PipelineDefaults{},
-		drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple.dot"), m),
+		drawer.PipelineDrawer(drawer.NewSVGDrawer(dotOutputPath(t, "mygraph-simple.dot")), m),
 		measure.PipelineMeasure(m),
 	)
 	require.NoError(t, err)
@@ -3044,7 +3056,7 @@ func TestSimpleSplitterPipeline(t *testing.T) {
 	m := measure.NewDefaultMeasure()
 	pipe, err := pipeline.New(
 		pipeline.PipelineDefaults{},
-		drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple-splitter.dot"), m),
+		drawer.PipelineDrawer(drawer.NewSVGDrawer(dotOutputPath(t, "mygraph-simple-splitter.dot")), m),
 		measure.PipelineMeasure(m),
 	)
 	require.NoError(t, err)
@@ -3099,7 +3111,7 @@ func TestSimpleSplitterV2Pipeline(t *testing.T) {
 	m := measure.NewDefaultMeasure()
 	pipe, err := pipeline.New(
 		pipeline.PipelineDefaults{},
-		drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple-splitter-v2.dot"), m),
+		drawer.PipelineDrawer(drawer.NewSVGDrawer(dotOutputPath(t, "mygraph-simple-splitter-v2.dot")), m),
 		measure.PipelineMeasure(m),
 	)
 	require.NoError(t, err)
@@ -3157,7 +3169,7 @@ func TestSimpleSplitterV3Pipeline(t *testing.T) {
 	m := measure.NewDefaultMeasure()
 	pipe, err := pipeline.New(
 		pipeline.PipelineDefaults{},
-		drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple-splitter-v3.dot"), m),
+		drawer.PipelineDrawer(drawer.NewSVGDrawer(dotOutputPath(t, "mygraph-simple-splitter-v3.dot")), m),
 		measure.PipelineMeasure(m),
 	)
 	require.NoError(t, err)
@@ -3235,7 +3247,7 @@ func TestSimpleSplitterV4Pipeline(t *testing.T) {
 	m := measure.NewDefaultMeasure()
 	pipe, err := pipeline.New(
 		pipeline.PipelineDefaults{},
-		drawer.PipelineDrawer(drawer.NewSVGDrawer("./mygraph-simple-splitter-v4.dot"), m),
+		drawer.PipelineDrawer(drawer.NewSVGDrawer(dotOutputPath(t, "mygraph-simple-splitter-v4.dot")), m),
 		measure.PipelineMeasure(m),
 	)
 	require.NoError(t, err)

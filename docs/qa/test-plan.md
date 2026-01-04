@@ -1,6 +1,6 @@
 # QA Test Plan
 
-Date: 2026-01-04
+Date: 2026-01-05
 
 ## Scope
 - Core pipeline runtime (`pkg/pipeline`)
@@ -57,8 +57,17 @@ Date: 2026-01-04
 - `pkg/pipeline/monitor/monitor_test.go` (Implemented): monitoring line protocol includes run identity tags, skips emission during dry-run, and UI starts only on real runs.
 - `pkg/pipeline/monitor/monitor_test.go` (Implemented): UI snapshot event reports absolute output/drop/retry/error totals plus run total and sequence marker.
 - `pkg/pipeline/monitor/monitor_test.go` (Implemented): UI snapshot events are prioritized when the UI stream buffer is full.
+- `pkg/pipeline/monitor/monitor_additional_test.go` (Implemented): prepare hook metadata/link emission, output metric measurements, UI streaming/error branches, tag/field escaping, telegraf emitter lifecycle, and UI hub/state helpers.
 - `pkg/pipeline/pipeline_test.go` (Implemented): base output hooks run without metrics options; timing hooks are exercised via metrics options.
 - `pkg/pipeline/step_internal_test.go` (Implemented): transport timing captures input receive wait time for per-step metrics.
+- `pkg/pipeline/measure/pipeline_option_additional_test.go` (Implemented): no-op hooks and retry hook metric updates.
+- `pkg/pipeline/drawer/drawer_svg_additional_test.go` (Implemented): drawer error branches and metrics without transport timings.
+- `pkg/pipeline/pipeline_internal_test.go` (Implemented): pipeline defaults handling, option capability detection, finish error propagation, rate limiter cancel, and noop release coverage.
+- `pkg/pipeline/step_helpers_internal_test.go` (Implemented): step input/rate limit error paths and output hook/metric error handling.
+- `pkg/pipeline/sink_internal_test.go` (Implemented): sink-from-chan hooks/metrics errors, default concurrency, and sink prepare/drop error handling.
+- `pkg/pipeline/root_internal_test.go` (Implemented): root prepare/build error handling for pipeline options.
+- `pkg/pipeline/splitter_internal_test.go` (Implemented): splitter Get behavior, runSplitterLoop error branches, and SplitBy build/empty errors.
+- `pkg/pipeline/merger_internal_test.go` (Implemented): merge prepare error propagation and hook/metrics error handling.
 
 ## Planned tests
 - None defined yet.

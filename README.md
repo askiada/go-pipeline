@@ -123,6 +123,7 @@ commands. Timing diagrams live in `examples/timing-diagrams.md`.
 make unit_test
 ```
 `make unit_test` runs `go test -race -timeout 30s ./...` and invokes Graphviz to render example diagrams. CI runs `go test -v ./...` without Graphviz.
+To persist `.dot` outputs when running `go test` directly, set `PIPELINE_DOT_OUTPUT_DIR` (the Makefile sets it to `pkg/pipeline`).
 
 ## Coverage
 ```bash

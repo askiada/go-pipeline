@@ -131,6 +131,15 @@ func TestReportStepRetry(t *testing.T) {
 	require.ErrorIs(t, err, expectedErr)
 }
 
+func TestReportStepRetrySkipsNonRetryOptions(t *testing.T) {
+	t.Parallel()
+
+	parent := &StepInfo{Name: "parent"}
+	step := &StepInfo{Name: "step"}
+
+	require.NoError(t, reportStepRetry([]model.PipelineOption{PipelineDefaults{}}, parent, step, 1, time.Millisecond))
+}
+
 func TestExecuteWithRetryNoPolicy(t *testing.T) {
 	t.Parallel()
 
@@ -216,4 +225,37 @@ func TestExecuteWithRetryStopsOnSleepError(t *testing.T) {
 	}, nil, false)
 	require.Error(t, err)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+func TestExecuteWithRetryContextDone(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	policy := &model.RetryPolicy{MaxAttempts: 2}
+	_, _, err := executeWithRetry(ctx, policy, func() (int, error) {
+		return 0, nil
+	}, nil, false)
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestExecuteWithRetryStopsWhenRetryDenied(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	policy := &model.RetryPolicy{
+		MaxAttempts: 3,
+		RetryOn:     func(error) bool { return false },
+	}
+
+	attempts := 0
+	_, _, err := executeWithRetry(ctx, policy, func() (int, error) {
+		attempts++
+
+		return 0, assert.AnError
+	}, nil, false)
+	require.Error(t, err)
+	require.Equal(t, 1, attempts)
 }

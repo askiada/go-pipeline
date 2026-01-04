@@ -34,3 +34,11 @@ func TestInFlightLimiterAcquireContextCancel(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	limiter.release()
 }
+
+func TestInFlightLimiterNilNoop(t *testing.T) {
+	t.Parallel()
+
+	var limiter *inFlightLimiter
+	require.NoError(t, limiter.acquire(context.Background()))
+	limiter.release()
+}

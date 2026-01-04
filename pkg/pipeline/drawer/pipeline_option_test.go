@@ -83,6 +83,46 @@ func TestPipelineDrawerNewPropagatesAddStepError(t *testing.T) {
 	require.ErrorIs(t, opt.New(), expectedErr)
 }
 
+type secondFailDrawer struct {
+	calls int
+	err   error
+}
+
+func (s *secondFailDrawer) AddStep(string) error {
+	s.calls++
+	if s.calls == 2 {
+		return s.err
+	}
+
+	return nil
+}
+
+func (s *secondFailDrawer) AddLink(string, string) error {
+	return nil
+}
+
+func (s *secondFailDrawer) Draw() error {
+	return nil
+}
+
+func (s *secondFailDrawer) SetTotalTime(string, time.Time) error {
+	return nil
+}
+
+func (s *secondFailDrawer) AddMeasure(measure.Measure) error {
+	return nil
+}
+
+func TestPipelineDrawerNewSecondAddStepError(t *testing.T) {
+	t.Parallel()
+
+	fail := errors.New("second add failed")
+	drw := &secondFailDrawer{err: fail}
+	opt := drawer.PipelineDrawer(drw, nil)
+
+	require.ErrorIs(t, opt.New(), fail)
+}
+
 func TestPipelineDrawerPrepareHooks(t *testing.T) {
 	t.Parallel()
 
@@ -97,6 +137,78 @@ func TestPipelineDrawerPrepareHooks(t *testing.T) {
 	require.NoError(t, opt.PrepareSplitter(parent, step))
 	require.NoError(t, opt.PrepareMerger([]*model.StepInfo{parent, step}, merger))
 	require.NoError(t, opt.PrepareSink(parent, step))
+}
+
+func TestPipelineDrawerPrepareStepErrors(t *testing.T) {
+	t.Parallel()
+
+	stepErr := errors.New("add step failed")
+	linkErr := errors.New("add link failed")
+
+	parent := &model.StepInfo{Name: "parent", Concurrent: 1}
+	step := &model.StepInfo{Name: "step", Concurrent: 1}
+
+	stub := &stubDrawer{addStepErr: stepErr}
+	opt := drawer.PipelineDrawer(stub, nil)
+	require.ErrorIs(t, opt.PrepareStep(parent, step), stepErr)
+
+	stub = &stubDrawer{addLinkErr: linkErr}
+	opt = drawer.PipelineDrawer(stub, nil)
+	require.ErrorIs(t, opt.PrepareStep(parent, step), linkErr)
+}
+
+func TestPipelineDrawerPrepareSplitterErrors(t *testing.T) {
+	t.Parallel()
+
+	stepErr := errors.New("add step failed")
+	linkErr := errors.New("add link failed")
+
+	parent := &model.StepInfo{Name: "parent", Concurrent: 1}
+	step := &model.StepInfo{Name: "splitter", Concurrent: 1}
+
+	stub := &stubDrawer{addStepErr: stepErr}
+	opt := drawer.PipelineDrawer(stub, nil)
+	require.ErrorIs(t, opt.PrepareSplitter(parent, step), stepErr)
+
+	stub = &stubDrawer{addLinkErr: linkErr}
+	opt = drawer.PipelineDrawer(stub, nil)
+	require.ErrorIs(t, opt.PrepareSplitter(parent, step), linkErr)
+}
+
+func TestPipelineDrawerPrepareMergerErrors(t *testing.T) {
+	t.Parallel()
+
+	stepErr := errors.New("add step failed")
+	linkErr := errors.New("add link failed")
+
+	parent := &model.StepInfo{Name: "parent", Concurrent: 1}
+	step := &model.StepInfo{Name: "merger", Concurrent: 1}
+
+	stub := &stubDrawer{addStepErr: stepErr}
+	opt := drawer.PipelineDrawer(stub, nil)
+	require.ErrorIs(t, opt.PrepareMerger([]*model.StepInfo{parent}, step), stepErr)
+
+	stub = &stubDrawer{addLinkErr: linkErr}
+	opt = drawer.PipelineDrawer(stub, nil)
+	require.ErrorIs(t, opt.PrepareMerger([]*model.StepInfo{parent}, step), linkErr)
+}
+
+func TestPipelineDrawerPrepareSinkErrors(t *testing.T) {
+	t.Parallel()
+
+	stepErr := errors.New("add step failed")
+	linkErr := errors.New("add link failed")
+
+	parent := &model.StepInfo{Name: "parent", Concurrent: 1}
+	step := &model.StepInfo{Name: "sink", Concurrent: 1}
+
+	stub := &stubDrawer{addStepErr: stepErr}
+	opt := drawer.PipelineDrawer(stub, nil)
+	require.ErrorIs(t, opt.PrepareSink(parent, step), stepErr)
+
+	stub = &stubDrawer{addLinkErr: linkErr}
+	opt = drawer.PipelineDrawer(stub, nil)
+	require.ErrorIs(t, opt.PrepareSink(parent, step), linkErr)
 }
 
 func TestPipelineDrawerFinishWithMeasure(t *testing.T) {
@@ -130,6 +242,27 @@ func TestPipelineDrawerFinishDryRunOmitsMeasure(t *testing.T) {
 	require.Equal(t, []string{
 		"Draw",
 	}, stub.calls)
+}
+
+func TestPipelineDrawerFinishPropagatesErrors(t *testing.T) {
+	t.Parallel()
+
+	setTotalErr := errors.New("set total failed")
+	addMeasureErr := errors.New("add measure failed")
+	drawErr := errors.New("draw failed")
+
+	stub := &stubDrawer{setTotalErr: setTotalErr}
+	msr := measure.NewDefaultMeasure()
+	opt := drawer.PipelineDrawer(stub, msr)
+	require.ErrorIs(t, opt.Finish(), setTotalErr)
+
+	stub = &stubDrawer{addMeasureErr: addMeasureErr}
+	opt = drawer.PipelineDrawer(stub, msr)
+	require.ErrorIs(t, opt.Finish(), addMeasureErr)
+
+	stub = &stubDrawer{drawErr: drawErr}
+	opt = drawer.PipelineDrawer(stub, nil)
+	require.ErrorIs(t, opt.Finish(), drawErr)
 }
 
 func TestPipelineDrawerOutputHooksNoop(t *testing.T) {
