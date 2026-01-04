@@ -23,6 +23,78 @@ func resetBatchTimer(timer *time.Timer, maxWait time.Duration) (*time.Timer, <-c
 	return timer, timer.C
 }
 
+type batchTracker struct {
+	maxSize    int
+	maxWait    time.Duration
+	batchStart time.Time
+	count      int
+	waitTotal  time.Duration
+	timer      *time.Timer
+	timerC     <-chan time.Time
+}
+
+func newBatchTracker(maxSize int, maxWait time.Duration) *batchTracker {
+	return &batchTracker{
+		maxSize: maxSize,
+		maxWait: maxWait,
+	}
+}
+
+func (tracker *batchTracker) resetTimer() {
+	tracker.timer, tracker.timerC = resetBatchTimer(tracker.timer, tracker.maxWait)
+}
+
+func (tracker *batchTracker) clearTimer() {
+	stopBatchTimer(tracker.timer)
+	tracker.timer = nil
+	tracker.timerC = nil
+}
+
+func (tracker *batchTracker) startBatch() {
+	if !tracker.batchStart.IsZero() {
+		return
+	}
+
+	tracker.batchStart = time.Now()
+	tracker.resetTimer()
+}
+
+func (tracker *batchTracker) shouldFlushForTime() bool {
+	if tracker.maxWait <= 0 || tracker.batchStart.IsZero() {
+		return false
+	}
+
+	return time.Since(tracker.batchStart) >= tracker.maxWait
+}
+
+func (tracker *batchTracker) recordWait(wait time.Duration) {
+	tracker.waitTotal += wait
+}
+
+func (tracker *batchTracker) recordItem() {
+	tracker.count++
+}
+
+func (tracker *batchTracker) shouldFlushForSize() bool {
+	return tracker.count >= tracker.maxSize
+}
+
+func (tracker *batchTracker) snapshotAndReset() (int, time.Duration) {
+	count := tracker.count
+	waitTotal := tracker.waitTotal
+
+	tracker.reset()
+
+	return count, waitTotal
+}
+
+func (tracker *batchTracker) reset() {
+	tracker.count = 0
+	tracker.waitTotal = 0
+	tracker.batchStart = time.Time{}
+	tracker.clearTimer()
+}
+
 func reportBatchOutput[I any, O any](
 	cfg hookConfig,
 	input *Step[I],

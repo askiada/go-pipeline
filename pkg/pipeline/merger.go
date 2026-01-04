@@ -34,7 +34,33 @@ func prepareMerger[I any](pipe *Pipeline, output chan I, name string, steps ...*
 	return outputStep, nil
 }
 
-//nolint:gocognit // Branch-heavy error handling stays localised here.
+func reportMergerOutput[I any](
+	cfg hookConfig,
+	input *Step[I],
+	output *Step[I],
+	inputWait time.Duration,
+) error {
+	for _, opt := range cfg.opts {
+		err := opt.OnMergerOutput(input.Details, output.Details)
+		if err != nil {
+			return fmt.Errorf("unable to run before merger function: %w", err)
+		}
+	}
+
+	if !cfg.outputMetrics {
+		return nil
+	}
+
+	for _, opt := range cfg.metricsOpts {
+		err := opt.OnMergerOutputMetrics(input.Details, output.Details, inputWait)
+		if err != nil {
+			return fmt.Errorf("unable to run before merger function: %w", err)
+		}
+	}
+
+	return nil
+}
+
 func runStepMerger[I any](ctx context.Context, pipe *Pipeline, errC chan error, step, outputStep *Step[I]) {
 	cfg := pipe.hookConfig()
 
@@ -63,20 +89,9 @@ func runStepMerger[I any](ctx context.Context, pipe *Pipeline, errC chan error, 
 			case <-ctx.Done():
 				errC <- ctx.Err()
 			case outputStep.Output <- entry:
-				for _, opt := range cfg.opts {
-					err := opt.OnMergerOutput(step.Details, outputStep.Details)
-					if err != nil {
-						errC <- fmt.Errorf("unable to run before merger function: %w", err)
-					}
-				}
-
-				if cfg.outputMetrics {
-					for _, opt := range cfg.metricsOpts {
-						err := opt.OnMergerOutputMetrics(step.Details, outputStep.Details, inputWait)
-						if err != nil {
-							errC <- fmt.Errorf("unable to run before merger function: %w", err)
-						}
-					}
+				err := reportMergerOutput(cfg, step, outputStep, inputWait)
+				if err != nil {
+					errC <- err
 				}
 			}
 		}

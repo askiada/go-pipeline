@@ -18,19 +18,20 @@ This folder contains documentation for go-pipeline.
 - docs/diagnoses.md: running repository diagnosis log.
 - docs/qa/test-plan.md: QA data requirements and scenarios.
 - docs/live-monitoring/: local Telegraf/InfluxDB docker stack for monitoring.
-- docs/plans/: accepted, draft, completed, and archived plans (internal only).
+- docs/plans/: accepted, draft, completed, and archived plans (internal only, intentionally gitignored; status tracked in `docs/README.md` and `docs/plans/order.md`).
 - docs/plans/order.md: plan execution order and dependency tracking.
 
 ## Status (internal)
-Latest diagnosis update: 2026-01-04 (repo diagnosis logged).
+Latest diagnosis update: 2026-01-04 (repo diagnosis refreshed with feedback).
 Latest diagnosis refactor cleanup plan: 2026-01-04 (completed).
+Latest diagnosis simplification plan: 2026-01-04 (completed).
 Latest QA test plan update: 2026-01-04 (tests implemented).
 Latest repo diagnosis remediation plan: 2025-12-29 (completed).
 Latest lint cleanup plan: 2025-12-29 (completed).
 Latest examples plan: 2025-12-29 (completed).
 Latest step options plan: 2025-12-29 (completed).
 Latest benchmarks plan: 2025-12-30 (completed).
-Latest benchmarks update: 2026-01-04 (count=5 run posted after removing splitter worker goroutines).
+Latest benchmarks update: 2026-01-04 (count=5 run after StepFromChan/batch simplification).
 Latest splitter update: 2026-01-04 (no per-branch worker goroutines when concurrency is 1).
 Latest dry-run plan: 2025-12-30 (completed).
 Latest drop policies plan: 2025-12-30 (completed).

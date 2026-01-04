@@ -706,7 +706,62 @@ func validateFromChanOptions[O any](step *Step[O]) error {
 	return nil
 }
 
-//nolint:gocognit,cyclop,gocyclo // channel plumbing and accounting make this verbose.
+type stepFromChanBridge[I any] struct {
+	done      chan struct{}
+	total     int
+	waitTotal time.Duration
+	input     chan I
+}
+
+func startStepFromChanBridge[I any](ctx context.Context, input <-chan I, measure bool) *stepFromChanBridge[I] {
+	bridge := &stepFromChanBridge[I]{
+		done:  make(chan struct{}),
+		input: make(chan I),
+	}
+
+	go func() {
+		defer func() {
+			close(bridge.input)
+			close(bridge.done)
+		}()
+
+		for {
+			var waitStart time.Time
+			if measure {
+				waitStart = time.Now()
+			}
+
+			select {
+			case <-ctx.Done():
+				return
+			case entry, ok := <-input:
+				if !ok {
+					return
+				}
+
+				if measure {
+					bridge.waitTotal += time.Since(waitStart)
+				}
+
+				select {
+				case <-ctx.Done():
+					return
+				case bridge.input <- entry:
+					bridge.total++
+				}
+			}
+		}
+	}()
+
+	return bridge
+}
+
+func (bridge *stepFromChanBridge[I]) wait() (int, time.Duration) {
+	<-bridge.done
+
+	return bridge.total, bridge.waitTotal
+}
+
 func sequentialStepFromChanFn[I any, O any](
 	ctx context.Context,
 	goIdx int,
@@ -715,54 +770,14 @@ func sequentialStepFromChanFn[I any, O any](
 	stepFn StepFromChanFn[I, O],
 	cfg hookConfig,
 ) error {
-	inputPlaceholder := make(chan I)
-	total := float64(0)
-	var waitTotal time.Duration
-
-	done := make(chan struct{}, 1)
-
-	go func() {
-		defer func() {
-			close(inputPlaceholder)
-
-			done <- struct{}{}
-		}()
-
-	outer:
-		for {
-			var waitStart time.Time
-			if cfg.outputMetrics {
-				waitStart = time.Now()
-			}
-
-			select {
-			case <-ctx.Done():
-				break outer
-			case entry, ok := <-input.Output:
-				if !ok {
-					break outer
-				}
-
-				if cfg.outputMetrics {
-					waitTotal += time.Since(waitStart)
-				}
-
-				select {
-				case <-ctx.Done():
-					break outer
-				case inputPlaceholder <- entry:
-					total++
-				}
-			}
-		}
-	}()
+	bridge := startStepFromChanBridge(ctx, input.Output, cfg.outputMetrics)
 
 	var startStep time.Time
 	if cfg.outputMetrics {
 		startStep = time.Now()
 	}
 
-	err := stepFn(ctx, inputPlaceholder, output.Output)
+	err := stepFn(ctx, bridge.input, output.Output)
 	if err != nil {
 		return fmt.Errorf("unable to run step function: %w", err)
 	}
@@ -772,11 +787,10 @@ func sequentialStepFromChanFn[I any, O any](
 		endStep = time.Since(startStep)
 	}
 
+	total, waitTotal := bridge.wait()
 	if total == 0 {
 		return nil
 	}
-
-	<-done
 
 	for _, opt := range cfg.opts {
 		err := opt.OnStepOutput(input.Details, output.Details)
@@ -786,8 +800,8 @@ func sequentialStepFromChanFn[I any, O any](
 	}
 
 	if cfg.outputMetrics {
-		iterDuration := time.Duration(float64(waitTotal) / total)
-		compDuration := time.Duration(float64(endStep) / total)
+		iterDuration := waitTotal / time.Duration(total)
+		compDuration := endStep / time.Duration(total)
 
 		for _, opt := range cfg.metricsOpts {
 			err := opt.OnStepOutputMetrics(input.Details, output.Details, iterDuration, compDuration)

@@ -11,21 +11,15 @@ import (
 )
 
 type batchChanState[I any] struct {
-	goIdx      int
-	input      *Step[I]
-	output     *Step[<-chan I]
-	cfg        hookConfig
-	maxSize    int
-	maxWait    time.Duration
-	batchCount int
-	batchStart time.Time
-	waitTotal  time.Duration
-	sendTotal  time.Duration
-	batchSend  time.Duration
-	timer      *time.Timer
-	timerC     <-chan time.Time
-	batchCh    chan I
-	sendTimer  *time.Timer
+	goIdx     int
+	input     *Step[I]
+	output    *Step[<-chan I]
+	cfg       hookConfig
+	tracker   *batchTracker
+	sendTotal time.Duration
+	batchSend time.Duration
+	batchCh   chan I
+	sendTimer *time.Timer
 }
 
 func newBatchChanState[I any](
@@ -40,8 +34,7 @@ func newBatchChanState[I any](
 		input:   input,
 		output:  output,
 		cfg:     cfg,
-		maxSize: policy.MaxSize,
-		maxWait: policy.MaxWait,
+		tracker: newBatchTracker(policy.MaxSize, policy.MaxWait),
 	}
 
 	if output.DropOnOutputTimeout > 0 {
@@ -52,24 +45,13 @@ func newBatchChanState[I any](
 	return state
 }
 
-func (bs *batchChanState[I]) resetTimer() {
-	bs.timer, bs.timerC = resetBatchTimer(bs.timer, bs.maxWait)
-}
-
-func (bs *batchChanState[I]) clearTimer() {
-	stopBatchTimer(bs.timer)
-	bs.timer = nil
-	bs.timerC = nil
-}
-
 func (bs *batchChanState[I]) startBatch(ctx context.Context) (bool, error) {
 	if bs.batchCh != nil {
 		return false, nil
 	}
 
 	bs.batchCh = make(chan I)
-	bs.batchStart = time.Now()
-	bs.resetTimer()
+	bs.tracker.startBatch()
 
 	var dropped bool
 	var err error
@@ -85,9 +67,8 @@ func (bs *batchChanState[I]) startBatch(ctx context.Context) (bool, error) {
 	if err != nil {
 		close(bs.batchCh)
 		bs.batchCh = nil
-		bs.batchStart = time.Time{}
 		bs.batchSend = 0
-		bs.clearTimer()
+		bs.tracker.reset()
 
 		return dropped, err
 	}
@@ -95,9 +76,8 @@ func (bs *batchChanState[I]) startBatch(ctx context.Context) (bool, error) {
 	if dropped {
 		close(bs.batchCh)
 		bs.batchCh = nil
-		bs.batchStart = time.Time{}
 		bs.batchSend = 0
-		bs.clearTimer()
+		bs.tracker.reset()
 
 		return true, nil
 	}
@@ -107,33 +87,26 @@ func (bs *batchChanState[I]) startBatch(ctx context.Context) (bool, error) {
 
 func (bs *batchChanState[I]) closeBatch() error {
 	if bs.batchCh == nil {
-		bs.clearTimer()
+		bs.tracker.reset()
 
 		return nil
 	}
 
 	close(bs.batchCh)
 	bs.batchCh = nil
-	batchCount := bs.batchCount
-	bs.batchCount = 0
-	bs.batchStart = time.Time{}
-	waitTotal := bs.waitTotal
+	batchCount, waitTotal := bs.tracker.snapshotAndReset()
 	sendTotal := bs.sendTotal + bs.batchSend
-	bs.waitTotal = 0
 	bs.sendTotal = 0
 	bs.batchSend = 0
-	bs.clearTimer()
 
 	return reportBatchOutput(bs.cfg, bs.input, bs.output, batchCount, waitTotal, sendTotal)
 }
 
 func (bs *batchChanState[I]) handleEntry(ctx context.Context, entry I, inputWait time.Duration) error {
-	if bs.maxWait > 0 && !bs.batchStart.IsZero() {
-		if time.Since(bs.batchStart) >= bs.maxWait {
-			err := bs.closeBatch()
-			if err != nil {
-				return err
-			}
+	if bs.tracker.shouldFlushForTime() {
+		err := bs.closeBatch()
+		if err != nil {
+			return err
 		}
 	}
 
@@ -147,7 +120,7 @@ func (bs *batchChanState[I]) handleEntry(ctx context.Context, entry I, inputWait
 	}
 
 	if bs.cfg.outputMetrics {
-		bs.waitTotal += inputWait
+		bs.tracker.recordWait(inputWait)
 	}
 
 	var sendStart time.Time
@@ -165,8 +138,9 @@ func (bs *batchChanState[I]) handleEntry(ctx context.Context, entry I, inputWait
 		bs.sendTotal += time.Since(sendStart)
 	}
 
-	bs.batchCount++
-	if bs.batchCount >= bs.maxSize {
+	bs.tracker.recordItem()
+
+	if bs.tracker.shouldFlushForSize() {
 		return bs.closeBatch()
 	}
 
@@ -200,7 +174,7 @@ func sequentialBatchChanFn[I any](
 			_ = state.closeBatch()
 
 			return fmt.Errorf("go routine %d: %w", goIdx, ctx.Err())
-		case <-state.timerC:
+		case <-state.tracker.timerC:
 			err := state.closeBatch()
 			if err != nil {
 				return err

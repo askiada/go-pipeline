@@ -64,18 +64,13 @@ func stopBatchTimer(timer *time.Timer) {
 }
 
 type batchState[I any] struct {
-	goIdx      int
-	input      *Step[I]
-	output     *Step[[]I]
-	cfg        hookConfig
-	maxSize    int
-	maxWait    time.Duration
-	batch      []I
-	batchStart time.Time
-	waitTotal  time.Duration
-	timer      *time.Timer
-	timerC     <-chan time.Time
-	sendTimer  *time.Timer
+	goIdx     int
+	input     *Step[I]
+	output    *Step[[]I]
+	cfg       hookConfig
+	tracker   *batchTracker
+	batch     []I
+	sendTimer *time.Timer
 }
 
 func newBatchState[I any](
@@ -90,8 +85,7 @@ func newBatchState[I any](
 		input:   input,
 		output:  output,
 		cfg:     cfg,
-		maxSize: policy.MaxSize,
-		maxWait: policy.MaxWait,
+		tracker: newBatchTracker(policy.MaxSize, policy.MaxWait),
 	}
 
 	if output.DropOnOutputTimeout > 0 {
@@ -102,19 +96,9 @@ func newBatchState[I any](
 	return state
 }
 
-func (bs *batchState[I]) resetTimer() {
-	bs.timer, bs.timerC = resetBatchTimer(bs.timer, bs.maxWait)
-}
-
-func (bs *batchState[I]) clearTimer() {
-	stopBatchTimer(bs.timer)
-	bs.timer = nil
-	bs.timerC = nil
-}
-
 func (bs *batchState[I]) flush(ctx context.Context) error {
 	if len(bs.batch) == 0 {
-		bs.clearTimer()
+		bs.tracker.clearTimer()
 
 		return nil
 	}
@@ -122,10 +106,7 @@ func (bs *batchState[I]) flush(ctx context.Context) error {
 	batchToSend := bs.batch
 
 	bs.batch = nil
-	bs.batchStart = time.Time{}
-	waitTotal := bs.waitTotal
-	bs.waitTotal = 0
-	bs.clearTimer()
+	batchCount, waitTotal := bs.tracker.snapshotAndReset()
 
 	var sendDuration time.Duration
 	measure := bs.cfg.outputMetrics
@@ -149,30 +130,29 @@ func (bs *batchState[I]) flush(ctx context.Context) error {
 		return nil
 	}
 
-	return reportBatchOutput(bs.cfg, bs.input, bs.output, len(batchToSend), waitTotal, sendDuration)
+	return reportBatchOutput(bs.cfg, bs.input, bs.output, batchCount, waitTotal, sendDuration)
 }
 
 func (bs *batchState[I]) handleEntry(ctx context.Context, entry I, inputWait time.Duration) error {
-	if bs.maxWait > 0 && !bs.batchStart.IsZero() {
-		if time.Since(bs.batchStart) >= bs.maxWait {
-			err := bs.flush(ctx)
-			if err != nil {
-				return err
-			}
+	if bs.tracker.shouldFlushForTime() {
+		err := bs.flush(ctx)
+		if err != nil {
+			return err
 		}
 	}
 
 	if len(bs.batch) == 0 {
-		bs.batchStart = time.Now()
-		bs.resetTimer()
+		bs.tracker.startBatch()
 	}
 
 	if bs.cfg.outputMetrics {
-		bs.waitTotal += inputWait
+		bs.tracker.recordWait(inputWait)
 	}
 
 	bs.batch = append(bs.batch, entry)
-	if len(bs.batch) >= bs.maxSize {
+	bs.tracker.recordItem()
+
+	if bs.tracker.shouldFlushForSize() {
 		return bs.flush(ctx)
 	}
 
@@ -204,7 +184,7 @@ func sequentialBatchFn[I any](
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("go routine %d: %w", goIdx, ctx.Err())
-		case <-state.timerC:
+		case <-state.tracker.timerC:
 			err := state.flush(ctx)
 			if err != nil {
 				return err
