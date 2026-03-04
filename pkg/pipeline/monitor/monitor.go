@@ -370,10 +370,13 @@ func (pm *pipelineMonitor) applyDefaults() {
 	if pm.cfg.TelegrafNet == "" {
 		pm.cfg.TelegrafNet = defaultTelegrafNetwork
 	}
-
-	if pm.cfg.TelegrafAddr == "" {
-		pm.cfg.TelegrafAddr = defaultTelegrafAddress
-	}
+	/*
+		TODO: Reconsider default Telegraf address, as it may not be applicable in all environments.
+		For now, only set if TelegrafNet is provided without an address.
+		if pm.cfg.TelegrafAddr == "" {
+			pm.cfg.TelegrafAddr = defaultTelegrafAddress
+		}
+	*/
 
 	if pm.cfg.BufferSize < 1 {
 		pm.cfg.BufferSize = defaultBufferSize
