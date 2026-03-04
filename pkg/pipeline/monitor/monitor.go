@@ -82,7 +82,7 @@ func (pm *pipelineMonitor) New() error {
 
 	if pm.cfg.customEmitter != nil {
 		pm.emitter = pm.cfg.customEmitter
-	} else {
+	} else if pm.cfg.TelegrafAddr != "" {
 		emitter, err := newTelegrafEmitter(pm.cfg.TelegrafNet, pm.cfg.TelegrafAddr, pm.cfg.BufferSize)
 		if err != nil {
 			return fmt.Errorf("create telegraf emitter: %w", err)
