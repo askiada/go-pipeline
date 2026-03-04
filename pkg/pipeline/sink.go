@@ -2,14 +2,15 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"time"
 
-	"github.com/pkg/errors"
+	"golang.org/x/sync/errgroup"
 
-	"github.com/askiada/go-pipeline/pkg/pipeline/model"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
 
-func prepareSink[I any](pipe *Pipeline, name string, input *model.Step[I]) (*model.Step[I], error) {
+func prepareSink[I any](pipe *Pipeline, name string, input *Step[I], opts ...StepOption[I]) (*Step[I], error) {
 	if pipe == nil {
 		return nil, ErrPipelineMustBeSet
 	}
@@ -18,166 +19,480 @@ func prepareSink[I any](pipe *Pipeline, name string, input *model.Step[I]) (*mod
 		return nil, ErrInputMustBeSet
 	}
 
-	step := &model.Step[I]{
-		Details: &model.StepInfo{
+	step := &Step[I]{
+		Details: &StepInfo{
 			Type:       model.SinkStepType,
 			Name:       name,
 			Concurrent: 1,
 		},
 	}
 
+	applyStepDefaults(pipe, step)
+
+	for _, opt := range opts {
+		opt(step)
+	}
+
 	for _, opt := range pipe.opts {
 		err := opt.PrepareSink(input.Details, step.Details)
 		if err != nil {
-			return nil, errors.Wrap(err, "unable to run before step function")
+			return nil, fmt.Errorf("unable to run before step function: %w", err)
 		}
+	}
+
+	prepareStepErrorOutput(step)
+
+	err := prepareErrorStep(pipe, step)
+	if err != nil {
+		return nil, err
 	}
 
 	return step, nil
 }
 
-// AddSink adds a sink step to the pipeline. It will consume the input channel and run the sink function.
-func AddSink[I any](pipe *Pipeline, name string, input *model.Step[I], sinkFn func(ctx context.Context, input I) error) error {
-	step, err := prepareSink(pipe, name, input)
-	if err != nil {
-		return errors.Wrap(err, "unable to perpare sink")
+func validateSinkFromChanOptions[I any](step *Step[I]) error {
+	if step == nil {
+		return nil
 	}
 
-	errC := make(chan error, 1)
-	decoratedError := newErrorChan(name, errC)
+	if step.RetryPolicy != nil {
+		return ErrRetryUnsupported
+	}
 
-	go func() {
-		defer func() {
-			close(errC)
-		}()
+	if step.Timeout > 0 {
+		return ErrTimeoutUnsupported
+	}
 
-	outer:
-		for {
-			startInputChan := time.Now()
+	if step.RateLimitPolicy != nil {
+		return ErrRateLimitUnsupported
+	}
 
-			select {
-			case <-pipe.ctx.Done():
-				errC <- pipe.ctx.Err()
+	if step.MaxInFlight > 0 {
+		return ErrMaxInFlightUnsupported
+	}
 
-				break outer
-			case entry, ok := <-input.Output:
-				if !ok {
-					break outer
-				}
+	if step.DropOnOutputFull || step.DropOnOutputTimeout > 0 {
+		return ErrDropOutputUnsupported
+	}
 
-				startFn := time.Now()
+	if step.DropOnError {
+		return ErrDropOnErrorUnsupported
+	}
 
-				err := sinkFn(pipe.ctx, entry)
-				if err != nil {
-					errC <- err
-				}
-
-				endFn := time.Since(startFn)
-
-				endInputChan := time.Since(startInputChan)
-				for _, opt := range pipe.opts {
-					err := opt.OnSinkOutput(input.Details, step.Details, endInputChan-endFn, endFn)
-					if err != nil {
-						errC <- errors.Wrap(err, "unable to run before step function")
-					}
-				}
-			}
-		}
-
-		totalDuration := time.Since(pipe.startTime)
-
-		for _, opt := range pipe.opts {
-			err := opt.AfterSink(step.Details, totalDuration)
-			if err != nil {
-				errC <- errors.Wrap(err, "unable to run before step function")
-			}
-		}
-	}()
-
-	pipe.errcList.add(decoratedError)
+	if step.ErrorOutputEnabled {
+		return ErrErrorRouteUnsupported
+	}
 
 	return nil
 }
 
-// AddSinkFromChan adds a sink step to the pipeline. It will consume the input channel.
-func AddSinkFromChan[I any](
+func sequentialSinkFn[I any](
+	ctx context.Context,
+	goIdx int,
+	input *Step[I],
+	step *Step[I],
+	sinkFn func(ctx context.Context, input I) error,
+	timeout time.Duration,
+	limiter *rateLimiter,
+	inFlight *inFlightLimiter,
+	cfg hookConfig,
+) error {
+	var reportRetry retryFn
+
+	if cfg.retry {
+		reportRetry = func(attempt int, duration time.Duration) error {
+			return reportStepRetry(cfg.opts, input.Details, step.Details, attempt, duration)
+		}
+	}
+
+	return runSequentialStepLoop(ctx, goIdx, input, limiter, inFlight, cfg.outputMetrics, func(
+		ctx context.Context,
+		entry I,
+		inputWait time.Duration,
+		release func(),
+	) error {
+		itemCtx, cancel := stepItemContext(ctx, timeout)
+
+		_, endFn, err := executeWithRetry(itemCtx, step.RetryPolicy, func() (struct{}, error) {
+			return struct{}{}, sinkFn(itemCtx, entry)
+		}, reportRetry, cfg.timing)
+
+		cancel()
+
+		if err != nil {
+			if release != nil {
+				release()
+			}
+
+			dropped, handleErr := handleStepError(ctx, goIdx, step, entry, err, cfg)
+			if handleErr != nil {
+				return handleErr
+			}
+
+			if dropped {
+				return nil
+			}
+		}
+
+		if release != nil {
+			release()
+		}
+
+		for _, opt := range cfg.opts {
+			err := opt.OnSinkOutput(input.Details, step.Details)
+			if err != nil {
+				return fmt.Errorf("unable to run before step function: %w", err)
+			}
+		}
+
+		if cfg.outputMetrics {
+			for _, opt := range cfg.metricsOpts {
+				err := opt.OnSinkOutputMetrics(input.Details, step.Details, inputWait, endFn)
+				if err != nil {
+					return fmt.Errorf("unable to run before step function: %w", err)
+				}
+			}
+		}
+
+		return nil
+	})
+}
+
+func concurrentSinkFn[I any](
+	ctx context.Context,
+	input *Step[I],
+	step *Step[I],
+	sinkFn func(ctx context.Context, input I) error,
+	timeout time.Duration,
+	limiter *rateLimiter,
+	inFlight *inFlightLimiter,
+	cfg hookConfig,
+) error {
+	errGrp, dCtx := errgroup.WithContext(ctx)
+	errGrp.SetLimit(step.Details.Concurrent)
+
+	for goIdx := range step.Details.Concurrent {
+		errGrp.Go(func() error {
+			return sequentialSinkFn(dCtx, goIdx, input, step, sinkFn, timeout, limiter, inFlight, cfg)
+		})
+	}
+
+	err := errGrp.Wait()
+	if err != nil {
+		return fmt.Errorf("unable to wait for all go routines: %w", err)
+	}
+
+	return nil
+}
+
+func runSink[I any](
+	ctx context.Context,
+	input *Step[I],
+	step *Step[I],
+	sinkFn func(ctx context.Context, input I) error,
+	cfg hookConfig,
+) error {
+	if step.DropOnOutputFull || step.DropOnOutputTimeout > 0 {
+		return ErrDropOutputUnsupported
+	}
+
+	if step.Details.Concurrent == 0 {
+		step.Details.Concurrent = 1
+	}
+
+	limiter := newRateLimiter(step.RateLimitPolicy)
+	inFlight := newInFlightLimiter(step.MaxInFlight)
+	timeout := step.Timeout
+
+	if step.Details.Concurrent == 1 {
+		return sequentialSinkFn(ctx, 1, input, step, sinkFn, timeout, limiter, inFlight, cfg)
+	}
+
+	return concurrentSinkFn(ctx, input, step, sinkFn, timeout, limiter, inFlight, cfg)
+}
+
+// Sink adds a terminal step that consumes items and runs sinkFn.
+// It does not produce output; errors stop the run unless retries are set.
+func Sink[I any](
 	pipe *Pipeline,
 	name string,
-	input *model.Step[I],
-	stepFn func(ctx context.Context, input <-chan I) error,
-) error {
-	step, err := prepareSink(pipe, name, input)
+	input *Step[I],
+	sinkFn func(ctx context.Context, input I) error,
+	opts ...StepOption[I],
+) *Step[I] {
+	if pipe == nil {
+		return nil
+	}
+
+	if pipe.buildErr != nil {
+		return nil
+	}
+
+	step, err := prepareSink(pipe, name, input, opts...)
 	if err != nil {
-		return errors.Wrap(err, "unable to perpare sink")
+		pipe.recordErr(name, err)
+
+		return nil
 	}
 
 	errC := make(chan error, 1)
 	decoratedError := newErrorChan(name, errC)
-	inputPlaceholder := make(chan I)
-	total := 0
-	start := time.Now()
 
-	var end time.Duration
+	pipe.addRunner(func(ctx context.Context) {
+		go func() {
+			defer func() {
+				close(errC)
+
+				if step.ErrorOutput != nil {
+					close(step.ErrorOutput)
+				}
+			}()
+
+			cfg := pipe.hookConfig()
+
+			err := runSink(ctx, input, step, sinkFn, cfg)
+			if err != nil {
+				errC <- err
+			}
+
+			for _, opt := range cfg.opts {
+				err := opt.AfterSink(step.Details)
+				if err != nil {
+					errC <- fmt.Errorf("unable to run before step function: %w", err)
+				}
+			}
+
+			if cfg.outputMetrics {
+				totalDuration := time.Since(pipe.startTime)
+				for _, opt := range cfg.metricsOpts {
+					err := opt.AfterSinkMetrics(step.Details, totalDuration)
+					if err != nil {
+						errC <- fmt.Errorf("unable to run before step function: %w", err)
+					}
+				}
+			}
+		}()
+	})
+
+	pipe.errcList.add(decoratedError)
+
+	return step
+}
+
+// SinkFromChan adds a terminal step that reads directly from the input channel.
+// Use it when you want full control over the read loop.
+func SinkFromChan[I any](
+	pipe *Pipeline,
+	name string,
+	input *Step[I],
+	stepFn func(ctx context.Context, input <-chan I) error,
+	opts ...StepOption[I],
+) *Step[I] {
+	if pipe == nil {
+		return nil
+	}
+
+	if pipe.buildErr != nil {
+		return nil
+	}
+
+	step, err := prepareSink(pipe, name, input, opts...)
+	if err != nil {
+		pipe.recordErr(name, err)
+
+		return nil
+	}
+
+	err = validateSinkFromChanOptions(step)
+	if err != nil {
+		pipe.recordErr(name, err)
+
+		return nil
+	}
+
+	errC := make(chan error, 1)
+	decoratedError := newErrorChan(name, errC)
+
+	pipe.addRunner(func(ctx context.Context) {
+		go func() {
+			defer func() {
+				close(errC)
+
+				if step.ErrorOutput != nil {
+					close(step.ErrorOutput)
+				}
+			}()
+
+			cfg := pipe.hookConfig()
+
+			err := runSinkFromChan(ctx, input, step, stepFn, cfg)
+			if err != nil {
+				errC <- err
+			}
+
+			for _, opt := range cfg.opts {
+				err := opt.AfterSink(step.Details)
+				if err != nil {
+					errC <- fmt.Errorf("unable to run before step function: %w", err)
+				}
+			}
+
+			if cfg.outputMetrics {
+				totalDuration := time.Since(pipe.startTime)
+				for _, opt := range cfg.metricsOpts {
+					err := opt.AfterSinkMetrics(step.Details, totalDuration)
+					if err != nil {
+						errC <- fmt.Errorf("unable to run before step function: %w", err)
+					}
+				}
+			}
+		}()
+	})
+
+	pipe.errcList.add(decoratedError)
+
+	return step
+}
+
+//nolint:gocognit,cyclop,gocyclo // channel plumbing and accounting make this verbose.
+func sequentialSinkFromChanFn[I any](
+	ctx context.Context,
+	goIdx int,
+	input *Step[I],
+	step *Step[I],
+	stepFn func(ctx context.Context, input <-chan I) error,
+	cfg hookConfig,
+) error {
+	inputPlaceholder := make(chan I)
+	total := float64(0)
+	var waitTotal time.Duration
+
+	done := make(chan struct{}, 1)
 
 	go func() {
 		defer func() {
 			close(inputPlaceholder)
+
+			done <- struct{}{}
 		}()
 
 	outer:
 		for {
+			var waitStart time.Time
+			if cfg.outputMetrics {
+				waitStart = time.Now()
+			}
+
 			select {
-			case <-pipe.ctx.Done():
+			case <-ctx.Done():
 				break outer
 			case entry, ok := <-input.Output:
 				if !ok {
 					break outer
 				}
 
+				if cfg.outputMetrics {
+					waitTotal += time.Since(waitStart)
+				}
+
 				select {
-				case <-pipe.ctx.Done():
+				case <-ctx.Done():
 					break outer
 				case inputPlaceholder <- entry:
 					total++
 				}
 			}
 		}
-
-		end = time.Since(start)
 	}()
-	go func() {
-		defer func() {
-			close(errC)
-		}()
 
-		startStep := time.Now()
+	var startStep time.Time
+	if cfg.outputMetrics {
+		startStep = time.Now()
+	}
 
-		err := stepFn(pipe.ctx, inputPlaceholder)
+	err := stepFn(ctx, inputPlaceholder)
+	if err != nil {
+		return fmt.Errorf("unable to run sink function: %w", err)
+	}
+
+	var endStep time.Duration
+	if cfg.outputMetrics {
+		endStep = time.Since(startStep)
+	}
+
+	if total == 0 {
+		return nil
+	}
+
+	<-done
+
+	for _, opt := range cfg.opts {
+		err := opt.OnSinkOutput(input.Details, step.Details)
 		if err != nil {
-			errC <- err
+			return fmt.Errorf("go routine %d: unable to run after step function: %w", goIdx, err)
 		}
+	}
 
-		endStep := time.Since(startStep)
-		iterationDuration := time.Duration(float64(end) / float64(total))
-		computaionDuration := time.Duration(float64(endStep) / float64(total))
+	if cfg.outputMetrics {
+		iterDuration := time.Duration(float64(waitTotal) / total)
+		compDuration := time.Duration(float64(endStep) / total)
 
-		for _, opt := range pipe.opts {
-			err := opt.OnSinkOutput(input.Details, step.Details, iterationDuration, computaionDuration)
+		for _, opt := range cfg.metricsOpts {
+			err := opt.OnSinkOutputMetrics(input.Details, step.Details, iterDuration, compDuration)
 			if err != nil {
-				errC <- errors.Wrap(err, "unable to run before step function")
+				return fmt.Errorf("go routine %d: unable to run after step function: %w", goIdx, err)
 			}
 		}
-
-		totalDuration := time.Since(pipe.startTime)
-		for _, opt := range pipe.opts {
-			err := opt.AfterSink(step.Details, totalDuration)
-			if err != nil {
-				errC <- errors.Wrap(err, "unable to run before step function")
-			}
-		}
-	}()
-
-	pipe.errcList.add(decoratedError)
+	}
 
 	return nil
+}
+
+func concurrentSinkFromChanFn[I any](
+	ctx context.Context,
+	input *Step[I],
+	step *Step[I],
+	stepFn func(ctx context.Context, input <-chan I) error,
+	cfg hookConfig,
+) error {
+	errGrp, dCtx := errgroup.WithContext(ctx)
+	errGrp.SetLimit(step.Details.Concurrent)
+
+	for goIdx := range step.Details.Concurrent {
+		localGoIdx := goIdx
+
+		errGrp.Go(func() error {
+			return sequentialSinkFromChanFn(dCtx, localGoIdx, input, step, stepFn, cfg)
+		})
+	}
+
+	err := errGrp.Wait()
+	if err != nil {
+		return fmt.Errorf("unable to wait for all go routines: %w", err)
+	}
+
+	return nil
+}
+
+func runSinkFromChan[I any](
+	ctx context.Context,
+	input *Step[I],
+	step *Step[I],
+	stepFn func(ctx context.Context, input <-chan I) error,
+	cfg hookConfig,
+) error {
+	err := validateSinkFromChanOptions(step)
+	if err != nil {
+		return err
+	}
+
+	if step.Details.Concurrent == 0 {
+		step.Details.Concurrent = 1
+	}
+
+	if step.Details.Concurrent == 1 {
+		return sequentialSinkFromChanFn(ctx, 1, input, step, stepFn, cfg)
+	}
+
+	return concurrentSinkFromChanFn(ctx, input, step, stepFn, cfg)
 }

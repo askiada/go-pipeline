@@ -1,0 +1,41 @@
+# Docs
+
+This folder contains documentation for go-pipeline.
+
+## Public docs
+- docs/concepts.md: core mental model and execution semantics.
+- docs/step-types.md: step types, usage guidance, and examples.
+- docs/step-options.md: step options, interactions, and defaults.
+- docs/pipeline-options.md: metrics, drawer, monitoring, and run options.
+- docs/concurrency.md: backpressure and concurrency guidance.
+- docs/errors.md: error propagation, retries, and drop policies.
+- docs/faq.md: common questions and usage reminders.
+- docs/performance.md: performance guidance with links to benchmarks.
+- docs/benchmarks.md: benchmark scenarios, overhead guidance, and results tracking.
+- docs/examples.md: example index and usage map.
+
+## Internal docs (not published)
+- docs/diagnoses.md: running repository diagnosis log.
+- docs/qa/test-plan.md: QA data requirements and scenarios.
+- docs/live-monitoring/: local Telegraf/InfluxDB docker stack for monitoring.
+- docs/plans/: accepted, draft, completed, and archived plans (internal only, intentionally gitignored; status tracked in `docs/README.md` and `docs/plans/order.md`).
+- docs/plans/order.md: plan execution order and dependency tracking.
+
+## Status (internal)
+Latest diagnosis update: 2026-01-04 (repo diagnosis refreshed with feedback).
+Latest diagnosis refactor cleanup plan: 2026-01-04 (completed).
+Latest diagnosis simplification plan: 2026-01-04 (completed).
+Latest QA test plan update: 2026-01-05 (pkg/pipeline coverage raised to 96.8% with new internal tests for step/sink/splitter/merge/root paths).
+Latest test stability fix: 2026-01-05 (pipeline tests default DOT output to temp dirs; `make unit_test` sets `PIPELINE_DOT_OUTPUT_DIR` for Graphviz rendering).
+Latest coverage scope update: 2026-01-04 (exclude examples and model packages from coverage computation).
+Latest repo diagnosis remediation plan: 2025-12-29 (completed).
+Latest lint cleanup plan: 2025-12-29 (completed).
+Latest examples plan: 2025-12-29 (completed).
+Latest step options plan: 2025-12-29 (completed).
+Latest benchmarks plan: 2025-12-30 (completed).
+Latest benchmarks update: 2026-01-04 (count=5 run after StepFromChan/batch simplification).
+Latest splitter update: 2026-01-04 (no per-branch worker goroutines when concurrency is 1).
+Latest dry-run plan: 2025-12-30 (completed).
+Latest drop policies plan: 2025-12-30 (completed).
+Latest live monitoring plan: 2026-01-01 (accepted).
+Latest docs restructure plan: 2026-01-02 (completed).

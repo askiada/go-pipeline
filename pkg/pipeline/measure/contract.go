@@ -1,15 +1,22 @@
 package measure
 
-import "time"
+import (
+	"time"
 
-// Measure is an interface that defines the methods for measuring the performance of a pipeline.
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
+)
+
+// Measure stores metrics for a pipeline run.
+// Implementations should be safe for concurrent use.
 type Measure interface {
 	GetMetric(name string) Metric
 	AddMetric(name string, concurrent int) Metric
+	// AllMetrics returns a snapshot of all metrics.
 	AllMetrics() map[string]Metric
 }
 
-// Metric is an interface that defines the methods for measuring the performance of a step.
+// Metric stores timing data for a single step.
+// Implementations should be safe for concurrent use.
 type Metric interface {
 	// AddDuration adds the duration.
 	AddDuration(elapsed time.Duration)
@@ -23,6 +30,30 @@ type Metric interface {
 	SetTotalDuration(endDuration time.Duration)
 	// GetTotalDuration returns the total duration.
 	GetTotalDuration() time.Duration
-	// AllTransports returns all transports.
+	// AllTransports returns a snapshot of all transports.
 	AllTransports() map[string]*TransportInfo
+}
+
+// RetryMetric exposes retry-specific metrics when supported by a Metric.
+type RetryMetric interface {
+	// AddRetryDuration adds the duration for a retry attempt.
+	AddRetryDuration(elapsed time.Duration)
+	// AVGRetryDuration returns the average retry duration.
+	AVGRetryDuration() time.Duration
+	// RetryCount returns the number of retry attempts recorded.
+	RetryCount() int64
+}
+
+// DropMetric exposes drop counters when supported by a Metric.
+type DropMetric interface {
+	// AddDrop increments the drop counter for the given kind.
+	AddDrop(kind model.StepDropKind)
+	// DropCount returns the number of drops for the given kind.
+	DropCount(kind model.StepDropKind) int64
+	// TotalDropCount returns the total number of drops.
+	TotalDropCount() int64
+	// AddRoutedError increments the routed error count.
+	AddRoutedError()
+	// RoutedErrorCount returns the number of routed errors.
+	RoutedErrorCount() int64
 }

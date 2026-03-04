@@ -1,0 +1,43 @@
+strict digraph {
+	
+	
+		"start" [   weight=0 ];
+	
+		"start" -> "source" [  weight=0 ];
+	
+		"odd" [ label=<odd <BR /> <FONT POINT-SIZE="12">16µs</FONT>>,   weight=0 ];
+	
+		"odd" -> "merge" [ color="#0000f0", fontcolor="blue", label="1ms",  weight=0 ];
+	
+		"multiple-of-three" [ label=<multiple-of-three <BR /> <FONT POINT-SIZE="12">5µs</FONT>>,   weight=0 ];
+	
+		"multiple-of-three" -> "merge" [ color="#0000f0", fontcolor="blue", label="2ms",  weight=0 ];
+	
+		"end" [ label=<end <BR /> <FONT POINT-SIZE="12">6.862791ms</FONT>>,   weight=0 ];
+	
+		"route" [ label=<route <BR /> <FONT POINT-SIZE="12">169µs</FONT>>,   weight=0 ];
+	
+		"route" -> "odd" [ color="#0000f0", fontcolor="blue", label="2ms",  weight=0 ];
+	
+		"route" -> "multiple-of-three" [ color="#f00000", fontcolor="blue", label="3ms",  weight=0 ];
+	
+		"route" -> "even" [ color="#0000f0", fontcolor="blue", label="1ms",  weight=0 ];
+	
+		"merge" [   weight=0 ];
+	
+		"merge" -> "print" [ color="#0000f0", fontcolor="blue", label="632µs",  weight=0 ];
+	
+		"source" [   weight=0 ];
+	
+		"source" -> "route" [ color="#0000f0", fontcolor="blue", label="546µs",  weight=0 ];
+	
+		"even" [ label=<even <BR /> <FONT POINT-SIZE="12">3µs</FONT>>,   weight=0 ];
+	
+		"even" -> "merge" [ color="#0000f0", fontcolor="blue", label="1ms",  weight=0 ];
+	
+		"print" [ label=<print <BR /> <FONT POINT-SIZE="12">23µs, end: 6.300958ms</FONT>>,   weight=0 ];
+	
+		"print" -> "end" [  weight=0 ];
+	
+	}
+	

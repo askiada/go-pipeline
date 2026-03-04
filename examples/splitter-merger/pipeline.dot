@@ -1,0 +1,41 @@
+strict digraph {
+	
+	
+		"left" [ label=<left <BR /> <FONT POINT-SIZE="12">417ns</FONT>>,   weight=0 ];
+	
+		"left" -> "merge" [ color="#0000f0", fontcolor="blue", label="515µs",  weight=0 ];
+	
+		"print" [ label=<print <BR /> <FONT POINT-SIZE="12">14µs, end: 3.429667ms</FONT>>,   weight=0 ];
+	
+		"print" -> "end" [  weight=0 ];
+	
+		"merge" [   weight=0 ];
+	
+		"merge" -> "print" [ color="#0000f0", fontcolor="blue", label="291µs",  weight=0 ];
+	
+		"step-1" [ label=<step-1 <BR /> <FONT POINT-SIZE="12">8µs</FONT>>,   weight=0 ];
+	
+		"step-1" -> "split" [ color="#0000f0", fontcolor="blue", label="361µs",  weight=0 ];
+	
+		"right" [ label=<right <BR /> <FONT POINT-SIZE="12">133ns</FONT>>,   weight=0 ];
+	
+		"right" -> "merge" [ color="#f00000", fontcolor="blue", label="545µs",  weight=0 ];
+	
+		"end" [ label=<end <BR /> <FONT POINT-SIZE="12">3.686625ms</FONT>>,   weight=0 ];
+	
+		"split" [ label=<split <BR /> <FONT POINT-SIZE="12">88µs</FONT>>,   weight=0 ];
+	
+		"split" -> "left" [ color="#0000f0", fontcolor="blue", label="476µs",  weight=0 ];
+	
+		"split" -> "right" [ color="#0000f0", fontcolor="blue", label="305µs",  weight=0 ];
+	
+		"start" [   weight=0 ];
+	
+		"start" -> "source" [  weight=0 ];
+	
+		"source" [   weight=0 ];
+	
+		"source" -> "step-1" [ color="#0000f0", fontcolor="blue", label="448µs",  weight=0 ];
+	
+	}
+	

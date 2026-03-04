@@ -3,6 +3,8 @@ package pipeline_test
 import (
 	"context"
 	"testing"
+
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline"
 )
 
 func createInputChan(t *testing.T, total int) chan int {
@@ -51,4 +53,15 @@ func processOutputChan(t *testing.T, output <-chan int) []int {
 	}
 
 	return res
+}
+
+func runPipeline(t *testing.T, pipe *pipeline.Pipeline, ctxs ...context.Context) error {
+	t.Helper()
+
+	ctx := t.Context()
+	if len(ctxs) > 0 {
+		ctx = ctxs[0]
+	}
+
+	return pipe.Run(ctx)
 }

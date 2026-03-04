@@ -1,0 +1,155 @@
+package measure_test
+
+import (
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/measure"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
+)
+
+func TestDefaultMeasureAllMetricsReturnsCopy(t *testing.T) {
+	m := measure.NewDefaultMeasure()
+	m.AddMetric("step", 1)
+
+	metrics := m.AllMetrics()
+	if len(metrics) != 1 {
+		t.Fatalf("expected 1 metric, got %d", len(metrics))
+	}
+
+	delete(metrics, "step")
+
+	if m.GetMetric("step") == nil {
+		t.Fatal("expected AllMetrics to return a copy of the internal map")
+	}
+}
+
+func TestDefaultMetricAllTransportsReturnsCopy(t *testing.T) {
+	m := measure.NewDefaultMeasure()
+	mt := m.AddMetric("step", 1)
+	mt.AddTransportDuration("input", 10*time.Millisecond)
+
+	transports := mt.AllTransports()
+	if transports["input"] == nil {
+		t.Fatal("expected transport info to be present")
+	}
+
+	transports["input"].Elapsed = 0
+	delete(transports, "input")
+
+	internal := mt.AllTransports()
+	if internal["input"] == nil || internal["input"].Elapsed != 10*time.Millisecond {
+		t.Fatalf("expected internal transport elapsed to remain %s, got %v", 10*time.Millisecond, internal["input"])
+	}
+}
+
+func TestDefaultMetricAVGTransportDurationDoesNotMutate(t *testing.T) {
+	m := measure.NewDefaultMeasure()
+	mt := m.AddMetric("step", 2)
+	mt.AddTransportDuration("input", 8*time.Millisecond)
+	mt.AddTransportDuration("input", 8*time.Millisecond)
+
+	avg := mt.AVGTransportDuration()
+	if avg["input"] == nil {
+		t.Fatal("expected averaged transport info to be present")
+	}
+
+	if avg["input"].Elapsed != 4*time.Millisecond {
+		t.Fatalf("expected average to be %s, got %s", 4*time.Millisecond, avg["input"].Elapsed)
+	}
+
+	internal := mt.AllTransports()
+
+	if internal["input"] == nil || internal["input"].Elapsed != 16*time.Millisecond {
+		t.Fatalf("expected internal transport elapsed to remain %s, got %v", 16*time.Millisecond, internal["input"])
+	}
+}
+
+func TestMetricsConcurrentAccess(t *testing.T) {
+	m := measure.NewDefaultMeasure()
+	metric := m.AddMetric("step", 4)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+
+		for range 200 {
+			metric.AddDuration(1 * time.Millisecond)
+			metric.AddTransportDuration("input", 1*time.Millisecond)
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+
+		for range 200 {
+			for _, mt := range m.AllMetrics() {
+				_ = mt.AVGDuration()
+				_ = mt.AVGTransportDuration()
+				_ = mt.AllTransports()
+			}
+		}
+	}()
+
+	wg.Wait()
+}
+
+func TestDefaultMetricRetryMetrics(t *testing.T) {
+	m := measure.NewDefaultMeasure()
+	metric := m.AddMetric("step", 1)
+
+	retryMetric, ok := metric.(measure.RetryMetric)
+	if !ok {
+		t.Fatal("expected retry metrics to be supported")
+	}
+
+	retryMetric.AddRetryDuration(10 * time.Millisecond)
+	retryMetric.AddRetryDuration(20 * time.Millisecond)
+
+	if retryMetric.RetryCount() != 2 {
+		t.Fatalf("expected 2 retries, got %d", retryMetric.RetryCount())
+	}
+
+	if retryMetric.AVGRetryDuration() != 15*time.Millisecond {
+		t.Fatalf("expected average retry duration to be 15ms, got %s", retryMetric.AVGRetryDuration())
+	}
+}
+
+func TestDefaultMetricDropMetrics(t *testing.T) {
+	m := measure.NewDefaultMeasure()
+	metric := m.AddMetric("step", 1)
+
+	dropMetric, ok := metric.(measure.DropMetric)
+	if !ok {
+		t.Fatal("expected drop metrics to be supported")
+	}
+
+	dropMetric.AddDrop(model.StepDropBufferFull)
+	dropMetric.AddDrop(model.StepDropSendTimeout)
+	dropMetric.AddDrop(model.StepDropError)
+	dropMetric.AddRoutedError()
+	dropMetric.AddRoutedError()
+
+	if dropMetric.DropCount(model.StepDropBufferFull) != 1 {
+		t.Fatalf("expected 1 buffer drop, got %d", dropMetric.DropCount(model.StepDropBufferFull))
+	}
+
+	if dropMetric.DropCount(model.StepDropSendTimeout) != 1 {
+		t.Fatalf("expected 1 timeout drop, got %d", dropMetric.DropCount(model.StepDropSendTimeout))
+	}
+
+	if dropMetric.DropCount(model.StepDropError) != 1 {
+		t.Fatalf("expected 1 error drop, got %d", dropMetric.DropCount(model.StepDropError))
+	}
+
+	if dropMetric.TotalDropCount() != 3 {
+		t.Fatalf("expected 3 total drops, got %d", dropMetric.TotalDropCount())
+	}
+
+	if dropMetric.RoutedErrorCount() != 2 {
+		t.Fatalf("expected 2 routed errors, got %d", dropMetric.RoutedErrorCount())
+	}
+}

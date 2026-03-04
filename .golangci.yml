@@ -101,7 +101,7 @@ linters:
       - scripts
       - third_party$
       - builtin$
-      - examples$
+      - ^examples/
 issues:
   fix: false
 formatters:
@@ -129,4 +129,4 @@ formatters:
       - scripts
       - third_party$
       - builtin$
-      - examples$
+      - ^examples/

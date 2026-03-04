@@ -1,0 +1,32 @@
+version: "3.9"
+
+services:
+  influxdb:
+    image: influxdb:2.7
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: pipeline
+      DOCKER_INFLUXDB_INIT_PASSWORD: pipeline-pass
+      DOCKER_INFLUXDB_INIT_ORG: pipeline
+      DOCKER_INFLUXDB_INIT_BUCKET: pipeline
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: pipeline-token
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+
+  telegraf:
+    image: telegraf:1.30
+    depends_on:
+      - influxdb
+    ports:
+      - "8094:8094/udp"
+    environment:
+      INFLUX_TOKEN: pipeline-token
+      INFLUX_ORG: pipeline
+      INFLUX_BUCKET: pipeline
+    volumes:
+      - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
+
+volumes:
+  influxdb-data:

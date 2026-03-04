@@ -1,18 +1,33 @@
-// Package pipeline provides a pipeline for processing data.
+// Package pipeline builds concurrent data pipelines from small steps.
 //
-// The pipeline package offers a convenient way to process data using a series of stages. Each stage in the pipeline
-// performs a specific operation on the data and passes it to the next stage. This allows for a modular and flexible
-// approach to data processing.
+// A pipeline is a graph of steps. Each step reads from a channel, does work,
+// and sends results to the next step. Steps run in their own goroutines, and
+// backpressure comes from channel sends.
 //
-// One of the key benefits of using the pipeline package is that it manages the flow of data using channels. This
-// ensures that data is passed between stages efficiently and without the need for complex synchronisation mechanisms.
-// Additionally, the use of channels enables concurrent processing, allowing multiple stages to execute in parallel,
-// which can significantly improve performance for computationally intensive tasks.
+// The default behaviour is fail-fast errors and blocking sends. Options let you
+// change concurrency, buffers, retries, drops, and monitoring.
 //
-// Another advantage of using the pipeline package is its error handling mechanism. The pipeline will stop on the first
-// encountered error, preventing further processing and ensuring that errors are handled gracefully. This makes it
-// easier to identify and debug issues in the data processing pipeline.
+// Example:
 //
-// Overall, the pipeline package provides a convenient and efficient way to process data by leveraging channels for
-// data flow management, supporting concurrency, and handling errors effectively.
+//	pipe, _ := pipeline.New()
+//
+//	root := pipeline.Root(pipe, "root", func(ctx context.Context, out chan<- int) error {
+//		for i := range 3 {
+//			out <- i
+//		}
+//
+//		return nil
+//	})
+//
+//	doubled := pipeline.OneToOne(pipe, "double", root, func(ctx context.Context, v int) (int, error) {
+//		return v * 2, nil
+//	})
+//
+//	pipeline.Sink(pipe, "print", doubled, func(ctx context.Context, v int) error {
+//		fmt.Println(v)
+//
+//		return nil
+//	})
+//
+//	_ = pipe.Run(context.Background())
 package pipeline

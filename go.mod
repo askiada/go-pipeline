@@ -1,13 +1,11 @@
-module github.com/askiada/go-pipeline
+module github.com/askiada/go-pipeline/v2
 
-go 1.24
+go 1.25
 
 require (
 	github.com/dominikbraun/graph v0.23.0
-	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.8.4
 	golang.org/x/sync v0.3.0
-	gopkg.in/go-playground/colors.v1 v1.2.0
 )
 
 require (

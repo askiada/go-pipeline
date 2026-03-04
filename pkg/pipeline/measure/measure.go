@@ -1,24 +1,29 @@
 package measure
 
 import (
+	"maps"
 	"sync"
 )
 
-// DefaultMeasure is a default implementation of the Measure interface.
+// DefaultMeasure is an in-memory Measure implementation.
 type DefaultMeasure struct {
 	mu    sync.Mutex
 	Steps map[string]Metric
 }
 
-// NewDefaultMeasure creates a new default measure.
+// NewDefaultMeasure creates a new DefaultMeasure.
 func NewDefaultMeasure() *DefaultMeasure {
 	return &DefaultMeasure{
 		Steps: make(map[string]Metric),
 	}
 }
 
-// AddMetric adds a metric.
+// AddMetric adds or replaces a metric entry for a step.
 func (m *DefaultMeasure) AddMetric(name string, concurrent int) Metric { //nolint:ireturn // it must implement the interface
+	if concurrent < 1 {
+		concurrent = 1
+	}
+
 	mt := &DefaultMetric{
 		mu:            &sync.Mutex{},
 		allTransports: make(map[string]*TransportInfo),
@@ -33,7 +38,7 @@ func (m *DefaultMeasure) AddMetric(name string, concurrent int) Metric { //nolin
 	return mt
 }
 
-// GetMetric returns the metric.
+// GetMetric returns the metric for a step name.
 func (m *DefaultMeasure) GetMetric(name string) Metric { //nolint:ireturn // it must implement the interface
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -41,9 +46,15 @@ func (m *DefaultMeasure) GetMetric(name string) Metric { //nolint:ireturn // it 
 	return m.Steps[name]
 }
 
-// AllMetrics returns all metrics.
+// AllMetrics returns a snapshot of all metrics.
 func (m *DefaultMeasure) AllMetrics() map[string]Metric {
-	return m.Steps
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	metrics := make(map[string]Metric, len(m.Steps))
+	maps.Copy(metrics, m.Steps)
+
+	return metrics
 }
 
 var _ Measure = (*DefaultMeasure)(nil)

@@ -5,14 +5,15 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strings"
 	"text/template"
 	"time"
 
 	"github.com/dominikbraun/graph"
-	"github.com/pkg/errors"
-	"gopkg.in/go-playground/colors.v1" //nolint
 
-	"github.com/askiada/go-pipeline/pkg/pipeline/measure"
+	//nolint
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/measure"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
 
 // SVGDrawer is a drawer that creates a SVG file with the pipeline graph.
@@ -35,7 +36,7 @@ func NewSVGDrawer(svgFileName string) *SVGDrawer {
 func (d *SVGDrawer) AddStep(name string) error {
 	err := d.graph.AddVertex(name)
 	if err != nil {
-		return errors.Wrap(err, "unable to add vertex")
+		return fmt.Errorf("unable to add vertex: %w", err)
 	}
 
 	d.steps[name] = struct{}{}
@@ -47,32 +48,39 @@ func (d *SVGDrawer) AddStep(name string) error {
 func (d *SVGDrawer) AddLink(parentName, childrenName string) error {
 	err := d.graph.AddEdge(parentName, childrenName)
 	if err != nil {
-		return errors.Wrapf(err, "unable to add edge from %s to %s", parentName, childrenName)
+		return fmt.Errorf("unable to add edge from %s to %s: %w", parentName, childrenName, err)
 	}
 
 	return nil
 }
 
 // Draw creates a SVG file with the pipeline graph.
-func (d *SVGDrawer) Draw() error {
+func (d *SVGDrawer) Draw() (err error) {
 	file, err := os.Create(d.svgFileName)
 	if err != nil {
-		return errors.Wrapf(err, "unable to create file %s", d.svgFileName)
+		return fmt.Errorf("unable to create file %s: %w", d.svgFileName, err)
 	}
+
+	defer func() {
+		closeErr := file.Close()
+		if closeErr != nil && err == nil {
+			err = fmt.Errorf("unable to close file %s: %w", d.svgFileName, closeErr)
+		}
+	}()
 
 	err = dot(d.graph, file)
 	if err != nil {
-		return errors.Wrapf(err, "unable to create dot file %s", d.svgFileName)
+		return fmt.Errorf("unable to create dot file %s: %w", d.svgFileName, err)
 	}
 
-	return nil
+	return err
 }
 
 // SetTotalTime sets the total time for the step.
 func (d *SVGDrawer) SetTotalTime(stepName string, startTime time.Time) error {
 	_, properties, err := d.graph.VertexWithProperties(stepName)
 	if err != nil {
-		return errors.Wrap(err, "unable to get end vertex properties")
+		return fmt.Errorf("unable to get end vertex properties: %w", err)
 	}
 
 	properties.Attributes["xlabel"] = time.Since(startTime).String()
@@ -80,7 +88,7 @@ func (d *SVGDrawer) SetTotalTime(stepName string, startTime time.Time) error {
 	return nil
 }
 
-const maxRGB = 240
+const maxRGB uint8 = 240
 
 // AddMeasure adds measure to drawer.
 func (d *SVGDrawer) AddMeasure(msr measure.Measure) error {
@@ -108,35 +116,38 @@ func (d *SVGDrawer) AddMeasure(msr measure.Measure) error {
 		return sortedAllChanElapsed[i] > sortedAllChanElapsed[j]
 	})
 
-	redColor, err := colors.RGB(255, 0, 0) //nolint
-	if err != nil {
-		return errors.Wrap(err, "unable to get colour")
+	if len(sortedAllChanElapsed) == 0 {
+		err := d.updateMetrics(msr, allChanElapsed)
+		if err != nil {
+			return fmt.Errorf("unable to update metrics: %w", err)
+		}
+
+		return nil
 	}
+
+	redColour := rgb(255, 0, 0) //nolint
 
 	maxValue := sortedAllChanElapsed[0]
 	minValue := sortedAllChanElapsed[len(sortedAllChanElapsed)-1]
 
-	allChanElapsed[maxValue] = redColor.ToHEX().String()
+	allChanElapsed[maxValue] = redColour.toHEX().string()
 	for curr := range allChanElapsed {
 		fraction := time.Duration(1)
 		if maxValue > minValue {
 			fraction = (curr - minValue) / (maxValue - minValue)
 		}
 
-		red := maxRGB * fraction
-		blue := -maxRGB*fraction + maxRGB
+		red := maxRGB * uint8(fraction)         //nolint:gosec // False positive
+		blue := maxRGB - maxRGB*uint8(fraction) //nolint:gosec // False positive
 
-		redColor, err := colors.RGB(uint8(red), 0, uint8(blue)) //nolint
-		if err != nil {
-			return errors.Wrap(err, "unable to get colour")
-		}
+		redColour := rgb(red, 0, blue)
 
-		allChanElapsed[curr] = redColor.ToHEX().String()
+		allChanElapsed[curr] = redColour.toHEX().string()
 	}
 
-	err = d.updateMetrics(msr, allChanElapsed)
+	err := d.updateMetrics(msr, allChanElapsed)
 	if err != nil {
-		return errors.Wrap(err, "unable to update metrics")
+		return fmt.Errorf("unable to update metrics: %w", err)
 	}
 
 	return nil
@@ -146,19 +157,53 @@ func (d *SVGDrawer) updateMetrics(msr measure.Measure, allChanElapsed map[time.D
 	for name, step := range msr.AllMetrics() {
 		_, properties, err := d.graph.VertexWithProperties(name)
 		if err != nil {
-			return errors.Wrap(err, "unable to get vertex properties")
+			return fmt.Errorf("unable to get vertex properties: %w", err)
 		}
+
+		var labelParts []string
 
 		stepAvg := step.AVGDuration()
 		if stepAvg != 0 {
-			properties.Attributes["xlabel"] = stepAvg.String()
+			labelParts = append(labelParts, stepAvg.String())
+		}
+
+		if retryMetric, ok := step.(measure.RetryMetric); ok && retryMetric.RetryCount() > 0 {
+			labelParts = append(
+				labelParts,
+				"retry avg: "+retryMetric.AVGRetryDuration().String(),
+				fmt.Sprintf("retries: %d", retryMetric.RetryCount()),
+			)
+		}
+
+		if dropMetric, ok := step.(measure.DropMetric); ok {
+			totalDrops := dropMetric.TotalDropCount()
+			if totalDrops > 0 {
+				labelParts = append(
+					labelParts,
+					fmt.Sprintf(
+						"drops: %d (full:%d, timeout:%d, error:%d)",
+						totalDrops,
+						dropMetric.DropCount(model.StepDropBufferFull),
+						dropMetric.DropCount(model.StepDropSendTimeout),
+						dropMetric.DropCount(model.StepDropError),
+					),
+				)
+			}
+
+			if routed := dropMetric.RoutedErrorCount(); routed > 0 {
+				labelParts = append(labelParts, fmt.Sprintf("error routed: %d", routed))
+			}
 		}
 
 		if step.GetTotalDuration() > 0 {
-			properties.Attributes["xlabel"] += ", end: " + step.GetTotalDuration().String()
+			labelParts = append(labelParts, "end: "+step.GetTotalDuration().String())
 		}
 
-		for inputStep, info := range step.AllTransports() {
+		if len(labelParts) > 0 {
+			properties.Attributes["xlabel"] = strings.Join(labelParts, ", ")
+		}
+
+		for inputStep, info := range step.AVGTransportDuration() {
 			if info.Elapsed == 0 {
 				continue
 			}
@@ -169,7 +214,7 @@ func (d *SVGDrawer) updateMetrics(msr measure.Measure, allChanElapsed map[time.D
 				graph.EdgeAttribute("color", allChanElapsed[info.Elapsed]), //nolint
 			)
 			if err != nil {
-				return errors.Wrap(err, "unable to update edge")
+				return fmt.Errorf("unable to update edge: %w", err)
 			}
 		}
 	}
@@ -196,8 +241,8 @@ type description struct {
 }
 
 type statement struct {
-	Source           interface{}
-	Target           interface{}
+	Source           any
+	Target           any
 	SourceAttributes map[string]string
 	HTMLAttributes   map[string]string
 	EdgeAttributes   map[string]string
@@ -240,13 +285,13 @@ func generateDOT[K comparable, T any](gra graph.Graph[K, T], options ...func(*de
 
 	adjacencyMap, err := gra.AdjacencyMap()
 	if err != nil {
-		return desc, errors.Wrap(err, "unable to get adjacency map")
+		return desc, fmt.Errorf("unable to get adjacency map: %w", err)
 	}
 
 	for vertex, adjacencies := range adjacencyMap {
 		_, sourceProperties, err := gra.VertexWithProperties(vertex)
 		if err != nil {
-			return desc, errors.Wrap(err, "unable to get vertex properties")
+			return desc, fmt.Errorf("unable to get vertex properties: %w", err)
 		}
 
 		htmlAttributes := make(map[string]string)
@@ -287,10 +332,36 @@ func renderDOT(wri io.Writer, desc description) error {
 
 	err = tpl.Execute(wri, desc)
 	if err != nil {
-		return errors.Wrap(err, "unable to execute template")
+		return fmt.Errorf("unable to execute template: %w", err)
 	}
 
 	return nil
+}
+
+type rgbColour struct {
+	R uint8
+	G uint8
+	B uint8
+}
+
+// rgb validates and returns a new RGBColor object from the provided r, g, b values.
+func rgb(r, g, b uint8) *rgbColour {
+	return &rgbColour{R: r, G: g, B: b}
+}
+
+// hexColour represents a HEX colour.
+type hexColour struct {
+	hex string
+}
+
+// string returns the string representation on the hexColour.
+func (c *hexColour) string() string {
+	return c.hex
+}
+
+// toHEX converts the rgbColor to a hexColour.
+func (c *rgbColour) toHEX() *hexColour {
+	return &hexColour{hex: fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B)}
 }
 
 var _ Drawer = (*SVGDrawer)(nil)

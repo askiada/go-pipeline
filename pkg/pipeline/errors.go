@@ -1,18 +1,38 @@
 package pipeline
 
 import (
+	"errors"
+	"fmt"
 	"sync"
-
-	"github.com/pkg/errors"
 )
 
 var (
 	// ErrPipelineMustBeSet is returned when the pipeline is not set.
 	ErrPipelineMustBeSet = errors.New("pipe must be set")
+	// ErrPipelineAlreadyRan is returned when a pipeline Run is invoked more than once.
+	ErrPipelineAlreadyRan = errors.New("pipeline already ran")
+	// ErrContextMustBeSet is returned when the context is not set.
+	ErrContextMustBeSet = errors.New("context must be set")
 	// ErrInputMustBeSet is returned when the input is not set.
 	ErrInputMustBeSet = errors.New("input must be set")
 	// ErrSplitterTotal is returned when the total is not set.
 	ErrSplitterTotal = errors.New("total must be greater than 0")
+	// ErrRetryUnsupported is returned when retry is configured on an unsupported step.
+	ErrRetryUnsupported = errors.New("retry is not supported for this step type")
+	// ErrBatchPolicyMustBeSet is returned when a batch step does not define a batch policy.
+	ErrBatchPolicyMustBeSet = errors.New("batch policy must be set")
+	// ErrTimeoutUnsupported is returned when timeout is configured on an unsupported step.
+	ErrTimeoutUnsupported = errors.New("timeout is not supported for this step type")
+	// ErrRateLimitUnsupported is returned when rate limiting is configured on an unsupported step.
+	ErrRateLimitUnsupported = errors.New("rate limit is not supported for this step type")
+	// ErrMaxInFlightUnsupported is returned when max in-flight is configured on an unsupported step.
+	ErrMaxInFlightUnsupported = errors.New("max in-flight is not supported for this step type")
+	// ErrDropOutputUnsupported is returned when output drop policies are configured on an unsupported step.
+	ErrDropOutputUnsupported = errors.New("output drop policy is not supported for this step type")
+	// ErrDropOnErrorUnsupported is returned when drop-on-error is configured on an unsupported step.
+	ErrDropOnErrorUnsupported = errors.New("drop on error is not supported for this step type")
+	// ErrErrorRouteUnsupported is returned when error routing is configured on an unsupported step.
+	ErrErrorRouteUnsupported = errors.New("error routing is not supported for this step type")
 )
 
 type errorChans struct {
@@ -58,7 +78,7 @@ func mergeErrors(errChs ...*errorChan) <-chan error {
 		}
 
 		for n := range errC.c {
-			out <- errors.Wrap(n, errC.name)
+			out <- fmt.Errorf("%s: %w", errC.name, n)
 		}
 	}
 

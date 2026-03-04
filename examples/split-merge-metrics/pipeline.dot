@@ -1,0 +1,47 @@
+strict digraph {
+	
+	
+		"start" [   weight=0 ];
+	
+		"start" -> "source" [  weight=0 ];
+	
+		"middle" [ label=<middle <BR /> <FONT POINT-SIZE="12">4ms</FONT>>,   weight=0 ];
+	
+		"middle" -> "merge" [ color="#0000f0", fontcolor="blue", label="7ms",  weight=0 ];
+	
+		"merge" [   weight=0 ];
+	
+		"merge" -> "print" [ color="#0000f0", fontcolor="blue", label="3ms",  weight=0 ];
+	
+		"print" [ label=<print <BR /> <FONT POINT-SIZE="12">59µs, end: 42.575292ms</FONT>>,   weight=0 ];
+	
+		"print" -> "end" [  weight=0 ];
+	
+		"end" [ label=<end <BR /> <FONT POINT-SIZE="12">42.882542ms</FONT>>,   weight=0 ];
+	
+		"source" [   weight=0 ];
+	
+		"source" -> "prep" [ color="#0000f0", fontcolor="blue", label="546µs",  weight=0 ];
+	
+		"prep" [ label=<prep <BR /> <FONT POINT-SIZE="12">5ms</FONT>>,   weight=0 ];
+	
+		"prep" -> "fan-out" [ color="#0000f0", fontcolor="blue", label="6ms",  weight=0 ];
+	
+		"left" [ label=<left <BR /> <FONT POINT-SIZE="12">9ms</FONT>>,   weight=0 ];
+	
+		"left" -> "merge" [ color="#f00000", fontcolor="blue", label="10ms",  weight=0 ];
+	
+		"fan-out" [ label=<fan-out <BR /> <FONT POINT-SIZE="12">20µs</FONT>>,   weight=0 ];
+	
+		"fan-out" -> "left" [ color="#0000f0", fontcolor="blue", label="2ms",  weight=0 ];
+	
+		"fan-out" -> "middle" [ color="#0000f0", fontcolor="blue", label="3ms",  weight=0 ];
+	
+		"fan-out" -> "right" [ color="#0000f0", fontcolor="blue", label="4ms",  weight=0 ];
+	
+		"right" [ label=<right <BR /> <FONT POINT-SIZE="12">2ms</FONT>>,   weight=0 ];
+	
+		"right" -> "merge" [ color="#0000f0", fontcolor="blue", label="6ms",  weight=0 ];
+	
+	}
+	

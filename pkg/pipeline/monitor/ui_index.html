@@ -1,0 +1,601 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>go-pipeline live monitoring</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f4ef;
+      --panel: #ffffff;
+      --ink: #1d1c1a;
+      --muted: #6a655d;
+      --accent: #4b6fff;
+      --border: #e0dad2;
+      font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+    }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at top, #fff4d6, #f6f4ef 60%);
+      color: var(--ink);
+    }
+    header {
+      padding: 32px 40px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .title {
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .status {
+      font-size: 14px;
+      color: var(--muted);
+    }
+    main {
+      padding: 0 40px 40px;
+      display: grid;
+      grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+      gap: 24px;
+    }
+    section {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 20px 24px;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.05);
+    }
+    h2 {
+      font-size: 16px;
+      margin: 0 0 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    th, td {
+      text-align: left;
+      padding: 8px 6px;
+      border-bottom: 1px solid var(--border);
+    }
+    th {
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(75, 111, 255, 0.12);
+      color: var(--accent);
+      font-size: 12px;
+    }
+    .muted {
+      color: var(--muted);
+    }
+    .topology {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 14px;
+    }
+    .grid {
+      display: grid;
+      gap: 12px;
+    }
+    .graph {
+      min-height: 240px;
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      background: #f8f6f2;
+      overflow: auto;
+    }
+    .graph svg {
+      width: 100%;
+      height: auto;
+    }
+    @media (max-width: 980px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <div class="title">Live pipeline monitoring</div>
+      <div class="status" id="connectionStatus">Connecting...</div>
+    </div>
+    <div class="status" id="runMeta"></div>
+  </header>
+  <main>
+    <section>
+      <h2>Graph</h2>
+      <div class="graph" id="graph">Waiting for topology...</div>
+    </section>
+    <section>
+      <h2>Topology</h2>
+      <div class="topology" id="topology"></div>
+    </section>
+    <section>
+      <h2>Run status</h2>
+      <div class="grid">
+        <div><span class="pill" id="runState">idle</span></div>
+        <div class="muted" id="runTiming"></div>
+        <div class="muted" id="runTotals"></div>
+      </div>
+    </section>
+    <section>
+      <h2>Step throughput</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Step</th>
+            <th>Type</th>
+            <th>Count</th>
+            <th>Avg duration</th>
+            <th>Avg transport</th>
+          </tr>
+        </thead>
+        <tbody id="stepTable"></tbody>
+      </table>
+    </section>
+    <section>
+      <h2>Quality signals</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Step</th>
+            <th>Drops</th>
+            <th>Retries</th>
+            <th>Error routes</th>
+          </tr>
+        </thead>
+        <tbody id="qualityTable"></tbody>
+      </table>
+    </section>
+  </main>
+  <script type="module">
+    const state = {
+      run: {},
+      steps: {},
+      stepOrder: [],
+      links: [],
+      outputs: {},
+      drops: {},
+      retries: {},
+      errorRoutes: {},
+      runTotal: null,
+      snapshotSeq: null,
+    };
+    const graphState = {
+      dot: "",
+      rendering: false,
+    };
+
+    let hpccWasm = null;
+    let graphviz = null;
+    let graphvizLoading = null;
+    let renderPending = false;
+
+    function scheduleRender() {
+      if (renderPending) return;
+      renderPending = true;
+      window.requestAnimationFrame(() => {
+        renderPending = false;
+        render();
+      });
+    }
+
+    import("https://cdn.jsdelivr.net/npm/@hpcc-js/wasm@2.13.0/dist/index.min.js")
+      .then((mod) => {
+        hpccWasm = mod;
+        window.hpccWasm = hpccWasm;
+        ensureGraphviz();
+      })
+      .catch((err) => {
+        console.warn("Graphviz WASM failed to load", err);
+      });
+
+    function ensureGraphviz() {
+      if (graphviz || graphvizLoading || !hpccWasm) {
+        return;
+      }
+
+      if (hpccWasm.graphviz) {
+        graphviz = hpccWasm.graphviz;
+        scheduleRender();
+        return;
+      }
+
+      if (hpccWasm.Graphviz && typeof hpccWasm.Graphviz.load === "function") {
+        graphvizLoading = hpccWasm.Graphviz.load()
+          .then((instance) => {
+            graphviz = instance;
+            graphvizLoading = null;
+            scheduleRender();
+          })
+          .catch((err) => {
+            graphvizLoading = null;
+            console.warn("Graphviz WASM failed to initialize", err);
+          });
+        return;
+      }
+
+      console.warn("Graphviz module loaded without graphviz export", hpccWasm);
+    }
+
+    function ensureStepOrder(name) {
+      if (!name || state.stepOrder.includes(name)) {
+        return;
+      }
+
+      state.stepOrder.push(name);
+    }
+
+    function normalizeCountMap(value) {
+      if (!value || typeof value !== "object") {
+        return {};
+      }
+
+      const out = {};
+      Object.entries(value).forEach(([key, count]) => {
+        const num = Number(count || 0);
+        if (!Number.isNaN(num)) {
+          out[key] = num;
+        }
+      });
+
+      return out;
+    }
+
+    function applySnapshot(fields) {
+      if (!fields || typeof fields !== "object") {
+        return;
+      }
+
+      state.outputs = {};
+      if (fields.outputs && typeof fields.outputs === "object") {
+        Object.entries(fields.outputs).forEach(([name, stats]) => {
+          if (!stats || typeof stats !== "object") {
+            return;
+          }
+          state.outputs[name] = {
+            count: Number(stats.count || 0),
+            duration: Number(stats.duration_ms || 0),
+            transport: Number(stats.transport_ms || 0),
+          };
+          ensureStepOrder(name);
+        });
+      }
+
+      state.drops = normalizeCountMap(fields.drops);
+      Object.keys(state.drops).forEach(ensureStepOrder);
+
+      state.retries = normalizeCountMap(fields.retries);
+      Object.keys(state.retries).forEach(ensureStepOrder);
+
+      state.errorRoutes = normalizeCountMap(fields.error_routes);
+      Object.keys(state.errorRoutes).forEach(ensureStepOrder);
+
+      if (fields.run_total_ms !== undefined && fields.run_total_ms !== null) {
+        const totalMs = Number(fields.run_total_ms);
+        if (!Number.isNaN(totalMs)) {
+          state.runTotal = totalMs;
+        }
+      }
+
+      if (fields.run_started_at_ms !== undefined && fields.run_started_at_ms !== null) {
+        const startedAt = Number(fields.run_started_at_ms);
+        if (!Number.isNaN(startedAt)) {
+          state.run.started_at = startedAt;
+        }
+      }
+
+      if (fields.snapshot_seq !== undefined && fields.snapshot_seq !== null) {
+        const seq = Number(fields.snapshot_seq);
+        if (!Number.isNaN(seq)) {
+          state.snapshotSeq = seq;
+        }
+      }
+    }
+
+    function handleEvent(evt) {
+      if (!evt || !evt.measurement) return;
+      const tags = evt.tags || {};
+      const fields = evt.fields || {};
+
+      if (!state.run.run_id && tags.run_id) {
+        state.run = {
+          run_id: tags.run_id,
+          run_name: tags.run_name || "",
+          origin: tags.origin || "",
+          pipeline_name: tags.pipeline_name || "",
+          started_at: Date.now(),
+        };
+      }
+
+      if (evt.measurement === "monitor_snapshot") {
+        applySnapshot(fields);
+        scheduleRender();
+        return;
+      }
+
+      const seq = Number(fields.seq);
+      if (state.snapshotSeq !== null && Number.isFinite(seq) && seq <= state.snapshotSeq) {
+        return;
+      }
+
+      switch (evt.measurement) {
+        case "pipeline_step":
+          if (tags.step_name) {
+            if (!state.steps[tags.step_name]) {
+              state.stepOrder.push(tags.step_name);
+            }
+
+            state.steps[tags.step_name] = {
+              name: tags.step_name,
+              type: tags.step_type || "",
+              concurrent: fields.concurrent || 0,
+              buffer: fields.buffer_size || 0,
+            };
+          }
+          break;
+        case "pipeline_link":
+          if (tags.from_step && tags.to_step) {
+            const key = tags.from_step + "->" + tags.to_step;
+            if (!state.links.find((link) => link.key === key)) {
+              state.links.push({ key, from: tags.from_step, to: tags.to_step });
+            }
+          }
+          break;
+        case "step_output":
+        case "splitter_output":
+        case "merger_output":
+        case "sink_output": {
+          const stepName = tags.step_name || "unknown";
+          const bucket = state.outputs[stepName] || { count: 0, duration: 0, transport: 0 };
+          bucket.count += Number(fields.count || 0);
+          bucket.duration += Number(fields.duration_ms || 0);
+          bucket.transport += Number(fields.transport_ms || 0);
+          state.outputs[stepName] = bucket;
+          break;
+        }
+        case "step_drop": {
+          const stepName = tags.step_name || "unknown";
+          state.drops[stepName] = (state.drops[stepName] || 0) + Number(fields.count || 0);
+          break;
+        }
+        case "step_retry": {
+          const stepName = tags.step_name || "unknown";
+          state.retries[stepName] = (state.retries[stepName] || 0) + Number(fields.count || 0);
+          break;
+        }
+        case "step_error_route": {
+          const stepName = tags.step_name || "unknown";
+          state.errorRoutes[stepName] = (state.errorRoutes[stepName] || 0) + Number(fields.count || 0);
+          break;
+        }
+        case "run_total":
+          state.runTotal = fields.duration_ms || null;
+          break;
+        default:
+          break;
+      }
+
+      scheduleRender();
+    }
+
+    function render() {
+      renderGraph();
+      renderRunMeta();
+      renderTopology();
+      renderStepTable();
+      renderQualityTable();
+    }
+
+    function renderRunMeta() {
+      const meta = document.getElementById("runMeta");
+      const stateBadge = document.getElementById("runState");
+      const timing = document.getElementById("runTiming");
+      const totals = document.getElementById("runTotals");
+      if (!state.run.run_id) {
+        meta.textContent = "Waiting for run metadata...";
+        return;
+      }
+      meta.textContent = (state.run.run_name || state.run.run_id) + " - " + state.run.origin;
+      stateBadge.textContent = "running";
+      const elapsed = state.run.started_at ? ((Date.now() - state.run.started_at) / 1000).toFixed(1) : "--";
+      timing.textContent = "Elapsed: " + elapsed + "s";
+      if (state.runTotal) {
+        totals.textContent = "Run total: " + Number(state.runTotal).toFixed(1) + "ms";
+      }
+    }
+
+    function renderTopology() {
+      const container = document.getElementById("topology");
+      if (state.links.length === 0) {
+        container.textContent = "No topology events yet.";
+        return;
+      }
+      container.innerHTML = "";
+      state.links.forEach((link) => {
+        const div = document.createElement("div");
+        div.textContent = link.from + " -> " + link.to;
+        container.appendChild(div);
+      });
+    }
+
+    function renderGraph() {
+      const container = document.getElementById("graph");
+      if (!container) return;
+
+      const dot = buildDot();
+      if (!dot) {
+        container.textContent = "Waiting for topology...";
+        return;
+      }
+
+      if (graphState.rendering || graphState.dot === dot) {
+        return;
+      }
+
+      ensureGraphviz();
+      if (graphvizLoading) {
+        container.textContent = "Graphviz WASM loading...";
+        return;
+      }
+      if (!graphviz) {
+        container.textContent = "Graphviz WASM not loaded. Check network access.";
+        return;
+      }
+
+      graphState.rendering = true;
+      try {
+        const result = graphviz.layout(dot, "svg", "dot");
+        if (result && typeof result.then === "function") {
+          result
+            .then((svg) => {
+              graphState.dot = dot;
+              container.innerHTML = svg;
+            })
+            .catch((err) => {
+              container.textContent = "Graph render failed: " + err;
+            })
+            .finally(() => {
+              graphState.rendering = false;
+            });
+        } else {
+          graphState.dot = dot;
+          container.innerHTML = result;
+          graphState.rendering = false;
+        }
+      } catch (err) {
+        graphState.rendering = false;
+        container.textContent = "Graph render failed: " + err;
+      }
+    }
+
+    function buildDot() {
+      const names = Object.keys(state.steps);
+      if (names.length === 0) {
+        return "";
+      }
+
+      const lines = [];
+      lines.push("digraph pipeline {");
+      lines.push("  rankdir=LR;");
+      lines.push("  node [shape=box, style=rounded, fontsize=11];");
+
+      names.sort().forEach((name) => {
+        const step = state.steps[name] || {};
+        let label = name;
+        if (step.type) {
+          label = label + "\\n(" + step.type + ")";
+        }
+        lines.push("  " + quoteId(name) + " [label=\"" + escapeLabel(label) + "\"];");
+      });
+
+      state.links.forEach((link) => {
+        lines.push("  " + quoteId(link.from) + " -> " + quoteId(link.to) + ";");
+      });
+
+      lines.push("}");
+
+      return lines.join("\n");
+    }
+
+    function quoteId(value) {
+      const raw = String(value);
+      if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(raw)) {
+        return raw;
+      }
+
+      return "\"" + escapeLabel(raw) + "\"";
+    }
+
+    function escapeLabel(value) {
+      return String(value)
+        .replace(/\\/g, "\\\\")
+        .replace(/"/g, "\\\"");
+    }
+
+    function renderStepTable() {
+      const body = document.getElementById("stepTable");
+      const names = state.stepOrder.length
+        ? state.stepOrder.filter((name) => state.outputs[name])
+        : Object.keys(state.outputs);
+      if (names.length === 0) {
+        body.innerHTML = "<tr><td colspan=\"5\" class=\"muted\">No output yet.</td></tr>";
+        return;
+      }
+      body.innerHTML = "";
+      names.forEach((name) => {
+        const step = state.steps[name] || { type: "" };
+        const stats = state.outputs[name];
+        const avgDuration = stats.count ? (stats.duration / stats.count).toFixed(2) : "0";
+        const avgTransport = stats.count ? (stats.transport / stats.count).toFixed(2) : "0";
+        body.innerHTML += "<tr>" +
+          "<td>" + name + "</td>" +
+          "<td class=\"muted\">" + step.type + "</td>" +
+          "<td>" + stats.count + "</td>" +
+          "<td>" + avgDuration + "ms</td>" +
+          "<td>" + avgTransport + "ms</td>" +
+          "</tr>";
+      });
+    }
+
+    function renderQualityTable() {
+      const body = document.getElementById("qualityTable");
+      const names = new Set([
+        ...Object.keys(state.drops),
+        ...Object.keys(state.retries),
+        ...Object.keys(state.errorRoutes),
+      ]);
+      if (names.size === 0) {
+        body.innerHTML = "<tr><td colspan=\"4\" class=\"muted\">No drops/retries/errors yet.</td></tr>";
+        return;
+      }
+      body.innerHTML = "";
+      const ordered = state.stepOrder.length
+        ? state.stepOrder.filter((name) => names.has(name))
+        : Array.from(names);
+      ordered.forEach((name) => {
+        body.innerHTML += "<tr>" +
+          "<td>" + name + "</td>" +
+          "<td>" + (state.drops[name] || 0) + "</td>" +
+          "<td>" + (state.retries[name] || 0) + "</td>" +
+          "<td>" + (state.errorRoutes[name] || 0) + "</td>" +
+          "</tr>";
+      });
+    }
+
+    const statusEl = document.getElementById("connectionStatus");
+    const eventSource = new EventSource("/events");
+    eventSource.onopen = () => {
+      statusEl.textContent = "Connected";
+    };
+    eventSource.onerror = () => {
+      statusEl.textContent = "Disconnected - retrying...";
+    };
+    eventSource.onmessage = (e) => {
+      try {
+        handleEvent(JSON.parse(e.data));
+      } catch (err) {
+        console.error(err);
+      }
+    };
+  </script>
+</body>
+</html>

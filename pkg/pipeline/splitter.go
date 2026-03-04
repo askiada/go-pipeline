@@ -2,26 +2,27 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
+	"log"
 	"sync"
 	"time"
 
-	"github.com/pkg/errors"
-
-	"github.com/askiada/go-pipeline/pkg/pipeline/model"
+	"github.com/askiada/go-pipeline/v2/pkg/pipeline/model"
 )
 
-// Splitter is a step that splits the input into multiple outputs.
+// Splitter fans out items into multiple branch steps.
+// Use Get to retrieve each branch step in order.
 type Splitter[I any] struct {
 	mu            sync.Mutex
 	currIdx       int
-	mainStep      *model.Step[I]
-	splittedSteps []*model.Step[I]
+	mainStep      *Step[I]
+	splittedSteps []*Step[I]
 	bufferSize    int
 	Total         int
 }
 
-// Get returns the next splitted step.
-func (s *Splitter[I]) Get() (*model.Step[I], bool) {
+// Get returns the next branch step in order.
+func (s *Splitter[I]) Get() (*Step[I], bool) {
 	s.mu.Lock()
 
 	defer func() {
@@ -36,7 +37,7 @@ func (s *Splitter[I]) Get() (*model.Step[I], bool) {
 	return s.splittedSteps[s.currIdx], true
 }
 
-func prepareSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], total int, opts ...SplitterOption[I]) (*Splitter[I], error) {
+func prepareSplitter[I any](pipe *Pipeline, name string, input *Step[I], total int, opts ...SplitterOption[I]) (*Splitter[I], error) {
 	if pipe == nil {
 		return nil, ErrPipelineMustBeSet
 	}
@@ -51,8 +52,8 @@ func prepareSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], t
 
 	splitter := &Splitter[I]{
 		Total: total,
-		mainStep: &model.Step[I]{
-			Details: &model.StepInfo{
+		mainStep: &Step[I]{
+			Details: &StepInfo{
 				Type:       model.SplitterStepType,
 				Name:       name,
 				Concurrent: 1,
@@ -60,23 +61,36 @@ func prepareSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], t
 		},
 	}
 
+	applySplitterDefaults(pipe, splitter)
+
 	for _, opt := range opts {
 		opt(splitter)
 	}
 
-	splitter.splittedSteps = make([]*model.Step[I], total)
+	splitter.splittedSteps = make([]*Step[I], total)
 
 	if splitter.bufferSize == 0 {
 		splitter.bufferSize = 1
 	}
 
+	splitter.mainStep.Details.BufferSize = splitter.bufferSize
+
+	inputConcurrent := 1
+	if input.Details != nil && input.Details.Concurrent > 0 {
+		inputConcurrent = input.Details.Concurrent
+	}
+
+	warnSplitterBuffer(name, splitter.bufferSize, inputConcurrent)
+
 	for idx := range total {
-		step := model.Step[I]{
-			Details: &model.StepInfo{
-				Type: model.SplitterStepType,
-				Name: name,
+		step := Step[I]{
+			Details: &StepInfo{
+				Type:       model.SplitterStepType,
+				Name:       name,
+				Concurrent: 1,
+				BufferSize: splitter.bufferSize,
 			},
-			Output: make(chan I),
+			Output: make(chan I, splitter.bufferSize),
 		}
 		splitter.splittedSteps[idx] = &step
 	}
@@ -84,36 +98,76 @@ func prepareSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], t
 	for _, opt := range pipe.opts {
 		err := opt.PrepareSplitter(input.Details, splitter.mainStep.Details)
 		if err != nil {
-			return nil, errors.Wrap(err, "unable to run before step function")
+			return nil, fmt.Errorf("unable to run before step function: %w", err)
 		}
 	}
 
 	return splitter, nil
 }
 
-func runSplitter[I any](
+func warnSplitterBuffer(name string, bufferSize, inputConcurrent int) {
+	if bufferSize < 1 {
+		return
+	}
+
+	if inputConcurrent < 1 {
+		inputConcurrent = 1
+	}
+
+	if bufferSize < inputConcurrent {
+		log.Printf(
+			"go-pipeline: splitter %q buffer size %d is smaller than input concurrency %d; "+
+				"expect upstream backpressure",
+			name,
+			bufferSize,
+			inputConcurrent,
+		)
+
+		return
+	}
+
+	const warnFactor = 8
+	if bufferSize > inputConcurrent*warnFactor {
+		log.Printf(
+			"go-pipeline: splitter %q buffer size %d is much larger than input concurrency %d; "+
+				"large per-branch buffers can increase memory use",
+			name,
+			bufferSize,
+			inputConcurrent,
+		)
+	}
+}
+
+type splitterRouteFn[I any] func(ctx context.Context, entry I, send func(idx int) error) error
+
+//nolint:cyclop,gocognit,gocyclo // Branch-heavy error handling stays localised here.
+func runSplitterLoop[I any](
+	ctx context.Context,
 	pipe *Pipeline,
 	splitter *Splitter[I],
-	input *model.Step[I],
-	splitterBuffer []chan I,
+	input *Step[I],
 	errC chan error,
-	wgrp *sync.WaitGroup,
+	route splitterRouteFn[I],
 ) {
 	defer func() {
-		for _, buf := range splitterBuffer {
-			close(buf)
+		for _, step := range splitter.splittedSteps {
+			close(step.Output)
 		}
 
-		wgrp.Wait()
 		close(errC)
 	}()
 
+	cfg := pipe.hookConfig()
+
 	for {
-		startIter := time.Now()
+		var waitStart time.Time
+		if cfg.outputMetrics {
+			waitStart = time.Now()
+		}
 
 		select {
-		case <-pipe.ctx.Done():
-			errC <- pipe.ctx.Err()
+		case <-ctx.Done():
+			errC <- ctx.Err()
 
 			return
 		case entry, ok := <-input.Output:
@@ -121,160 +175,172 @@ func runSplitter[I any](
 				return
 			}
 
-			startFn := time.Now()
+			var inputWait time.Duration
+			if cfg.outputMetrics {
+				inputWait = time.Since(waitStart)
+			}
 
-			for _, buf := range splitterBuffer {
-				localEntry := entry
-				localBuf := buf
+			var startFn time.Time
+			if cfg.outputMetrics {
+				startFn = time.Now()
+			}
 
+			send := func(idx int) error {
 				select {
-				case <-pipe.ctx.Done():
-					errC <- pipe.ctx.Err()
-
-					return
-				case localBuf <- localEntry:
+				case <-ctx.Done():
+					return ctx.Err()
+				case splitter.splittedSteps[idx].Output <- entry:
+					return nil
 				}
 			}
 
-			endFn := time.Since(startFn)
-			endIter := time.Since(startIter) - endFn
+			err := route(ctx, entry, send)
+			if err != nil {
+				errC <- err
 
-			for _, opt := range pipe.opts {
-				err := opt.OnSplitterOutput(input.Details, splitter.mainStep.Details, endIter, endFn)
+				return
+			}
+
+			for _, opt := range cfg.opts {
+				err := opt.OnSplitterOutput(input.Details, splitter.mainStep.Details)
 				if err != nil {
-					errC <- errors.Wrap(err, "unable to run before merger function")
+					errC <- fmt.Errorf("unable to run before merger function: %w", err)
+				}
+			}
+
+			if !cfg.outputMetrics {
+				continue
+			}
+
+			endFn := time.Since(startFn)
+
+			for _, opt := range cfg.metricsOpts {
+				err := opt.OnSplitterOutputMetrics(input.Details, splitter.mainStep.Details, inputWait, endFn)
+				if err != nil {
+					errC <- fmt.Errorf("unable to run before merger function: %w", err)
 				}
 			}
 		}
 	}
 }
 
-// AddSplitter adds a splitter step to the pipeline. It will split the input into multiple outputs based on the total.
-func AddSplitter[I any](pipe *Pipeline, name string, input *model.Step[I], total int, opts ...SplitterOption[I]) (*Splitter[I], error) {
+func runSplitter[I any](
+	ctx context.Context,
+	pipe *Pipeline,
+	splitter *Splitter[I],
+	input *Step[I],
+	errC chan error,
+) {
+	runSplitterLoop(ctx, pipe, splitter, input, errC, func(_ context.Context, _ I, send func(idx int) error) error {
+		for idx := range splitter.splittedSteps {
+			err := send(idx)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
+func runSplitBy[I any](
+	ctx context.Context,
+	pipe *Pipeline,
+	splitter *Splitter[I],
+	input *Step[I],
+	errC chan error,
+	fns []SplitFn[I],
+) {
+	runSplitterLoop(ctx, pipe, splitter, input, errC, func(ctx context.Context, entry I, send func(idx int) error) error {
+		for idx, fn := range fns {
+			ok, err := fn(ctx, entry)
+			if err != nil {
+				return fmt.Errorf("unable to run splitter function: %w", err)
+			}
+
+			if !ok {
+				continue
+			}
+
+			err = send(idx)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
+// Split adds a splitter step that copies each item to every branch.
+func Split[I any](pipe *Pipeline, name string, input *Step[I], total int, opts ...SplitterOption[I]) *Splitter[I] {
+	if pipe == nil {
+		return nil
+	}
+
+	if pipe.buildErr != nil {
+		return nil
+	}
+
 	errC := make(chan error, 1)
 	decoratedError := newErrorChan(name, errC)
 
 	splitter, err := prepareSplitter(pipe, name, input, total, opts...)
 	if err != nil {
-		return nil, err
+		pipe.recordErr(name, err)
+
+		return nil
 	}
 
-	splitterBuffer := make([]chan I, total)
-
-	for i := range splitterBuffer {
-		splitterBuffer[i] = make(chan I, splitter.bufferSize)
-	}
-
-	wgrp := &sync.WaitGroup{}
-	wgrp.Add(len(splitterBuffer))
-
-	for i, buf := range splitterBuffer {
-		localBuf := buf
-		localI := i
-
+	pipe.addRunner(func(ctx context.Context) {
 		go func() {
-			defer func() {
-				close(splitter.splittedSteps[localI].Output)
-				wgrp.Done()
-			}()
-
-			for {
-				select {
-				case elem, ok := <-localBuf:
-					if !ok {
-						return
-					}
-
-					splitter.splittedSteps[localI].Output <- elem
-				case <-pipe.ctx.Done():
-					errC <- pipe.ctx.Err()
-
-					return
-				}
-			}
+			runSplitter(ctx, pipe, splitter, input, errC)
 		}()
-	}
-
-	go func() {
-		runSplitter(pipe, splitter, input, splitterBuffer, errC, wgrp)
-	}()
+	})
 
 	pipe.errcList.add(decoratedError)
 
-	return splitter, nil
+	return splitter
 }
 
-// SplitterFn is a function that returns wether to keep the input or not.
-type SplitterFn[I any] func(ctx context.Context, input I) (bool, error)
+// SplitFn decides whether an item should be sent to a branch.
+type SplitFn[I any] func(ctx context.Context, input I) (bool, error)
 
-// AddSplitterFn adds a splitter step to the pipeline. It will split the input into multiple outputs based on the provided functions.
-func AddSplitterFn[I any](
+// SplitBy adds a splitter step that routes items to branches.
+// Each function is called for each item; returning true sends the item to that branch.
+func SplitBy[I any](
 	pipe *Pipeline,
 	name string,
-	input *model.Step[I],
-	fns []SplitterFn[I],
+	input *Step[I],
+	fns []SplitFn[I],
 	opts ...SplitterOption[I],
-) (*Splitter[I], error) {
+) *Splitter[I] {
+	if pipe == nil {
+		return nil
+	}
+
+	if pipe.buildErr != nil {
+		return nil
+	}
+
 	total := len(fns)
 	errC := make(chan error, 1)
 	decoratedError := newErrorChan(name, errC)
 
 	splitter, err := prepareSplitter(pipe, name, input, total, opts...)
 	if err != nil {
-		return nil, err
+		pipe.recordErr(name, err)
+
+		return nil
 	}
 
-	splitterBuffer := make([]chan I, total)
-
-	for i := range splitterBuffer {
-		splitterBuffer[i] = make(chan I, splitter.bufferSize)
-	}
-
-	wgrp := &sync.WaitGroup{}
-	wgrp.Add(len(splitterBuffer))
-
-	for i, buf := range splitterBuffer {
-		localBuf := buf
-		localI := i
-
+	pipe.addRunner(func(ctx context.Context) {
 		go func() {
-			defer func() {
-				close(splitter.splittedSteps[localI].Output)
-				wgrp.Done()
-			}()
-
-			for {
-				select {
-				case <-pipe.ctx.Done():
-					errC <- pipe.ctx.Err()
-
-					return
-
-				case elem, ok := <-localBuf:
-					if !ok {
-						return
-					}
-
-					ok, err := fns[localI](pipe.ctx, elem)
-					if err != nil {
-						errC <- errors.Wrap(err, "unable to run splitter function")
-					}
-
-					if !ok {
-						continue
-					}
-
-					splitter.splittedSteps[localI].Output <- elem
-				}
-			}
+			runSplitBy(ctx, pipe, splitter, input, errC, fns)
 		}()
-	}
-
-	go func() {
-		runSplitter(pipe, splitter, input, splitterBuffer, errC, wgrp)
-	}()
+	})
 
 	pipe.errcList.add(decoratedError)
 
-	return splitter, nil
+	return splitter
 }

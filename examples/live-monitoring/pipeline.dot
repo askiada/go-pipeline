@@ -1,0 +1,53 @@
+strict digraph {
+	
+	
+		"end" [ label=<end <BR /> <FONT POINT-SIZE="12">1m2.522558084s</FONT>>,   weight=0 ];
+	
+		"expand" [ label=<expand <BR /> <FONT POINT-SIZE="12">229ms</FONT>>,   weight=0 ];
+	
+		"expand" -> "route" [ color="#0000f0", fontcolor="blue", label="1ms",  weight=0 ];
+	
+		"route" [ label=<route <BR /> <FONT POINT-SIZE="12">101ms</FONT>>,   weight=0 ];
+	
+		"route" -> "even-work" [ color="#0000f0", fontcolor="blue", label="1ms",  weight=0 ];
+	
+		"route" -> "odd-work" [ color="#0000f0", fontcolor="blue", label="253ms",  weight=0 ];
+	
+		"odd-work" [ label=<odd-work <BR /> <FONT POINT-SIZE="12">309ms</FONT>>,   weight=0 ];
+	
+		"odd-work" -> "merge" [ color="#f00000", fontcolor="blue", label="409ms",  weight=0 ];
+	
+		"start" [   weight=0 ];
+	
+		"start" -> "root" [  weight=0 ];
+	
+		"parse" [ label=<parse <BR /> <FONT POINT-SIZE="12">183ms</FONT>>,   weight=0 ];
+	
+		"parse" -> "expand" [ color="#0000f0", fontcolor="blue", label="88ms",  weight=0 ];
+	
+		"even-work" [ label=<even-work <BR /> <FONT POINT-SIZE="12">273ms</FONT>>,   weight=0 ];
+	
+		"even-work" -> "merge" [ color="#0000f0", fontcolor="blue", label="137ms",  weight=0 ];
+	
+		"merge" [   weight=0 ];
+	
+		"merge" -> "batch" [ color="#0000f0", fontcolor="blue", label="41ms",  weight=0 ];
+	
+		"sink" [ label=<sink <BR /> <FONT POINT-SIZE="12">256ms, end: 1m2.503118125s</FONT>>,   weight=0 ];
+	
+		"sink" -> "end" [  weight=0 ];
+	
+		"root" [   weight=0 ];
+	
+		"root" -> "parse" [ color="#0000f0", fontcolor="blue", label="152ms",  weight=0 ];
+	
+		"batch" [ label=<batch <BR /> <FONT POINT-SIZE="12">41ms, drops: 197 (full:197, timeout:0, error:0)</FONT>>,   weight=0 ];
+	
+		"batch" -> "summarize" [ color="#0000f0", fontcolor="blue", label="6ms",  weight=0 ];
+	
+		"summarize" [ label=<summarize <BR /> <FONT POINT-SIZE="12">218ms, retry avg: 216ms, retries: 28, drops: 39 (full:0, timeout:25, error:14)</FONT>>,   weight=0 ];
+	
+		"summarize" -> "sink" [ color="#0000f0", fontcolor="blue", label="40ms",  weight=0 ];
+	
+	}
+	

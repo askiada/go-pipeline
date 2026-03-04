@@ -1,2 +1,7 @@
 *.gv
 *.png
+!examples/**/pipeline.png
+.codex/
+.cache/
+docs/plans/
+AGENTS.md
